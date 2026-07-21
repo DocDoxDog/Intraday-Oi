@@ -37,7 +37,9 @@ python src/main.py
 - `QUIKSTRIKE_URL` — URL หน้า Vol2Vol ที่จะดึง (session id เปลี่ยนได้ ต้อง refresh เป็นระยะ)
 - `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY` — จาก Supabase Dashboard → Settings → API
   **ห้าม commit ค่าเหล่านี้ลง git เด็ดขาด ใช้ GitHub Secrets สำหรับ CI**
-- `ANTHROPIC_API_KEY` — สำหรับขั้นตอนวิเคราะห์
+- `GEMINI_API_KEY` — สำหรับขั้นตอนวิเคราะห์ (เอาได้ฟรีจาก https://aistudio.google.com/apikey)
+- `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID` — สำหรับส่งผลวิเคราะห์เข้า Telegram
+  (หา `chat_id` ได้จากส่งข้อความหา bot แล้วเปิด `https://api.telegram.org/bot<token>/getUpdates`)
 
 ## ข้อควรระวัง (สำคัญ)
 
