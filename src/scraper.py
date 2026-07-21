@@ -62,7 +62,13 @@ class ScrapeError(Exception):
 
 
 def scrape(url: str | None = None) -> dict:
-    url = url or os.environ["QUIKSTRIKE_URL"]
+    url = url or os.environ.get("QUIKSTRIKE_URL", "")
+    if not url:
+        raise ScrapeError(
+            "QUIKSTRIKE_URL ว่างเปล่า — เช็คว่าตั้งค่า GitHub Secret ชื่อ 'QUIKSTRIKE_URL' "
+            "แล้วหรือยัง (Settings > Secrets and variables > Actions) หรือถ้ารัน local "
+            "เช็คว่าไฟล์ .env มีค่านี้และ load_dotenv() ถูกเรียกก่อน scrape()"
+        )
 
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=True)
