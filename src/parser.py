@@ -2,27 +2,15 @@
 parser.py
 =========
 แปลง raw dict จาก scraper.py -> dict ที่ตรงกับ schema table `options_flow_snapshots`
-
-หมายเหตุ: ตัวเลข Put/Call/Vol/Vol Chg/Future Chg มักถูกฝังเป็น subtitle text
-(รูปแบบ HTML span) ในตัว chart เช่น:
-  "Put: 523  Call: 714  Vol: 25.17  Vol Chg: 0.06  Future Chg: 57.8"
-ฟังก์ชันนี้ regex ดึงตัวเลขจาก pattern นั้น — ถ้า CME เปลี่ยน format ต้องแก้ regex ตรงนี้
 """
 
 import re
 
-
 class ParseError(Exception):
     pass
 
-
-# รองรับ comma คั่นหลักพัน เช่น "1,063" — ต้อง strip comma ก่อนแปลงเป็น float
 _NUM = r"-?[\d,]+(?:\.\d+)?"
 
-# สำคัญ: บังคับให้ตัวเลขต้องอยู่ "หลัง >" ของ tag ที่เพิ่งปิดเท่านั้น (>\s*NUM)
-# เพราะ subtitle มี hex color code ปนอยู่ใน attribute เช่น style='color:#008000'
-# ซึ่งอยู่ "ก่อน >" เสมอ — ถ้าไม่บังคับแบบนี้ regex เดิมจะไปจับเลขจาก hex code
-# (เช่น 008000 -> 8000.0) แทนที่จะเป็นค่าจริงอย่าง Vol Chg = 4.00
 PATTERNS = {
     "put_volume": re.compile(rf"Put:.*?>\s*({_NUM})"),
     "call_volume": re.compile(rf"Call:.*?>\s*({_NUM})"),
@@ -31,7 +19,6 @@ PATTERNS = {
     "future_chg": re.compile(rf"Future Chg:.*?>\s*({_NUM})"),
 }
 
-
 def _extract_number(pattern: re.Pattern, text: str) -> float | None:
     m = pattern.search(text)
     if not m:
@@ -39,15 +26,13 @@ def _extract_number(pattern: re.Pattern, text: str) -> float | None:
     val = next(g for g in m.groups() if g is not None)
     return float(val.replace(",", ""))
 
-
 def parse(raw: dict) -> dict:
     if not raw.get("charts"):
-        raise ParseError("raw data ไม่มี charts เลย — ตรวจสอบ scraper output")
+        raise ParseError("raw data ไม่มี charts เลย")
 
-    chart = raw["charts"][0]  # หน้า Vol2Vol มักมี chart หลักตัวเดียว
+    chart = raw["charts"][0] 
     subtitle = chart.get("subtitle") or ""
 
-    # --- delta levels + future price จาก plotLines ---
     delta_levels = {}
     future_price = None
     contract = chart.get("title")
@@ -60,7 +45,6 @@ def parse(raw: dict) -> dict:
         elif label:
             delta_levels[label] = value
 
-    # --- summary stats จาก subtitle text ---
     put_volume = _extract_number(PATTERNS["put_volume"], subtitle)
     call_volume = _extract_number(PATTERNS["call_volume"], subtitle)
     vol = _extract_number(PATTERNS["vol"], subtitle)
@@ -73,10 +57,7 @@ def parse(raw: dict) -> dict:
         "call_volume": call_volume,
     }.items() if v is None]
     if missing:
-        raise ParseError(
-            f"ดึงค่าไม่ครบ: {missing} — โครง subtitle/plotLines อาจเปลี่ยนไป "
-            f"(raw subtitle: {subtitle[:200]!r})"
-        )
+        raise ParseError(f"ดึงค่าไม่ครบ: {missing}")
 
     return {
         "contract": contract,
@@ -88,9 +69,8 @@ def parse(raw: dict) -> dict:
         "vol_chg": vol_chg,
         "delta_levels": delta_levels,
         "raw_series": chart.get("series", []),
-        "screenshot": raw.get("screenshot"),  # bytes หรือ None — supabase_client จะดึงออกไปอัปโหลดแยก
+        "screenshot": raw.get("screenshot"), 
     }
-
 
 if __name__ == "__main__":
     import json
