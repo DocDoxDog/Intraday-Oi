@@ -1,9 +1,11 @@
 """
 analyze.py
 ==========
-ส่งข้อมูลที่ parse แล้วเข้า Gemini API ให้สรุปเป็น sentiment/insight
+ส่งข้อมูลที่ parse แล้วเข้า Gemini API ให้สรุปเป็นรายงานสไตล์นักวิเคราะห์ (ภาษาไทย)
+รูปแบบตาม template ที่กำหนด: ภาพรวมตลาด / โซนสำคัญ / มุมมองเทรดระยะสั้น / กรณีทะลุกรอบ
+
 ใช้ REST API ตรงๆ ผ่าน requests (ไม่ต้องลง SDK เพิ่ม)
-บังคับ output เป็น JSON ด้วย responseSchema ของ Gemini (แม่นกว่าสั่งด้วย prompt เฉยๆ)
+บังคับ output เป็น JSON ด้วย responseSchema ของ Gemini แล้วค่อยประกอบเป็นข้อความใน telegram.py
 
 Docs: https://ai.google.dev/api/generate-content
 """
@@ -12,35 +14,46 @@ import os
 import json
 import requests
 
-# ปรับ model ได้ผ่าน env var GEMINI_MODEL โดยไม่ต้องแก้โค้ด
-# ถ้า model นี้ถูก deprecate ในอนาคต เปลี่ยนที่ .env ได้เลย
 DEFAULT_MODEL = "gemini-2.5-flash"
-
 API_URL = "https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
 
 SYSTEM_PROMPT = """\
 คุณเป็นนักวิเคราะห์ options flow สำหรับ XAUUSD (Gold) โดยใช้ข้อมูลจาก CME QuikStrike \
-Vol2Vol Expected Range chart
+Vol2Vol Expected Range chart (Put/Call volume, delta strike levels, future price, vol chg)
 
 หลักการตีความที่ต้องใช้:
-- IV Smile/Skew shape: put skew ชันกว่า call = ตลาดกลัวขาลงมากกว่าขาขึ้น
-- Put/Call volume ratio: >1 = bearish lean, <1 = bullish lean, ~1 = neutral
-- Vol Chg: ใช้เป็น proxy ของแรงกด Vanna (บวกมาก = dealer อาจต้อง hedge เพิ่มตามทิศทางราคา)
-- Future price เทียบกับ delta levels (5ΔP...5ΔC): ใกล้ extreme = ตลาดเคลื่อนไหวแรง, ใกล้ ATM = neutral
+- Put/Call volume: ฝั่งไหนสูงกว่า สะท้อนโมเมนตัม/ความสนใจของตลาดไปทางนั้น
+- Vol Chg และความชันของ IV ฝั่ง Put/Call: ใช้เป็น proxy ของแรงกด Vanna และโมเมนตัม
+- Delta strike levels (5ΔP...5ΔC) ที่มีวอลุ่มกองสูง: ใช้ระบุเป็นแนวรับ/แนวต้าน
+- Future price เทียบกับระดับเหล่านี้: จุดที่ราคาเพิ่งทะลุผ่านมักเปลี่ยนสภาพจากต้าน<->รับ
 
-วิเคราะห์ข้อมูล JSON ที่ผู้ใช้ส่งมา แล้วตอบตาม schema ที่กำหนด
+เขียนรายงานเป็นภาษาไทย ตรงตาม field ใน schema ที่กำหนด โทนเหมือนนักวิเคราะห์มืออาชีพ \
+กระชับ ชัดเจน ใช้ตัวเลขจากข้อมูลจริงที่ได้รับเท่านั้น ห้ามสมมติตัวเลขเอง
 """
 
 RESPONSE_SCHEMA = {
     "type": "object",
     "properties": {
-        "sentiment": {"type": "string", "enum": ["bullish", "bearish", "neutral"]},
-        "confidence": {"type": "string", "enum": ["low", "medium", "high"]},
-        "key_levels": {"type": "array", "items": {"type": "string"}},
-        "vanna_pressure": {"type": "string"},
-        "risk_note": {"type": "string"},
+        "market_overview": {
+            "type": "string",
+            "description": "ภาพรวมตลาด: เทียบ Put vs Call volume, ราคาปัจจุบันและการเปลี่ยนแปลง, โมเมนตัมที่สะท้อนจาก IV/Vol Chg",
+        },
+        "resistance": {"type": "string", "description": "แนวต้านหลัก พร้อมเหตุผล"},
+        "support_short": {"type": "string", "description": "แนวรับระยะสั้น พร้อมเหตุผล"},
+        "support_main": {"type": "string", "description": "แนวรับหลัก/แนวรับลึก พร้อมเหตุผล"},
+        "trade_view": {
+            "type": "string",
+            "description": "มุมมองการเทรดระยะสั้น: ราคาปัจจุบันเทียบกับโซนสำคัญ, จังหวะเข้าที่แนะนำ",
+        },
+        "breakout_scenario": {
+            "type": "string",
+            "description": "กรณีทะลุกรอบ: ถ้าประคองตัวได้จะเกิดอะไร, ถ้าหลุดแนวจะเกิดอะไร",
+        },
     },
-    "required": ["sentiment", "confidence", "key_levels", "vanna_pressure", "risk_note"],
+    "required": [
+        "market_overview", "resistance", "support_short",
+        "support_main", "trade_view", "breakout_scenario",
+    ],
 }
 
 
@@ -72,7 +85,6 @@ def analyze(parsed: dict) -> dict:
         )
         resp.raise_for_status()
     except requests.HTTPError as e:
-        # เก็บ response body ไว้ debug ด้วย เพราะ Gemini มักบอกสาเหตุ error ชัดใน body
         detail = ""
         try:
             detail = resp.text[:500]
@@ -92,8 +104,8 @@ if __name__ == "__main__":
     from dotenv import load_dotenv
     load_dotenv()
     sample = {
-        "contract": "G3TN6", "future_price": 4067, "future_chg": 12.3,
-        "put_volume": 819, "call_volume": 870, "vol": 33.1, "vol_chg": 0.5,
+        "contract": "G3TN6", "future_price": 4079.5, "future_chg": 63.6,
+        "put_volume": 516, "call_volume": 686, "vol": 33.1, "vol_chg": 0.5,
         "delta_levels": {"5ΔP": 3980, "5ΔC": 4150},
     }
     print(json.dumps(analyze(sample), ensure_ascii=False, indent=2))

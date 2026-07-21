@@ -36,12 +36,12 @@ def run():
     print(f"    contract={parsed['contract']} future={parsed['future_price']} "
           f"P/C={parsed['put_volume']}/{parsed['call_volume']}")
 
-    print("[3/5] Analyzing with Claude...")
+    print("[3/5] Analyzing with Gemini...")
     ai_result = analyze(parsed)
     if "error" in ai_result:
         print(f"⚠️  AI analysis had an issue: {ai_result['error']}")
     else:
-        print(f"    sentiment={ai_result.get('sentiment')} confidence={ai_result.get('confidence')}")
+        print(f"    market_overview: {ai_result.get('market_overview', '')[:80]}...")
 
     print("[4/5] Inserting into Supabase...")
     import json
