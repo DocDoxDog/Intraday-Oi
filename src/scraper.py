@@ -77,6 +77,20 @@ def scrape(url: str | None = None) -> dict:
         page.wait_for_timeout(5000)  # กัน chart render/AJAX ไม่ทัน
 
         data = page.evaluate(EXTRACT_JS)
+
+        # แคปรูป chart ไว้ด้วย (ก่อนปิด browser) — ลอง crop เฉพาะ container ของ Highcharts
+        # ตัวแรกก่อน ถ้าหาไม่เจอ fallback เป็น screenshot ทั้ง viewport
+        screenshot = None
+        try:
+            chart_el = page.query_selector(".highcharts-container")
+            if chart_el:
+                screenshot = chart_el.screenshot(type="png")
+            else:
+                screenshot = page.screenshot(type="png")
+        except Exception:
+            # การแคปรูปพลาดไม่ควรทำให้ pipeline ทั้งหมดล้ม — ข้อมูลตัวเลขสำคัญกว่า
+            screenshot = None
+
         browser.close()
 
     if data.get("error"):
@@ -85,10 +99,12 @@ def scrape(url: str | None = None) -> dict:
     if not data.get("charts"):
         raise ScrapeError("ไม่พบ chart ใดๆ ในหน้า — session อาจหมดอายุ หรือโครงหน้าเปลี่ยน")
 
+    data["screenshot"] = screenshot
     return data
 
 
 if __name__ == "__main__":
     import json
     result = scrape()
-    print(json.dumps(result, ensure_ascii=False, indent=2))
+    debug = {**result, "screenshot": f"<{len(result['screenshot'])} bytes>" if result.get("screenshot") else None}
+    print(json.dumps(debug, ensure_ascii=False, indent=2))

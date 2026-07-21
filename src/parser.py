@@ -16,14 +16,19 @@ class ParseError(Exception):
     pass
 
 
-_NUM = r"-?\d+(?:\.\d+)?"
+# รองรับ comma คั่นหลักพัน เช่น "1,063" — ต้อง strip comma ก่อนแปลงเป็น float
+_NUM = r"-?[\d,]+(?:\.\d+)?"
 
+# สำคัญ: บังคับให้ตัวเลขต้องอยู่ "หลัง >" ของ tag ที่เพิ่งปิดเท่านั้น (>\s*NUM)
+# เพราะ subtitle มี hex color code ปนอยู่ใน attribute เช่น style='color:#008000'
+# ซึ่งอยู่ "ก่อน >" เสมอ — ถ้าไม่บังคับแบบนี้ regex เดิมจะไปจับเลขจาก hex code
+# (เช่น 008000 -> 8000.0) แทนที่จะเป็นค่าจริงอย่าง Vol Chg = 4.00
 PATTERNS = {
-    "put_volume": re.compile(rf"Put:\s*</span>\s*({_NUM})|Put:\s*({_NUM})"),
-    "call_volume": re.compile(rf"Call:\s*</span>\s*({_NUM})|Call:\s*({_NUM})"),
-    "vol": re.compile(rf"Vol:\s*</span>\s*({_NUM})|(?<!Chg)Vol:\s*({_NUM})"),
-    "vol_chg": re.compile(rf"Vol Chg:.*?({_NUM})"),
-    "future_chg": re.compile(rf"Future Chg:.*?({_NUM})"),
+    "put_volume": re.compile(rf"Put:.*?>\s*({_NUM})"),
+    "call_volume": re.compile(rf"Call:.*?>\s*({_NUM})"),
+    "vol": re.compile(rf"(?<!Chg)Vol:.*?>\s*({_NUM})"),
+    "vol_chg": re.compile(rf"Vol Chg:.*?>\s*({_NUM})"),
+    "future_chg": re.compile(rf"Future Chg:.*?>\s*({_NUM})"),
 }
 
 
@@ -32,7 +37,7 @@ def _extract_number(pattern: re.Pattern, text: str) -> float | None:
     if not m:
         return None
     val = next(g for g in m.groups() if g is not None)
-    return float(val)
+    return float(val.replace(",", ""))
 
 
 def parse(raw: dict) -> dict:
@@ -83,6 +88,7 @@ def parse(raw: dict) -> dict:
         "vol_chg": vol_chg,
         "delta_levels": delta_levels,
         "raw_series": chart.get("series", []),
+        "screenshot": raw.get("screenshot"),  # bytes หรือ None — supabase_client จะดึงออกไปอัปโหลดแยก
     }
 
 

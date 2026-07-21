@@ -15,6 +15,7 @@ from datetime import datetime, timezone, timedelta
 import requests
 
 TELEGRAM_API = "https://api.telegram.org/bot{token}/sendMessage"
+TELEGRAM_PHOTO_API = "https://api.telegram.org/bot{token}/sendPhoto"
 
 THAI_MONTHS = [
     "", "ม.ค.", "ก.พ.", "มี.ค.", "เม.ย.", "พ.ค.", "มิ.ย.",
@@ -48,7 +49,7 @@ def format_message(parsed: dict, ai_result: dict) -> str:
     )
 
 
-def send(parsed: dict, ai_result: dict) -> None:
+def send(parsed: dict, ai_result: dict, screenshot_url: str | None = None) -> None:
     token = os.environ.get("TELEGRAM_BOT_TOKEN")
     chat_ids_env = os.environ.get("TELEGRAM_CHAT_ID")  # <--- รับค่า String ที่มีลูกน้ำ
     
@@ -65,6 +66,19 @@ def send(parsed: dict, ai_result: dict) -> None:
     
     # วนลูปส่งข้อความหาทุกคน
     for cid in chat_ids:
+        # ส่งรูป chart ก่อน (ถ้ามี) — แยกจากข้อความเพราะ caption ของ Telegram
+        # จำกัดแค่ 1024 ตัวอักษร ซึ่งรายงานวิเคราะห์เต็มมักยาวเกินนั้น
+        if screenshot_url:
+            try:
+                photo_resp = requests.post(
+                    TELEGRAM_PHOTO_API.format(token=token),
+                    json={"chat_id": cid, "photo": screenshot_url},
+                    timeout=20,
+                )
+                photo_resp.raise_for_status()
+            except Exception as e:
+                print(f"⚠️  ส่งรูปไปยัง ID: {cid} ล้มเหลว (จะส่งข้อความต่อไป): {e}")
+
         try:
             resp = requests.post(
                 TELEGRAM_API.format(token=token),
@@ -78,5 +92,3 @@ def send(parsed: dict, ai_result: dict) -> None:
             
         # หน่วงเวลา 0.5 วินาที ป้องกัน Telegram แบนบอทข้อหาสแปม
         time.sleep(0.5)
-
-    resp.raise_for_status()
