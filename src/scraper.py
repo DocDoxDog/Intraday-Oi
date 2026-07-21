@@ -54,32 +54,22 @@ EXTRACT_JS = """
 }
 """
 
-
 class ScrapeError(Exception):
-    """Raised when the page structure doesn't match what we expect.
-    Fail loud — never silently return empty/partial data."""
     pass
-
 
 def scrape(url: str | None = None) -> dict:
     url = url or os.environ.get("QUIKSTRIKE_URL", "")
     if not url:
-        raise ScrapeError(
-            "QUIKSTRIKE_URL ว่างเปล่า — เช็คว่าตั้งค่า GitHub Secret ชื่อ 'QUIKSTRIKE_URL' "
-            "แล้วหรือยัง (Settings > Secrets and variables > Actions) หรือถ้ารัน local "
-            "เช็คว่าไฟล์ .env มีค่านี้และ load_dotenv() ถูกเรียกก่อน scrape()"
-        )
+        raise ScrapeError("QUIKSTRIKE_URL ว่างเปล่า")
 
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=True)
         page = browser.new_page(viewport={"width": 1600, "height": 1000})
         page.goto(url, wait_until="networkidle", timeout=60000)
-        page.wait_for_timeout(5000)  # กัน chart render/AJAX ไม่ทัน
+        page.wait_for_timeout(5000) 
 
         data = page.evaluate(EXTRACT_JS)
 
-        # แคปรูป chart ไว้ด้วย (ก่อนปิด browser) — ลอง crop เฉพาะ container ของ Highcharts
-        # ตัวแรกก่อน ถ้าหาไม่เจอ fallback เป็น screenshot ทั้ง viewport
         screenshot = None
         try:
             chart_el = page.query_selector(".highcharts-container")
@@ -88,7 +78,6 @@ def scrape(url: str | None = None) -> dict:
             else:
                 screenshot = page.screenshot(type="png")
         except Exception:
-            # การแคปรูปพลาดไม่ควรทำให้ pipeline ทั้งหมดล้ม — ข้อมูลตัวเลขสำคัญกว่า
             screenshot = None
 
         browser.close()
@@ -97,14 +86,14 @@ def scrape(url: str | None = None) -> dict:
         raise ScrapeError(data["error"])
 
     if not data.get("charts"):
-        raise ScrapeError("ไม่พบ chart ใดๆ ในหน้า — session อาจหมดอายุ หรือโครงหน้าเปลี่ยน")
+        raise ScrapeError("ไม่พบ chart ใดๆ ในหน้า")
 
     data["screenshot"] = screenshot
     return data
-
 
 if __name__ == "__main__":
     import json
     result = scrape()
     debug = {**result, "screenshot": f"<{len(result['screenshot'])} bytes>" if result.get("screenshot") else None}
     print(json.dumps(debug, ensure_ascii=False, indent=2))
+    
