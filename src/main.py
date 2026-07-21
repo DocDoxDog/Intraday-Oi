@@ -36,8 +36,6 @@ def run():
     print(f"    contract={parsed['contract']} future={parsed['future_price']} "
           f"P/C={parsed['put_volume']}/{parsed['call_volume']}")
 
-    # ต้อง pop ออกจาก parsed ก่อนส่งเข้า analyze()/insert_snapshot() เสมอ — ไม่งั้น
-    # json.dumps(parsed) ใน analyze.py จะพังเพราะ bytes ไม่ใช่ JSON-serializable
     print("[3/6] Uploading screenshot to Supabase Storage...")
     screenshot_bytes = parsed.pop("screenshot", None)
     screenshot_path = None
@@ -50,7 +48,6 @@ def run():
                 screenshot_url = uploaded["signed_url"]
             print("    ✅ Screenshot uploaded")
         except Exception as e:
-            # แคปรูปไม่สำเร็จไม่ควรทำให้ pipeline ทั้งหมดพัง — ตัวเลขวิเคราะห์สำคัญกว่า
             print(f"⚠️  Screenshot upload failed (continuing without it): {e}", file=sys.stderr)
     else:
         print("    ⚠️  ไม่มี screenshot จากขั้นตอน scrape (ข้ามขั้นตอนนี้)")
@@ -77,8 +74,6 @@ def run():
         telegram.send(parsed, ai_result, screenshot_url=screenshot_url)
         print("✅ Sent to Telegram")
     except Exception as e:
-        # ไม่ทำให้ pipeline ทั้งหมดพัง แค่เพราะส่ง Telegram ไม่สำเร็จ —
-        # ข้อมูลถูก insert ลง Supabase ไปแล้ว ยังดึงย้อนดูได้
         print(f"⚠️  Telegram send failed (data still saved to Supabase): {e}", file=sys.stderr)
 
 
