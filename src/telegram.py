@@ -10,7 +10,7 @@ telegram.py
 """
 
 import os
-import time  # <--- เพิ่ม time สำหรับหน่วงเวลา
+import time
 from datetime import datetime, timezone, timedelta
 import requests
 
@@ -38,20 +38,21 @@ def format_message(parsed: dict, ai_result: dict) -> str:
         return f"{header}\n\n⚠️ AI analysis error: {ai_result['error']}"
 
     return (
+        f"📊 <b>รายงาน Volatility & Options Flow (Gold)</b>\n"
         f"{header}\n\n"
-        f"• ภาพรวมตลาด\n{ai_result.get('market_overview', '-')}\n\n"
-        f"• โซนสำคัญ\n"
+        f"<b>• ภาพรวมตลาด</b>\n{ai_result.get('market_overview', '-')}\n\n"
+        f"<b>• โซนสำคัญ</b>\n"
         f"แนวต้านหลัก: {ai_result.get('resistance', '-')}\n"
         f"แนวรับระยะสั้น: {ai_result.get('support_short', '-')}\n"
         f"แนวรับหลัก: {ai_result.get('support_main', '-')}\n\n"
-        f"• มุมมองการเทรดระยะสั้น\n{ai_result.get('trade_view', '-')}\n\n"
-        f"• กรณีทะลุกรอบ\n{ai_result.get('breakout_scenario', '-')}"
+        f"<b>• มุมมองการเทรดระยะสั้น</b>\n{ai_result.get('trade_view', '-')}\n\n"
+        f"<b>• กรณีทะลุกรอบ</b>\n{ai_result.get('breakout_scenario', '-')}"
     )
 
 
 def send(parsed: dict, ai_result: dict, screenshot_url: str | None = None) -> None:
     token = os.environ.get("TELEGRAM_BOT_TOKEN")
-    chat_ids_env = os.environ.get("TELEGRAM_CHAT_ID")  # <--- รับค่า String ที่มีลูกน้ำ
+    chat_ids_env = os.environ.get("TELEGRAM_CHAT_ID")
     
     if not token or not chat_ids_env:
         raise RuntimeError(
@@ -59,36 +60,53 @@ def send(parsed: dict, ai_result: dict, screenshot_url: str | None = None) -> No
             "เช็ค GitHub Secrets หรือไฟล์ .env"
         )
 
-    text = format_message(parsed, ai_result)
+    # ข้อความที่ 2: วิเคราะห์ละเอียด
+    detailed_text = format_message(parsed, ai_result)
+    
+    # ข้อความที่ 3: วิเคราะห์สั้น Bias ที่มั่นใจที่สุด
+    bias_text = ai_result.get('short_bias', 'ไม่มีข้อมูล Bias')
+    short_bias_message = f"🎯 <b>Short Bias ฟันธง!</b>\n{bias_text}"
     
     # หั่น Chat ID ด้วยลูกน้ำและลบช่องว่างทิ้ง
     chat_ids = [cid.strip() for cid in chat_ids_env.split(',') if cid.strip()]
     
-    # วนลูปส่งข้อความหาทุกคน
+    # วนลูปยิง 3 ข้อความหาแต่ละคน
     for cid in chat_ids:
-        # ส่งรูป chart ก่อน (ถ้ามี) — แยกจากข้อความเพราะ caption ของ Telegram
-        # จำกัดแค่ 1024 ตัวอักษร ซึ่งรายงานวิเคราะห์เต็มมักยาวเกินนั้น
+        
+        # 1️⃣ ข้อความแรก: ส่งรูปภาพ (ถ้ามี)
         if screenshot_url:
             try:
-                photo_resp = requests.post(
+                requests.post(
                     TELEGRAM_PHOTO_API.format(token=token),
                     json={"chat_id": cid, "photo": screenshot_url},
                     timeout=20,
                 )
-                photo_resp.raise_for_status()
             except Exception as e:
-                print(f"⚠️  ส่งรูปไปยัง ID: {cid} ล้มเหลว (จะส่งข้อความต่อไป): {e}")
+                print(f"⚠️ ส่งรูปไปยัง ID: {cid} ล้มเหลว: {e}")
+        time.sleep(0.5)
 
+        # 2️⃣ ข้อความที่สอง: วิเคราะห์ละเอียด (รองรับ <b>)
         try:
-            resp = requests.post(
+            requests.post(
                 TELEGRAM_API.format(token=token),
-                json={"chat_id": cid, "text": text},
+                json={"chat_id": cid, "text": detailed_text, "parse_mode": "HTML"},
                 timeout=15,
             )
-            resp.raise_for_status()
-            print(f"✅ ส่ง Telegram ไปยัง ID: {cid} สำเร็จ")
         except Exception as e:
-            print(f"❌ ส่ง Telegram ไปยัง ID: {cid} ล้มเหลว: {e}")
-            
-        # หน่วงเวลา 0.5 วินาที ป้องกัน Telegram แบนบอทข้อหาสแปม
+            print(f"❌ ส่งวิเคราะห์ละเอียด ไปยัง ID: {cid} ล้มเหลว: {e}")
         time.sleep(0.5)
+            
+        # 3️⃣ ข้อความที่สาม: Short Bias สั้นๆ กระแทกใจ (รองรับ <b>)
+        try:
+            requests.post(
+                TELEGRAM_API.format(token=token),
+                json={"chat_id": cid, "text": short_bias_message, "parse_mode": "HTML"},
+                timeout=15,
+            )
+            print(f"✅ ส่งข้อมูลครบ 3 แชท ไปยัง ID: {cid} สำเร็จ")
+        except Exception as e:
+            print(f"❌ ส่ง Short Bias ไปยัง ID: {cid} ล้มเหลว: {e}")
+            
+        # หน่วงเวลา 1 วินาทีเต็มๆ ก่อนวนไปส่งหาคนถัดไป
+        time.sleep(1)
+        
