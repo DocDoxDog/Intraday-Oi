@@ -6,10 +6,11 @@ telegram.py
 
 ต้องมี:
 - TELEGRAM_BOT_TOKEN  -> จาก BotFather
-- TELEGRAM_CHAT_ID    -> chat/channel/group id ที่จะส่งเข้า
+- TELEGRAM_CHAT_ID    -> chat/channel/group id ที่จะส่งเข้า (รองรับหลาย ID คั่นด้วยลูกน้ำ)
 """
 
 import os
+import time  # <--- เพิ่ม time สำหรับหน่วงเวลา
 from datetime import datetime, timezone, timedelta
 import requests
 
@@ -49,17 +50,33 @@ def format_message(parsed: dict, ai_result: dict) -> str:
 
 def send(parsed: dict, ai_result: dict) -> None:
     token = os.environ.get("TELEGRAM_BOT_TOKEN")
-    chat_id = os.environ.get("TELEGRAM_CHAT_ID")
-    if not token or not chat_id:
+    chat_ids_env = os.environ.get("TELEGRAM_CHAT_ID")  # <--- รับค่า String ที่มีลูกน้ำ
+    
+    if not token or not chat_ids_env:
         raise RuntimeError(
             "TELEGRAM_BOT_TOKEN หรือ TELEGRAM_CHAT_ID ไม่ได้ตั้งค่า — "
             "เช็ค GitHub Secrets หรือไฟล์ .env"
         )
 
     text = format_message(parsed, ai_result)
-    resp = requests.post(
-        TELEGRAM_API.format(token=token),
-        json={"chat_id": chat_id, "text": text},
-        timeout=15,
-    )
+    
+    # หั่น Chat ID ด้วยลูกน้ำและลบช่องว่างทิ้ง
+    chat_ids = [cid.strip() for cid in chat_ids_env.split(',') if cid.strip()]
+    
+    # วนลูปส่งข้อความหาทุกคน
+    for cid in chat_ids:
+        try:
+            resp = requests.post(
+                TELEGRAM_API.format(token=token),
+                json={"chat_id": cid, "text": text},
+                timeout=15,
+            )
+            resp.raise_for_status()
+            print(f"✅ ส่ง Telegram ไปยัง ID: {cid} สำเร็จ")
+        except Exception as e:
+            print(f"❌ ส่ง Telegram ไปยัง ID: {cid} ล้มเหลว: {e}")
+            
+        # หน่วงเวลา 0.5 วินาที ป้องกัน Telegram แบนบอทข้อหาสแปม
+        time.sleep(0.5)
+
     resp.raise_for_status()
