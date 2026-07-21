@@ -17,10 +17,29 @@ analyze.py
 
 supabase_client.py
     -> insert record ลง Supabase table `options_flow_snapshots`
+    -> อัปโหลดรูป screenshot ของ chart ขึ้น Storage bucket `oi-screenshots` (private)
 
 main.py
-    -> orchestrate ทั้ง 4 ขั้นตอนข้างบนเป็น pipeline เดียว
+    -> orchestrate ทั้ง 5 ขั้นตอนข้างบนเป็น pipeline เดียว (scrape -> parse -> analyze
+       -> upload screenshot -> insert -> ส่ง Telegram พร้อมรูป)
 ```
+
+## Screenshot
+
+`scraper.py` แคปรูป chart (element `.highcharts-container`, fallback เป็นทั้งหน้าถ้าหาไม่เจอ)
+พร้อมกับดึงข้อมูล แล้วอัปโหลดขึ้น Supabase Storage bucket `oi-screenshots`
+
+**bucket ตั้งเป็น private** เพราะ CME data ใช้ส่วนตัวเท่านั้น (ดูหัวข้อ "ข้อควรระวัง") —
+เข้าถึงรูปผ่าน signed URL อายุสั้น (1 ชม.) เท่านั้น ไม่มี public URL ตรงๆ
+
+ใน table เก็บ 2 column:
+- `screenshot_path` — path ถาวรใน bucket ใช้ regenerate signed url ใหม่ได้ทีหลังผ่าน
+  `supabase_client.get_signed_url(path)`
+- `screenshot_url` — signed url ตอน capture (หมดอายุแล้วถ้าเปิดดูย้อนหลังนานเกิน 1 ชม.
+  ให้ regenerate จาก `screenshot_path` แทน)
+
+รูปจะถูกส่งเข้า Telegram ก่อนข้อความวิเคราะห์เสมอ (ถ้า capture/upload สำเร็จ) — ถ้าแคปรูป
+หรืออัปโหลดพลาด pipeline จะไม่ล้ม แค่ข้ามขั้นตอนนี้ไปเฉยๆ (ข้อมูลตัวเลข/วิเคราะห์สำคัญกว่า)
 
 ## Setup
 
