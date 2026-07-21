@@ -28,16 +28,16 @@ Market Makers. You maintain a 60% win rate by identifying high-probability Gamma
 Put/Call volume, delta strike levels, future price, vol chg
 
 หลักการตีความที่ต้องใช้ (ในมุมมองของ Market Maker hedging flow):
-- Put/Call volume: ฝั่งไหนสูงกว่า สะท้อนโมเมนตัม/ความสนใจของตลาดไปทางนั้น และสะท้อนฝั่งที่ MM \
-ต้อง hedge หนักกว่า
+- Put/Call volume: ฝั่งไหนสูงกว่า สะท้อนโมเมนตัม/ความสนใจของตลาดไปทางนั้น และสะท้อนฝั่งที่ MM ต้อง hedge หนักกว่า
 - Vol Chg และความชันของ IV ฝั่ง Put/Call: ใช้เป็น proxy ของแรงกด Vanna และโมเมนตัม
-- Delta strike levels (5ΔP...5ΔC) ที่มีวอลุ่มกองสูง: คือโซน Gamma Exposure สูง ใช้ระบุเป็น \
-แนวรับ/แนวต้านที่ MM มักเข้ามา defend ด้วย delta hedging
+- Delta strike levels (5ΔP...5ΔC) ที่มีวอลุ่มกองสูง: คือโซน Gamma Exposure สูง ใช้ระบุเป็นแนวรับ/แนวต้านที่ MM มักเข้ามา defend
 - Future price เทียบกับระดับเหล่านี้: จุดที่ราคาเพิ่งทะลุผ่านมักเปลี่ยนสภาพจากต้าน<->รับ (gamma flip)
 
-เขียนรายงานเป็นภาษาไทย ตรงตาม field ใน schema ที่กำหนด ด้วยน้ำเสียงมั่นใจแบบนักเทรดมืออาชีพที่คุย \
-กับลูกค้าห้อง VIP กระชับ ชัดเจน ตรงประเด็น ใช้ตัวเลขจากข้อมูลจริงที่ได้รับเท่านั้น ห้ามสมมติตัวเลขเอง \
-และห้ามอ้างอิง indicator แบบ retail เช่น RSI/MACD
+เขียนรายงานเป็นภาษาไทย ตรงตาม field ใน schema ที่กำหนด ด้วยน้ำเสียงมั่นใจแบบนักเทรดมืออาชีพที่คุยกับลูกค้าห้อง VIP \
+กระชับ ชัดเจน ตรงประเด็น ใช้ตัวเลขจากข้อมูลจริงที่ได้รับเท่านั้น ห้ามสมมติตัวเลขเอง และห้ามอ้างอิง indicator แบบ retail เช่น RSI/MACD \
+**สำหรับ short_bias ให้ฟันธงทิศทาง (Long/Short/Wait) ที่มั่นใจที่สุดตอนนี้ พร้อมเหตุผลสั้นๆ 1-2 ประโยค**
+
+**⚠️ สำคัญมากเรื่อง Formatting:** เพื่อให้อ่านง่าย ให้เน้นคำสำคัญ (Keyword) เช่น ทิศทาง (Long/Short/Wait), Call/Put, คำว่าแนวรับ/แนวต้าน และ "ตัวเลขราคาทุกตัว" โดยใช้ HTML tag <b>...</b> ครอบไว้เสมอ (ตัวอย่าง: <b>Long</b>, <b>Put</b>, <b>2450.50</b>, <b>5ΔP</b>)
 """
 
 RESPONSE_SCHEMA = {
@@ -58,10 +58,14 @@ RESPONSE_SCHEMA = {
             "type": "string",
             "description": "กรณีทะลุกรอบ: ถ้าประคองตัวได้จะเกิดอะไร, ถ้าหลุดแนวจะเกิดอะไร",
         },
+        "short_bias": {
+            "type": "string",
+            "description": "ฟันธง Bias ที่มั่นใจที่สุดแบบสั้นกระชับที่สุด (เช่น 🎯 Bias: Long เพราะ...)"
+        },
     },
     "required": [
         "market_overview", "resistance", "support_short",
-        "support_main", "trade_view", "breakout_scenario",
+        "support_main", "trade_view", "breakout_scenario", "short_bias"
     ],
 }
 
