@@ -1,11 +1,11 @@
 name: Scrape OI Intraday
 
 on:
-  schedule:
-    - cron: '45 3-16 * * 1-5'
     # ปรับตามช่วง session ที่สนใจ (UTC) — ตอนนี้ตั้ง 4 ครั้ง/วันคร่าวๆ
     
-  workflow_dispatch: {}   # กดรันเองได้จาก GitHub UI ด้วย
+  workflow_dispatch: {}  # กดรันเองได้จาก GitHub UI ด้วย
+  repository_dispatch: 
+      types: [run-analysis]
 
 jobs:
   scrape:
