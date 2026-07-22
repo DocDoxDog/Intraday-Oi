@@ -63,9 +63,15 @@ def send(parsed: dict, ai_result: dict, screenshot_url: str | None = None) -> No
     # ข้อความที่ 2: วิเคราะห์ละเอียด
     detailed_text = format_message(parsed, ai_result)
     
-    # ข้อความที่ 3: วิเคราะห์สั้น Bias ที่มั่นใจที่สุด
-    bias_text = ai_result.get('short_bias', 'ไม่มีข้อมูล Bias')
-    short_bias_message = f"🎯 <b>Short Bias ฟันธง!</b>\n{bias_text}"
+    # ข้อความที่ 3: สรุปสั้น Bias ที่มั่นใจที่สุด พร้อมแผนเทรดและวิธีแก้
+    bias_text = ai_result.get('bias', 'ไม่มีข้อมูล Bias')
+    trade_plan_text = ai_result.get('trade_plan', 'ไม่มีข้อมูลแผนเทรด')
+    solution_plan_text = ai_result.get('solution_plan', 'ไม่มีข้อมูลวิธีแก้')
+    bias_summary_message = (
+        f"🎯 <b>Bias ฟันธง!</b>\n{bias_text}\n\n"
+        f"📌 <b>แผนเทรด</b>\n{trade_plan_text}\n\n"
+        f"🛠️ <b>วิธีแก้</b>\n{solution_plan_text}"
+    )
     
     # หั่น Chat ID ด้วยลูกน้ำและลบช่องว่างทิ้ง
     chat_ids = [cid.strip() for cid in chat_ids_env.split(',') if cid.strip()]
@@ -100,7 +106,7 @@ def send(parsed: dict, ai_result: dict, screenshot_url: str | None = None) -> No
         try:
             requests.post(
                 TELEGRAM_API.format(token=token),
-                json={"chat_id": cid, "text": short_bias_message, "parse_mode": "HTML"},
+                json={"chat_id": cid, "text": bias_summary_message, "parse_mode": "HTML"},
                 timeout=15,
             )
             print(f"✅ ส่งข้อมูลครบ 3 แชท ไปยัง ID: {cid} สำเร็จ")

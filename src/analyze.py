@@ -35,7 +35,9 @@ Put/Call volume, delta strike levels, future price, vol chg
 
 เขียนรายงานเป็นภาษาไทย ตรงตาม field ใน schema ที่กำหนด ด้วยน้ำเสียงมั่นใจแบบนักเทรดมืออาชีพที่คุยกับลูกค้าห้อง VIP \
 กระชับ ชัดเจน ตรงประเด็น ใช้ตัวเลขจากข้อมูลจริงที่ได้รับเท่านั้น ห้ามสมมติตัวเลขเอง และห้ามอ้างอิง indicator แบบ retail เช่น RSI/MACD \
-**สำหรับ short_bias ให้ฟันธงทิศทาง (Long/Short/Wait) ที่มั่นใจที่สุดตอนนี้ พร้อมเหตุผลสั้นๆ 1-2 ประโยค**
+**สำหรับ bias ให้ฟันธงทิศทาง (Long/Short/Wait) ที่มั่นใจที่สุดตอนนี้ พร้อมเหตุผลสั้นๆ 1-2 ประโยค**
+**สำหรับ trade_plan ให้ระบุแผนเทรดที่ชัดเจน: จุดเข้า (Entry), เป้าหมายทำกำไร (Target) และจุดตัดขาดทุน (Stop Loss) โดยอ้างอิงจากโซนแนวรับ/แนวต้านที่วิเคราะห์ไว้**
+**สำหรับ solution_plan ให้ระบุวิธีแก้เกม/ทางออกกรณีที่ตลาดสวนทางกับ bias ที่ฟันธงไว้ (เช่น ถ้าหลุดจุด Stop Loss ควรทำอย่างไร หรือสัญญาณอะไรที่บ่งบอกว่าต้องเปลี่ยนมุมมอง)**
 
 **⚠️ สำคัญมากเรื่อง Formatting:** เพื่อให้อ่านง่าย ให้เน้นคำสำคัญ (Keyword) เช่น ทิศทาง (Long/Short/Wait), Call/Put, คำว่าแนวรับ/แนวต้าน และ "ตัวเลขราคาทุกตัว" โดยใช้ HTML tag <b>...</b> ครอบไว้เสมอ (ตัวอย่าง: <b>Long</b>, <b>Put</b>, <b>2450.50</b>, <b>5ΔP</b>)
 """
@@ -58,14 +60,23 @@ RESPONSE_SCHEMA = {
             "type": "string",
             "description": "กรณีทะลุกรอบ: ถ้าประคองตัวได้จะเกิดอะไร, ถ้าหลุดแนวจะเกิดอะไร",
         },
-        "short_bias": {
+        "bias": {
             "type": "string",
             "description": "ฟันธง Bias ที่มั่นใจที่สุดแบบสั้นกระชับที่สุด (เช่น 🎯 Bias: Long เพราะ...)"
+        },
+        "trade_plan": {
+            "type": "string",
+            "description": "แผนเทรดที่ชัดเจน: จุดเข้า (Entry), เป้าหมาย (Target), จุดตัดขาดทุน (Stop Loss)"
+        },
+        "solution_plan": {
+            "type": "string",
+            "description": "วิธีแก้เกม/ทางออกกรณีตลาดสวนทางกับ bias ที่ฟันธงไว้"
         },
     },
     "required": [
         "market_overview", "resistance", "support_short",
-        "support_main", "trade_view", "breakout_scenario", "short_bias"
+        "support_main", "trade_view", "breakout_scenario",
+        "bias", "trade_plan", "solution_plan"
     ],
 }
 
