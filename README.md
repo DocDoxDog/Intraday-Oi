@@ -1,123 +1,84 @@
-# Intraday OI Analytics
+# OI-intraday
 
-## Overview
+Pipeline ดึงข้อมูล Options Flow (Vol2Vol Expected Range) จาก CME QuikStrike
+สำหรับ XAUUSD (Gold) → เก็บลง Supabase → วิเคราะห์ด้วย Claude API → ส่งต่อ QontWise
 
-Intraday OI Analytics is a Python-based data pipeline that collects, processes, analyzes, and stores intraday Options Open Interest (OI) data from CME QuikStrike.
+## สถาปัตยกรรม
 
-The system is designed for quantitative research, options flow analysis, and algorithmic trading. It automates data collection, parsing, AI-assisted market analysis, historical storage in Supabase, and Telegram notifications.
+```
+scraper.py (Playwright)
+    -> ดึงข้อมูลจาก Highcharts object ในหน้า QuikStrike โดยตรง
 
-## Features
+parser.py
+    -> แปลง raw JSON เป็น schema ที่ใช้งานได้ (P/C ratio, delta levels ฯลฯ)
 
-- Automated intraday Open Interest collection
-- Historical storage with Supabase
-- AI-assisted market summaries
-- Telegram notifications
-- GitHub Actions automation
-- Environment variable configuration
+analyze.py
+    -> ส่งข้อมูล current + hour_ago + today_summary เข้า Gemini API เพื่อสรุปเป็น sentiment/insight
+       (เทียบเทรนด์ ไม่ใช่มองแค่ snapshot เดียว)
 
-## Project Structure
+history.py
+    -> ดึงข้อมูลย้อนหลังจาก Supabase: snapshot ของ ~1 ชม.ก่อน + สรุป range ของทั้งวัน
+       ใช้เสริม context ให้ analyze.py เห็นทิศทาง ไม่ใช่แค่ตัดขวางเวลาเดียว
+       ถ้า query history พัง จะไม่ทำให้ pipeline หลักล่ม (fail-safe)
 
-```text
-src/
-├── main.py
-├── scraper.py
-├── parser.py
-├── analyze.py
-├── history.py
-├── supabase_client.py
-└── telegram.py
+supabase_client.py
+    -> insert record ลง Supabase table `options_flow_snapshots`
+    -> อัปโหลดรูป screenshot ของ chart ขึ้น Storage bucket `oi-screenshots` (private)
 
-supabase/
-└── migrations/
-
-.github/
-└── workflows/
+main.py
+    -> orchestrate ทั้ง 5 ขั้นตอนข้างบนเป็น pipeline เดียว (scrape -> parse -> analyze
+       -> upload screenshot -> insert -> ส่ง Telegram พร้อมรูป)
 ```
 
-## Requirements
+## Screenshot
 
-- Python 3.11+
-- Supabase project
-- Telegram Bot Token
-- Gemini API Key (optional)
+`scraper.py` แคปรูป chart (element `.highcharts-container`, fallback เป็นทั้งหน้าถ้าหาไม่เจอ)
+พร้อมกับดึงข้อมูล แล้วอัปโหลดขึ้น Supabase Storage bucket `oi-screenshots`
 
-## Installation
+**bucket ตั้งเป็น private** เพราะ CME data ใช้ส่วนตัวเท่านั้น (ดูหัวข้อ "ข้อควรระวัง") —
+เข้าถึงรูปผ่าน signed URL อายุสั้น (1 ชม.) เท่านั้น ไม่มี public URL ตรงๆ
+
+ใน table เก็บ 2 column:
+- `screenshot_path` — path ถาวรใน bucket ใช้ regenerate signed url ใหม่ได้ทีหลังผ่าน
+  `supabase_client.get_signed_url(path)`
+- `screenshot_url` — signed url ตอน capture (หมดอายุแล้วถ้าเปิดดูย้อนหลังนานเกิน 1 ชม.
+  ให้ regenerate จาก `screenshot_path` แทน)
+
+รูปจะถูกส่งเข้า Telegram ก่อนข้อความวิเคราะห์เสมอ (ถ้า capture/upload สำเร็จ) — ถ้าแคปรูป
+หรืออัปโหลดพลาด pipeline จะไม่ล้ม แค่ข้ามขั้นตอนนี้ไปเฉยๆ (ข้อมูลตัวเลข/วิเคราะห์สำคัญกว่า)
+
+## Setup
 
 ```bash
-git clone <repository>
-cd Intraday-Oi
-
-python -m venv .venv
-
-# Linux / macOS
-source .venv/bin/activate
-
-# Windows
-.venv\Scripts\activate
-
 pip install -r requirements.txt
+playwright install chromium
+cp .env.example .env   # แล้วกรอกค่าจริง
+python src/main.py
 ```
 
 ## Environment Variables
 
-Create a `.env` file.
+ดู `.env.example` — ต้องมี:
+- `QUIKSTRIKE_URL` — URL หน้า Vol2Vol ที่จะดึง (session id เปลี่ยนได้ ต้อง refresh เป็นระยะ)
+- `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY` — จาก Supabase Dashboard → Settings → API
+  **ห้าม commit ค่าเหล่านี้ลง git เด็ดขาด ใช้ GitHub Secrets สำหรับ CI**
+- `GEMINI_API_KEY` — สำหรับขั้นตอนวิเคราะห์ (เอาได้ฟรีจาก https://aistudio.google.com/apikey)
+- `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID` — สำหรับส่งผลวิเคราะห์เข้า Telegram
+  (หา `chat_id` ได้จากส่งข้อความหา bot แล้วเปิด `https://api.telegram.org/bot<token>/getUpdates`)
 
-```env
-SUPABASE_URL=
-SUPABASE_KEY=
-TELEGRAM_TOKEN=
-TELEGRAM_CHAT_ID=
-GEMINI_API_KEY=
-```
+## ข้อควรระวัง (สำคัญ)
 
-## Running
+1. **Data license / ToS** — CME market data มีเงื่อนไขการใช้งาน ใช้เพื่อวิเคราะห์ส่วนตัวเท่านั้น ห้ามเผยแพร่ข้อมูลดิบต่อสาธารณะ
+2. **Session (`qsid`) หมดอายุ** — URL ผูกกับ session id ที่อาจหมดอายุ ต้องมีแผน refresh URL เป็นระยะ (ยังไม่ auto-refresh ใน v1 นี้)
+3. **โครงหน้าเปลี่ยน** — ถ้า CME เปลี่ยน UI, scraper อาจพังกะทันหัน — ดู `scraper.py` มันจะ raise error ชัดเจนถ้า `Highcharts.charts` ว่างเปล่า อย่า silent-fail
+4. **ความถี่การรัน** — แนะนำ 2-4 ครั้ง/วัน ไม่ใช่ real-time เพื่อลดความเสี่ยงโดน rate-limit/บล็อก IP
 
-```bash
-python src/main.py
-```
+## GitHub Actions (scheduled scraping)
 
-## Workflow
+ดู `.github/workflows/scrape.yml` — รันตาม cron schedule, ใช้ GitHub Secrets สำหรับ credentials ทั้งหมด
+ปรับ schedule ได้ตามช่วง session ที่สนใจ (London open / NY open / EOD)
 
-```text
-QuikStrike
-     │
-     ▼
- Scraper
-     │
-     ▼
- Parser
-     │
-     ▼
- AI Analysis
-     │
-     ▼
- Supabase
-     │
-     ▼
- Telegram
-```
+## Supabase Schema
 
-## Output
-
-The application stores:
-
-- Intraday Open Interest snapshots
-- Historical records
-- AI-generated market summaries
-- Processed analytics
-
-## Deployment
-
-The project supports scheduled execution through GitHub Actions.
-
-## License
-
-Internal / Commercial Use Only
-
-## Author
-
-Suphadet Boonyarach
-
-Computer Science, Chiang Mai University
-
-Quantitative Trading Research
+ดู `supabase/migrations/001_init.sql` — table `options_flow_snapshots` มี RLS เปิดอยู่ (ไม่มี public policy)
+เข้าถึงได้เฉพาะผ่าน service role key เท่านั้น
