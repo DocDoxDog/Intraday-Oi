@@ -105,7 +105,7 @@ def analyze(parsed: dict) -> dict:
             url,
             headers={"x-goog-api-key": api_key, "Content-Type": "application/json"},
             json=payload,
-            timeout=30,
+            timeout=60,
         )
         resp.raise_for_status()
     except requests.HTTPError as e:
