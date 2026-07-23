@@ -86,9 +86,9 @@ RESPONSE_SCHEMA = {
             "type": "string",
             "description": "เปรียบเทียบ current vs hour_ago (โมเมนตัมระยะสั้นเปลี่ยนไปทางไหน) และ current vs today_summary (ตำแหน่งปัจจุบันเทียบ range ทั้งวัน)",
         },
-        "short_bias": {
+          "short_bias": {
             "type": "string",
-            "description": "ฟันธง Bias ที่มั่นใจที่สุดแบบสั้นกระชับที่สุด (เช่น 🎯 Bias: Long เพราะ...)"
+            "description": "วิเคราะห์ Bias ฟันธง ต้องจัดรูปแบบข้อความดังนี้เท่านั้น:\n🎯 Bias: [บอก Long/Short พร้อมเหตุผลจาก Vol/Delta]\n\n📌 แผนเทรด\nEntry: [จุดเข้า] Target: [เป้าหมาย] Stop Loss: [จุดยอม]\n\n🛠️ วิธีแก้\n[ถ้าผิดทางหรือหลุด Stop Loss ควรทำอย่างไรต่อ]"
         },
     },
     "required": [
