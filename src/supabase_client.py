@@ -65,3 +65,24 @@ def insert_snapshot(
     }
     result = client.table("options_flow_snapshots").insert(row).execute()
     return result.data[0] if result.data else {}
+
+
+def get_active_chat_ids() -> list[str]:
+    """ดึงรายชื่อ chat_id ที่ active=true จากตาราง customers
+    เพิ่ม/ปิดลูกค้าใหม่ = แก้แถวในตารางนี้เท่านั้น ไม่ต้องแตะ GitHub Secret หรือโค้ด
+
+    คืน list ว่างถ้า query ไม่สำเร็จหรือไม่มีแถวเลย — ให้ main.py ตัดสินใจเองว่าจะ
+    fallback ไปใช้ TELEGRAM_CHAT_ID (env) แทนหรือไม่ (เผื่อยังไม่ได้รัน migration 005)
+    """
+    try:
+        client = get_client()
+        result = (
+            client.table("customers")
+            .select("chat_id")
+            .eq("active", True)
+            .execute()
+        )
+        return [row["chat_id"] for row in (result.data or []) if row.get("chat_id")]
+    except Exception as e:
+        print(f"⚠️  ดึงรายชื่อ customers จาก Supabase ไม่สำเร็จ: {e}")
+        return []

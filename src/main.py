@@ -14,7 +14,7 @@ load_dotenv()
 from scraper import scrape, ScrapeError
 from parser import parse, ParseError
 from analyze import analyze
-from supabase_client import insert_snapshot, upload_screenshot
+from supabase_client import insert_snapshot, upload_screenshot, get_active_chat_ids
 import history
 import telegram
 
@@ -81,8 +81,17 @@ def run():
     print(f"✅ Done. Row id={row.get('id')}")
 
     print("[7/7] Sending to Telegram...")
+    # อ่านรายชื่อผู้รับจากตาราง customers ใน Supabase ก่อน (เพิ่ม/ปิดคนได้โดยไม่ต้องแก้ Secret)
+    # ถ้ายังไม่ได้รัน migration 005 หรือตารางว่างเปล่า -> fallback ไปใช้ TELEGRAM_CHAT_ID (env) แบบเดิม
+    chat_ids = get_active_chat_ids()
+    if chat_ids:
+        print(f"    ผู้รับจาก Supabase customers table: {len(chat_ids)} คน")
+    else:
+        print("    ⚠️  ไม่มีรายชื่อใน customers table (หรือยังไม่ได้รัน migration) — fallback ไปใช้ TELEGRAM_CHAT_ID (env)")
+        chat_ids = None  # ให้ telegram.send() ไป fallback อ่าน env เอง
+
     try:
-        telegram.send(parsed, ai_result, screenshot_url=screenshot_url)
+        telegram.send(parsed, ai_result, screenshot_url=screenshot_url, chat_ids=chat_ids)
         print("✅ Sent to Telegram")
     except Exception as e:
         print(f"⚠️  Telegram send failed (data still saved to Supabase): {e}", file=sys.stderr)

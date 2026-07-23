@@ -54,15 +54,30 @@ def format_message(parsed: dict, ai_result: dict) -> str:
     )
 
 
-def send(parsed: dict, ai_result: dict, screenshot_url: str | None = None) -> None:
+def send(
+    parsed: dict,
+    ai_result: dict,
+    screenshot_url: str | None = None,
+    chat_ids: list[str] | None = None,
+) -> None:
     token = os.environ.get("TELEGRAM_BOT_TOKEN")
-    chat_ids_env = os.environ.get("TELEGRAM_CHAT_ID")
-    
-    if not token or not chat_ids_env:
-        raise RuntimeError(
-            "TELEGRAM_BOT_TOKEN หรือ TELEGRAM_CHAT_ID ไม่ได้ตั้งค่า — "
-            "เช็ค GitHub Secrets หรือไฟล์ .env"
-        )
+    if not token:
+        raise RuntimeError("TELEGRAM_BOT_TOKEN ไม่ได้ตั้งค่า — เช็ค GitHub Secrets หรือไฟล์ .env")
+
+    # ถ้าไม่ได้ส่ง chat_ids เข้ามาตรงๆ (เช่น จาก Supabase customers table)
+    # fallback ไปอ่าน TELEGRAM_CHAT_ID จาก env แบบเดิม เพื่อไม่ให้ของเดิมพัง
+    if chat_ids is None:
+        chat_ids_env = os.environ.get("TELEGRAM_CHAT_ID")
+        if not chat_ids_env:
+            raise RuntimeError(
+                "ไม่มี chat_ids ให้ส่ง — ทั้ง customers table (Supabase) และ "
+                "TELEGRAM_CHAT_ID (env) ว่างเปล่าทั้งคู่"
+            )
+        chat_ids = [cid.strip() for cid in chat_ids_env.split(',') if cid.strip()]
+
+    if not chat_ids:
+        print("⚠️  ไม่มี chat_id ให้ส่ง (ข้ามขั้นตอนนี้)")
+        return
 
     # ข้อความที่ 2: วิเคราะห์ละเอียด
     detailed_text = format_message(parsed, ai_result)
@@ -70,10 +85,7 @@ def send(parsed: dict, ai_result: dict, screenshot_url: str | None = None) -> No
     # ข้อความที่ 3: วิเคราะห์สั้น Bias ที่มั่นใจที่สุด
     bias_text = ai_result.get('short_bias', 'ไม่มีข้อมูล Bias')
     short_bias_message = f"🎯 <b>Short Bias ฟันธง!</b>\n{bias_text}"
-    
-    # หั่น Chat ID ด้วยลูกน้ำและลบช่องว่างทิ้ง
-    chat_ids = [cid.strip() for cid in chat_ids_env.split(',') if cid.strip()]
-    
+
     # วนลูปยิง 3 ข้อความหาแต่ละคน
     for cid in chat_ids:
         
