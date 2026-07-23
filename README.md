@@ -13,7 +13,13 @@ parser.py
     -> แปลง raw JSON เป็น schema ที่ใช้งานได้ (P/C ratio, delta levels ฯลฯ)
 
 analyze.py
-    -> ส่งข้อมูลที่ parse แล้วเข้า Claude API เพื่อสรุปเป็น sentiment/insight
+    -> ส่งข้อมูล current + hour_ago + today_summary เข้า Gemini API เพื่อสรุปเป็น sentiment/insight
+       (เทียบเทรนด์ ไม่ใช่มองแค่ snapshot เดียว)
+
+history.py
+    -> ดึงข้อมูลย้อนหลังจาก Supabase: snapshot ของ ~1 ชม.ก่อน + สรุป range ของทั้งวัน
+       ใช้เสริม context ให้ analyze.py เห็นทิศทาง ไม่ใช่แค่ตัดขวางเวลาเดียว
+       ถ้า query history พัง จะไม่ทำให้ pipeline หลักล่ม (fail-safe)
 
 supabase_client.py
     -> insert record ลง Supabase table `options_flow_snapshots`
