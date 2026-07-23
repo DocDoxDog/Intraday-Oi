@@ -1,17 +1,8 @@
-"""
-supabase_client.py
-===================
-Insert record ลง table `options_flow_snapshots`
-ใช้ service role key เท่านั้น (RLS เปิดอยู่ ไม่มี public policy)
-"""
-
 import os
 import time
 from supabase import create_client, Client
 
 SCREENSHOT_BUCKET = os.environ.get("SUPABASE_STORAGE_BUCKET", "oi-screenshots")
-# bucket เป็น private — ใช้ signed URL อายุสั้น (แค่พอให้ Telegram ดึงรูปทัน)
-# เพราะ CME data ต้องใช้ส่วนตัวเท่านั้น ห้ามเปิด public (ดู README หัวข้อ "ข้อควรระวัง")
 SIGNED_URL_EXPIRY_SECONDS = 3600
 
 
@@ -22,11 +13,7 @@ def get_client() -> Client:
 
 
 def upload_screenshot(image_bytes: bytes | None, contract: str | None = None) -> dict | None:
-    """อัปโหลดรูป chart ขึ้น Storage bucket (private) แล้วคืน dict {path, signed_url}
-    signed_url หมดอายุใน SIGNED_URL_EXPIRY_SECONDS (พอส่ง Telegram ทัน) แต่ path ไม่หมดอายุ
-    เก็บ path ไว้ด้วยเพื่อ regenerate signed url ใหม่ได้ทีหลังตอนอยากดูรูปย้อนหลัง
-    ใช้ service role key ซึ่ง bypass RLS อยู่แล้ว ไม่ต้องตั้ง storage policy เพิ่ม"""
-    if not image_bytes:
+if not image_bytes:
         return None
 
     client = get_client()
@@ -44,8 +31,7 @@ def upload_screenshot(image_bytes: bytes | None, contract: str | None = None) ->
 
 
 def get_signed_url(path: str, expiry_seconds: int = SIGNED_URL_EXPIRY_SECONDS) -> str | None:
-    """เรียกใหม่ทีหลังได้ตอนอยากดูรูปย้อนหลัง (signed url เดิมหมดอายุไปแล้ว)"""
-    client = get_client()
+client = get_client()
     signed = client.storage.from_(SCREENSHOT_BUCKET).create_signed_url(path, expiry_seconds)
     return signed.get("signedURL") or signed.get("signedUrl")
 
@@ -68,13 +54,7 @@ def insert_snapshot(
 
 
 def get_active_chat_ids() -> list[str]:
-    """ดึงรายชื่อ chat_id ที่ active=true จากตาราง customers
-    เพิ่ม/ปิดลูกค้าใหม่ = แก้แถวในตารางนี้เท่านั้น ไม่ต้องแตะ GitHub Secret หรือโค้ด
-
-    คืน list ว่างถ้า query ไม่สำเร็จหรือไม่มีแถวเลย — ให้ main.py ตัดสินใจเองว่าจะ
-    fallback ไปใช้ TELEGRAM_CHAT_ID (env) แทนหรือไม่ (เผื่อยังไม่ได้รัน migration 005)
-    """
-    try:
+try:
         client = get_client()
         result = (
             client.table("customers")

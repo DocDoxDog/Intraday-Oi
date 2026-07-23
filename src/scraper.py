@@ -1,10 +1,3 @@
-"""
-scraper.py
-==========
-ดึงข้อมูลดิบจาก Highcharts object ในหน้า QuikStrike โดยตรง (ไม่ parse SVG/HTML)
-คืนค่าเป็น dict — ให้ parser.py แปลงเป็น schema ต่อไป
-"""
-
 import os
 from playwright.sync_api import sync_playwright
 
@@ -52,41 +45,7 @@ EXTRACT_JS = """
 
     return result;
 }
-"""
-
-class ScrapeError(Exception):
-    pass
-
-def scrape(url: str | None = None) -> dict:
-    url = url or os.environ.get("QUIKSTRIKE_URL", "")
-    if not url:
-        raise ScrapeError("QUIKSTRIKE_URL ว่างเปล่า")
-
-    with sync_playwright() as p:
-        browser = p.chromium.launch(headless=True)
-        page = browser.new_page(viewport={"width": 1600, "height": 1000})
-        page.goto(url, wait_until="networkidle", timeout=60000)
-        page.wait_for_timeout(5000) 
-
-        data = page.evaluate(EXTRACT_JS)
-
-        # DTE ปรากฏใน heading บนสุดของหน้า เช่น
-        # "Gold (OG|GC) G2RN6 (0.22 DTE) vs 4115.7 (+33.3) - Intraday Volume"
-        # ไม่ใช่ใน Highcharts title/subtitle ของตัว chart เอง
-        #
-        # เดิมดึงจาก querySelector('h1, h2, .page-title, [class*="title"]') ตัวเดียว —
-        # ปัญหาคือ selector แบบ [class*="title"] กว้างเกินไป บางครั้งไปเจอ element อื่น
-        # (เช่น tooltip/template ที่ค้างค่า default) ที่ดันมี "(0.00 DTE)" อยู่ในนั้นด้วย
-        # ทำให้ parser ไปจับ DTE ผิดตัว ได้ 0.00 เสมอทั้งที่ของจริงไม่ใช่
-        #
-        # แก้โดยดึง "ทั้งหน้า" (document.body.innerText) แทน แล้วให้ parser.py
-        # ใช้ regex ที่ anchor กับบริบทเต็ม "(X DTE) vs Y" เพื่อจับให้ตรงตัวจริงเท่านั้น
-        # ไม่พึ่ง selector เดาสุ่มอีกต่อไป
-        page_heading = None
-        page_text = None
-        try:
-            page_heading = page.evaluate("""
-                () => {
+() => {
                     const el = document.querySelector('h1, h2, .page-title, [class*="title"]');
                     return el ? el.innerText : document.title;
                 }

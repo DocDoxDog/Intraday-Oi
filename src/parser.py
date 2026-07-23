@@ -1,9 +1,3 @@
-"""
-parser.py
-=========
-แปลง raw dict จาก scraper.py -> dict ที่ตรงกับ schema table `options_flow_snapshots`
-"""
-
 import re
 
 class ParseError(Exception):
@@ -19,13 +13,8 @@ PATTERNS = {
     "future_chg": re.compile(rf"Future Chg:.*?>\s*({_NUM})"),
 }
 
-# DTE ปรากฏในรูปแบบ "(0.22 DTE) vs 4115.7 (+33.3)" ใน page heading เช่น
-# "Gold (OG|GC) G2RN6 (0.22 DTE) vs 4115.7 (+33.3) - Intraday Volume"
 #
-# STRICT pattern: บังคับให้ต้องตามด้วย "vs <ตัวเลข>" เสมอ (ตรงตามโครงจริงของ heading)
-# กันไม่ให้ไปจับ "(0.00 DTE)" ที่หลุดมาจาก element/tooltip อื่นบนหน้าซึ่งไม่ใช่ heading จริง
 DTE_PATTERN_STRICT = re.compile(rf"\(({_NUM})\s*DTE\)\s*vs\s*{_NUM}", re.IGNORECASE)
-# LOOSE pattern: fallback เผื่อโครงหน้าเปลี่ยนจนไม่มี "vs" ตามหลัง — ใช้ต่อเมื่อ strict หาไม่เจอเท่านั้น
 DTE_PATTERN_LOOSE = re.compile(rf"\(({_NUM})\s*DTE\)", re.IGNORECASE)
 
 def _extract_number(pattern: re.Pattern, text: str) -> float | None:
@@ -60,9 +49,6 @@ def parse(raw: dict) -> dict:
     vol_chg = _extract_number(PATTERNS["vol_chg"], subtitle)
     future_chg = _extract_number(PATTERNS["future_chg"], subtitle)
 
-    # DTE: ลองหาแบบ strict (มี "vs <price>" ตามหลัง) ก่อนเสมอ — เชื่อถือได้สุด
-    # ไล่ดูตามลำดับ: page_text (ทั้งหน้า) -> page_heading -> subtitle -> contract
-    # ถ้า strict ไม่เจอเลยสักที่ ค่อย fallback ไปใช้ loose pattern (และตั้ง flag เตือนไว้)
     candidates = (raw.get("page_text"), raw.get("page_heading"), subtitle, contract)
 
     dte = None

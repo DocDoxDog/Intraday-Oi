@@ -1,15 +1,3 @@
-"""
-analyze.py
-==========
-ส่งข้อมูลที่ parse แล้วเข้า Gemini API ให้สรุปเป็นรายงานสไตล์นักวิเคราะห์ (ภาษาไทย)
-รูปแบบตาม template ที่กำหนด: ภาพรวมตลาด / โซนสำคัญ / มุมมองเทรดระยะสั้น / กรณีทะลุกรอบ
-
-ใช้ REST API ตรงๆ ผ่าน requests (ไม่ต้องลง SDK เพิ่ม)
-บังคับ output เป็น JSON ด้วย responseSchema ของ Gemini แล้วค่อยประกอบเป็นข้อความใน telegram.py
-
-Docs: https://ai.google.dev/api/generate-content
-"""
-
 import os
 import json
 import requests

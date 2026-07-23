@@ -1,22 +1,9 @@
-"""
-history.py
-===========
-ดึงข้อมูลย้อนหลังจาก Supabase table `options_flow_snapshots` มาเสริม context ให้ analyze.py
-เพื่อให้ AI เห็น "เทรนด์" ไม่ใช่แค่ตัดขวางเวลาเดียว
-
-ดึง 2 ก้อน:
-1. hour_ago  -> record ที่ใกล้เคียง 1 ชม.ก่อนที่สุด (สำหรับเทียบ Vol Chg / P-C shift ระยะสั้น)
-2. today     -> ทุก record ของ "วันนี้" (ตามเวลากรุงเทพ) สรุปเป็น range/trend สั้นๆ ไม่ส่งดิบทั้งหมด
-                (กัน prompt ยาวเกินไปและกัน noise จาก raw_series ที่หนัก)
-"""
-
 import os
 from datetime import datetime, timezone, timedelta
 from supabase_client import get_client
 
 BANGKOK_TZ = timezone(timedelta(hours=7))
 
-# ฟิลด์ที่ดึงมาใช้จริง — ไม่ดึง raw_series/screenshot_url เพราะหนักและไม่จำเป็นสำหรับ trend summary
 FIELDS = "captured_at,contract,dte,future_price,future_chg,put_volume,call_volume,vol,vol_chg,delta_levels"
 
 
@@ -28,8 +15,7 @@ def _bangkok_day_bounds(now: datetime | None = None) -> tuple[str, str]:
 
 
 def get_hour_ago_snapshot(contract: str | None = None) -> dict | None:
-    """หา record ที่ใกล้เคียง 1 ชม.ก่อนที่สุด (ภายในหน้าต่าง 45-90 นาทีก่อน กันกรณีไม่มีรอบตรงเป๊ะ)"""
-    client = get_client()
+client = get_client()
     now = datetime.now(timezone.utc)
     window_start = (now - timedelta(minutes=90)).isoformat()
     window_end = (now - timedelta(minutes=45)).isoformat()
@@ -50,9 +36,7 @@ def get_hour_ago_snapshot(contract: str | None = None) -> dict | None:
 
 
 def get_today_summary(contract: str | None = None) -> dict:
-    """สรุป range ของวันนี้ (ตามเวลากรุงเทพ) — ไม่ส่งข้อมูลดิบทั้งหมดเข้า prompt
-    ส่งแค่ min/max/count + จุดแรก-จุดล่าสุด พอให้ AI เห็นทิศทางของทั้งวัน"""
-    client = get_client()
+client = get_client()
     start_iso, end_iso = _bangkok_day_bounds()
 
     query = (
@@ -92,9 +76,7 @@ def get_today_summary(contract: str | None = None) -> dict:
 
 
 def get_context(contract: str | None = None) -> dict:
-    """เรียกใช้ตัวเดียวจาก main.py — คืนทั้งสองก้อนพร้อม fail-safe
-    ถ้า query history พังไม่ควรทำให้ pipeline หลักล่ม แค่ analyze แบบไม่มี context ย้อนหลัง"""
-    try:
+try:
         hour_ago = get_hour_ago_snapshot(contract)
     except Exception as e:
         hour_ago = None

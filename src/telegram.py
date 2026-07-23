@@ -1,14 +1,3 @@
-"""
-telegram.py
-===========
-ประกอบผลวิเคราะห์เป็นรายงานสไตล์นักวิเคราะห์ (ตาม template ที่กำหนด) แล้วส่งเข้า Telegram
-ผ่าน Bot API ตรงๆ (ใช้ requests ไม่ต้องพึ่ง library เพิ่ม)
-
-ต้องมี:
-- TELEGRAM_BOT_TOKEN  -> จาก BotFather
-- TELEGRAM_CHAT_ID    -> chat/channel/group id ที่จะส่งเข้า (รองรับหลาย ID คั่นด้วยลูกน้ำ)
-"""
-
 import os
 import time
 from datetime import datetime, timezone, timedelta
@@ -35,7 +24,6 @@ def format_message(parsed: dict, ai_result: dict) -> str:
     header = _thai_datetime_str()
     dte = parsed.get("dte")
     
-    # ปรับการแสดงผล DTE ถ้าขึ้นต้นด้วย 0. ถือว่าเป็น INTRADAY
     dte_line = ""
     if dte is not None:
         if str(dte).startswith("0."):
@@ -46,7 +34,6 @@ def format_message(parsed: dict, ai_result: dict) -> str:
     if "error" in ai_result:
         return f"{header}\n\n⚠️ AI analysis error: {ai_result['error']}"
 
-    # ตัด 'บริบท DTE' และ 'เทรนด์เทียบย้อนหลัง' ออกจากหน้าแสดงผล
     return (
         f"📊 <b>รายงาน Volatility & Options Flow (Gold)</b>{dte_line}\n"
         f"{header}\n\n"
@@ -70,8 +57,6 @@ def send(
     if not token:
         raise RuntimeError("TELEGRAM_BOT_TOKEN ไม่ได้ตั้งค่า — เช็ค GitHub Secrets หรือไฟล์ .env")
 
-    # ถ้าไม่ได้ส่ง chat_ids เข้ามาตรงๆ (เช่น จาก Supabase customers table)
-    # fallback ไปอ่าน TELEGRAM_CHAT_ID จาก env แบบเดิม เพื่อไม่ให้ของเดิมพัง
     if chat_ids is None:
         chat_ids_env = os.environ.get("TELEGRAM_CHAT_ID")
         if not chat_ids_env:
@@ -88,7 +73,6 @@ def send(
     # ข้อความที่ 2: วิเคราะห์ละเอียด
     detailed_text = format_message(parsed, ai_result)
     
-    # ข้อความที่ 3: วิเคราะห์สั้น Bias ที่มั่นใจที่สุด
     bias_text = ai_result.get('short_bias', 'ไม่มีข้อมูล Bias')
     short_bias_message = f"🎯 <b>Bias ฟันธง!</b>\n{bias_text}"
 
@@ -107,7 +91,6 @@ def send(
                 print(f"⚠️ ส่งรูปไปยัง ID: {cid} ล้มเหลว: {e}")
         time.sleep(0.5)
 
-        # 2️⃣ ข้อความที่สอง: วิเคราะห์ละเอียด (รองรับ HTML <b>)
         try:
             requests.post(
                 TELEGRAM_API.format(token=token),
@@ -118,7 +101,6 @@ def send(
             print(f"❌ ส่งวิเคราะห์ละเอียด ไปยัง ID: {cid} ล้มเหลว: {e}")
         time.sleep(0.5)
             
-        # 3️⃣ ข้อความที่สาม: Bias ฟันธง (รองรับ HTML <b>)
         try:
             requests.post(
                 TELEGRAM_API.format(token=token),
@@ -129,5 +111,4 @@ def send(
         except Exception as e:
             print(f"❌ ส่ง Short Bias ไปยัง ID: {cid} ล้มเหลว: {e}")
             
-        # หน่วงเวลา 1 วินาทีเต็มๆ ก่อนวนไปส่งหาคนถัดไป
         time.sleep(1)
