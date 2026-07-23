@@ -1,3 +1,10 @@
+"""
+main.py
+=======
+Orchestrate: scrape -> parse -> analyze -> insert
+รันตัวนี้ตัวเดียวพอ (local หรือ GitHub Actions)
+"""
+
 import sys
 import os
 from dotenv import load_dotenv
@@ -66,6 +73,7 @@ def run():
     print("[6/7] Inserting into Supabase...")
     import json
     
+    # ⚠️ สกัดข้อมูล dte_low_confidence ทิ้งตรงนี้ เพื่อป้องกันบั๊กเวลาส่งลงฐานข้อมูล
     parsed.pop("dte_low_confidence", None) 
     
     row = insert_snapshot(
@@ -77,6 +85,8 @@ def run():
     print(f"✅ Done. Row id={row.get('id')}")
 
     print("[7/7] Sending to Telegram...")
+    # อ่านรายชื่อผู้รับจากตาราง customers ใน Supabase ก่อน (เพิ่ม/ปิดคนได้โดยไม่ต้องแก้ Secret)
+    # ถ้ายังไม่ได้รัน migration 005 หรือตารางว่างเปล่า -> fallback ไปใช้ TELEGRAM_CHAT_ID (env) แบบเดิม
     chat_ids = get_active_chat_ids()
     if chat_ids:
         print(f"    ผู้รับจาก Supabase customers table: {len(chat_ids)} คน")
