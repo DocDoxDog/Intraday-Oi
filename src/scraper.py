@@ -70,6 +70,20 @@ def scrape(url: str | None = None) -> dict:
 
         data = page.evaluate(EXTRACT_JS)
 
+        # DTE ปรากฏใน heading บนสุดของหน้า เช่น
+        # "Gold (OG|GC) G2RN6 (0.22 DTE) vs 4115.7 (+33.3) - Intraday Volume"
+        # ไม่ใช่ใน Highcharts title/subtitle ของตัว chart เอง — ดึงแยกจาก DOM ตรงๆ
+        page_heading = None
+        try:
+            page_heading = page.evaluate("""
+                () => {
+                    const el = document.querySelector('h1, h2, .page-title, [class*="title"]');
+                    return el ? el.innerText : document.title;
+                }
+            """)
+        except Exception:
+            page_heading = None
+
         screenshot = None
         try:
             chart_el = page.query_selector(".highcharts-container")
@@ -89,6 +103,7 @@ def scrape(url: str | None = None) -> dict:
         raise ScrapeError("ไม่พบ chart ใดๆ ในหน้า")
 
     data["screenshot"] = screenshot
+    data["page_heading"] = page_heading
     return data
 
 if __name__ == "__main__":

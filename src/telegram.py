@@ -33,14 +33,18 @@ def _thai_datetime_str(dt: datetime | None = None) -> str:
 
 def format_message(parsed: dict, ai_result: dict) -> str:
     header = _thai_datetime_str()
+    dte = parsed.get("dte")
+    dte_line = f" (DTE: {dte})" if dte is not None else ""
 
     if "error" in ai_result:
         return f"{header}\n\n⚠️ AI analysis error: {ai_result['error']}"
 
     return (
-        f"📊 <b>รายงาน Volatility & Options Flow (Gold)</b>\n"
+        f"📊 <b>รายงาน Volatility & Options Flow (Gold)</b>{dte_line}\n"
         f"{header}\n\n"
         f"<b>• ภาพรวมตลาด</b>\n{ai_result.get('market_overview', '-')}\n\n"
+        f"<b>• บริบท DTE</b>\n{ai_result.get('dte_context', '-')}\n\n"
+        f"<b>• เทรนด์เทียบย้อนหลัง</b>\n{ai_result.get('trend_note', '-')}\n\n"
         f"<b>• โซนสำคัญ</b>\n"
         f"แนวต้านหลัก: {ai_result.get('resistance', '-')}\n"
         f"แนวรับระยะสั้น: {ai_result.get('support_short', '-')}\n"
@@ -63,15 +67,9 @@ def send(parsed: dict, ai_result: dict, screenshot_url: str | None = None) -> No
     # ข้อความที่ 2: วิเคราะห์ละเอียด
     detailed_text = format_message(parsed, ai_result)
     
-    # ข้อความที่ 3: สรุปสั้น Bias ที่มั่นใจที่สุด พร้อมแผนเทรดและวิธีแก้
-    bias_text = ai_result.get('bias', 'ไม่มีข้อมูล Bias')
-    trade_plan_text = ai_result.get('trade_plan', 'ไม่มีข้อมูลแผนเทรด')
-    solution_plan_text = ai_result.get('solution_plan', 'ไม่มีข้อมูลวิธีแก้')
-    bias_summary_message = (
-        f"🎯 <b>Bias ฟันธง!</b>\n{bias_text}\n\n"
-        f"📌 <b>แผนเทรด</b>\n{trade_plan_text}\n\n"
-        f"🛠️ <b>วิธีแก้</b>\n{solution_plan_text}"
-    )
+    # ข้อความที่ 3: วิเคราะห์สั้น Bias ที่มั่นใจที่สุด
+    bias_text = ai_result.get('short_bias', 'ไม่มีข้อมูล Bias')
+    short_bias_message = f"🎯 <b>Short Bias ฟันธง!</b>\n{bias_text}"
     
     # หั่น Chat ID ด้วยลูกน้ำและลบช่องว่างทิ้ง
     chat_ids = [cid.strip() for cid in chat_ids_env.split(',') if cid.strip()]
@@ -106,7 +104,7 @@ def send(parsed: dict, ai_result: dict, screenshot_url: str | None = None) -> No
         try:
             requests.post(
                 TELEGRAM_API.format(token=token),
-                json={"chat_id": cid, "text": bias_summary_message, "parse_mode": "HTML"},
+                json={"chat_id": cid, "text": short_bias_message, "parse_mode": "HTML"},
                 timeout=15,
             )
             print(f"✅ ส่งข้อมูลครบ 3 แชท ไปยัง ID: {cid} สำเร็จ")

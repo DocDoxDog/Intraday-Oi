@@ -15,18 +15,19 @@ from scraper import scrape, ScrapeError
 from parser import parse, ParseError
 from analyze import analyze
 from supabase_client import insert_snapshot, upload_screenshot
+import history
 import telegram
 
 
 def run():
-    print("[1/6] Scraping QuikStrike...")
+    print("[1/7] Scraping QuikStrike...")
     try:
         raw = scrape()
     except ScrapeError as e:
         print(f"❌ Scrape failed: {e}", file=sys.stderr)
         sys.exit(1)
 
-    print("[2/6] Parsing raw data...")
+    print("[2/7] Parsing raw data...")
     try:
         parsed = parse(raw)
     except ParseError as e:
@@ -36,7 +37,7 @@ def run():
     print(f"    contract={parsed['contract']} future={parsed['future_price']} "
           f"P/C={parsed['put_volume']}/{parsed['call_volume']}")
 
-    print("[3/6] Uploading screenshot to Supabase Storage...")
+    print("[3/7] Uploading screenshot to Supabase Storage...")
     screenshot_bytes = parsed.pop("screenshot", None)
     screenshot_path = None
     screenshot_url = None
@@ -52,14 +53,20 @@ def run():
     else:
         print("    ⚠️  ไม่มี screenshot จากขั้นตอน scrape (ข้ามขั้นตอนนี้)")
 
-    print("[4/6] Analyzing with Gemini...")
-    ai_result = analyze(parsed)
+    print("[4/7] Fetching history context (hour-ago + today range)...")
+    hist_context = history.get_context(contract=parsed.get("contract"))
+    hr_ago_status = "พบ" if hist_context.get("hour_ago") else "ไม่พบ"
+    today_count = hist_context.get("today", {}).get("count", 0)
+    print(f"    hour_ago snapshot: {hr_ago_status} | today snapshots: {today_count}")
+
+    print("[5/7] Analyzing with Gemini...")
+    ai_result = analyze(parsed, history=hist_context)
     if "error" in ai_result:
         print(f"⚠️  AI analysis had an issue: {ai_result['error']}")
     else:
         print(f"    market_overview: {ai_result.get('market_overview', '')[:80]}...")
 
-    print("[5/6] Inserting into Supabase...")
+    print("[6/7] Inserting into Supabase...")
     import json
     row = insert_snapshot(
         parsed,
@@ -69,7 +76,7 @@ def run():
     )
     print(f"✅ Done. Row id={row.get('id')}")
 
-    print("[6/6] Sending to Telegram...")
+    print("[7/7] Sending to Telegram...")
     try:
         telegram.send(parsed, ai_result, screenshot_url=screenshot_url)
         print("✅ Sent to Telegram")
