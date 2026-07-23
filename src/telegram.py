@@ -34,17 +34,23 @@ def _thai_datetime_str(dt: datetime | None = None) -> str:
 def format_message(parsed: dict, ai_result: dict) -> str:
     header = _thai_datetime_str()
     dte = parsed.get("dte")
-    dte_line = f" (DTE: {dte})" if dte is not None else ""
+    
+    # ปรับการแสดงผล DTE ถ้าขึ้นต้นด้วย 0. ถือว่าเป็น INTRADAY
+    dte_line = ""
+    if dte is not None:
+        if str(dte).startswith("0."):
+            dte_line = f" (INTRADAY | DTE: {dte})"
+        else:
+            dte_line = f" (DTE: {dte})"
 
     if "error" in ai_result:
         return f"{header}\n\n⚠️ AI analysis error: {ai_result['error']}"
 
+    # ตัด 'บริบท DTE' และ 'เทรนด์เทียบย้อนหลัง' ออกจากหน้าแสดงผล
     return (
         f"📊 <b>รายงาน Volatility & Options Flow (Gold)</b>{dte_line}\n"
         f"{header}\n\n"
         f"<b>• ภาพรวมตลาด</b>\n{ai_result.get('market_overview', '-')}\n\n"
-        f"<b>• บริบท DTE</b>\n{ai_result.get('dte_context', '-')}\n\n"
-        f"<b>• เทรนด์เทียบย้อนหลัง</b>\n{ai_result.get('trend_note', '-')}\n\n"
         f"<b>• โซนสำคัญ</b>\n"
         f"แนวต้านหลัก: {ai_result.get('resistance', '-')}\n"
         f"แนวรับระยะสั้น: {ai_result.get('support_short', '-')}\n"
@@ -84,7 +90,7 @@ def send(
     
     # ข้อความที่ 3: วิเคราะห์สั้น Bias ที่มั่นใจที่สุด
     bias_text = ai_result.get('short_bias', 'ไม่มีข้อมูล Bias')
-    short_bias_message = f"🎯 <b>Short Bias ฟันธง!</b>\n{bias_text}"
+    short_bias_message = f"🎯 <b>Bias ฟันธง!</b>\n{bias_text}"
 
     # วนลูปยิง 3 ข้อความหาแต่ละคน
     for cid in chat_ids:
@@ -101,7 +107,7 @@ def send(
                 print(f"⚠️ ส่งรูปไปยัง ID: {cid} ล้มเหลว: {e}")
         time.sleep(0.5)
 
-        # 2️⃣ ข้อความที่สอง: วิเคราะห์ละเอียด (รองรับ <b>)
+        # 2️⃣ ข้อความที่สอง: วิเคราะห์ละเอียด (รองรับ HTML <b>)
         try:
             requests.post(
                 TELEGRAM_API.format(token=token),
@@ -112,7 +118,7 @@ def send(
             print(f"❌ ส่งวิเคราะห์ละเอียด ไปยัง ID: {cid} ล้มเหลว: {e}")
         time.sleep(0.5)
             
-        # 3️⃣ ข้อความที่สาม: Short Bias สั้นๆ กระแทกใจ (รองรับ <b>)
+        # 3️⃣ ข้อความที่สาม: Bias ฟันธง (รองรับ HTML <b>)
         try:
             requests.post(
                 TELEGRAM_API.format(token=token),
@@ -125,4 +131,3 @@ def send(
             
         # หน่วงเวลา 1 วินาทีเต็มๆ ก่อนวนไปส่งหาคนถัดไป
         time.sleep(1)
-        
