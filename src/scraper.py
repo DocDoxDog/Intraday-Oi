@@ -72,8 +72,18 @@ def scrape(url: str | None = None) -> dict:
 
         # DTE ปรากฏใน heading บนสุดของหน้า เช่น
         # "Gold (OG|GC) G2RN6 (0.22 DTE) vs 4115.7 (+33.3) - Intraday Volume"
-        # ไม่ใช่ใน Highcharts title/subtitle ของตัว chart เอง — ดึงแยกจาก DOM ตรงๆ
+        # ไม่ใช่ใน Highcharts title/subtitle ของตัว chart เอง
+        #
+        # เดิมดึงจาก querySelector('h1, h2, .page-title, [class*="title"]') ตัวเดียว —
+        # ปัญหาคือ selector แบบ [class*="title"] กว้างเกินไป บางครั้งไปเจอ element อื่น
+        # (เช่น tooltip/template ที่ค้างค่า default) ที่ดันมี "(0.00 DTE)" อยู่ในนั้นด้วย
+        # ทำให้ parser ไปจับ DTE ผิดตัว ได้ 0.00 เสมอทั้งที่ของจริงไม่ใช่
+        #
+        # แก้โดยดึง "ทั้งหน้า" (document.body.innerText) แทน แล้วให้ parser.py
+        # ใช้ regex ที่ anchor กับบริบทเต็ม "(X DTE) vs Y" เพื่อจับให้ตรงตัวจริงเท่านั้น
+        # ไม่พึ่ง selector เดาสุ่มอีกต่อไป
         page_heading = None
+        page_text = None
         try:
             page_heading = page.evaluate("""
                 () => {
@@ -83,6 +93,10 @@ def scrape(url: str | None = None) -> dict:
             """)
         except Exception:
             page_heading = None
+        try:
+            page_text = page.evaluate("() => document.body.innerText")
+        except Exception:
+            page_text = None
 
         screenshot = None
         try:
@@ -104,6 +118,7 @@ def scrape(url: str | None = None) -> dict:
 
     data["screenshot"] = screenshot
     data["page_heading"] = page_heading
+    data["page_text"] = page_text
     return data
 
 if __name__ == "__main__":

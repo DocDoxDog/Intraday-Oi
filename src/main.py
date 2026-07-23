@@ -35,7 +35,11 @@ def run():
         sys.exit(1)
 
     print(f"    contract={parsed['contract']} future={parsed['future_price']} "
-          f"P/C={parsed['put_volume']}/{parsed['call_volume']}")
+          f"P/C={parsed['put_volume']}/{parsed['call_volume']} dte={parsed.get('dte')}")
+    if parsed.get("dte_low_confidence"):
+        print("    ⚠️  DTE จับได้จาก fallback pattern เท่านั้น (ไม่เจอ 'vs <price>' ต่อท้าย) "
+              "— ค่านี้อาจไม่แม่นยำ ควรเช็คหน้า QuikStrike ว่าโครง heading เปลี่ยนไปหรือไม่",
+              file=sys.stderr)
 
     print("[3/7] Uploading screenshot to Supabase Storage...")
     screenshot_bytes = parsed.pop("screenshot", None)

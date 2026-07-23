@@ -19,9 +19,14 @@ PATTERNS = {
     "future_chg": re.compile(rf"Future Chg:.*?>\s*({_NUM})"),
 }
 
-# DTE ปรากฏในรูปแบบ "(0.22 DTE)" ใน page heading เช่น
+# DTE ปรากฏในรูปแบบ "(0.22 DTE) vs 4115.7 (+33.3)" ใน page heading เช่น
 # "Gold (OG|GC) G2RN6 (0.22 DTE) vs 4115.7 (+33.3) - Intraday Volume"
-DTE_PATTERN = re.compile(rf"\(({_NUM})\s*DTE\)", re.IGNORECASE)
+#
+# STRICT pattern: บังคับให้ต้องตามด้วย "vs <ตัวเลข>" เสมอ (ตรงตามโครงจริงของ heading)
+# กันไม่ให้ไปจับ "(0.00 DTE)" ที่หลุดมาจาก element/tooltip อื่นบนหน้าซึ่งไม่ใช่ heading จริง
+DTE_PATTERN_STRICT = re.compile(rf"\(({_NUM})\s*DTE\)\s*vs\s*{_NUM}", re.IGNORECASE)
+# LOOSE pattern: fallback เผื่อโครงหน้าเปลี่ยนจนไม่มี "vs" ตามหลัง — ใช้ต่อเมื่อ strict หาไม่เจอเท่านั้น
+DTE_PATTERN_LOOSE = re.compile(rf"\(({_NUM})\s*DTE\)", re.IGNORECASE)
 
 def _extract_number(pattern: re.Pattern, text: str) -> float | None:
     m = pattern.search(text)
@@ -55,16 +60,31 @@ def parse(raw: dict) -> dict:
     vol_chg = _extract_number(PATTERNS["vol_chg"], subtitle)
     future_chg = _extract_number(PATTERNS["future_chg"], subtitle)
 
-    # DTE: ลองดึงจาก page_heading ก่อน (ที่ที่มันอยู่จริงตาม screenshot ตัวอย่าง)
-    # ถ้าไม่เจอ fallback ไปหาใน subtitle/title เผื่อโครงหน้าเปลี่ยน
+    # DTE: ลองหาแบบ strict (มี "vs <price>" ตามหลัง) ก่อนเสมอ — เชื่อถือได้สุด
+    # ไล่ดูตามลำดับ: page_text (ทั้งหน้า) -> page_heading -> subtitle -> contract
+    # ถ้า strict ไม่เจอเลยสักที่ ค่อย fallback ไปใช้ loose pattern (และตั้ง flag เตือนไว้)
+    candidates = (raw.get("page_text"), raw.get("page_heading"), subtitle, contract)
+
     dte = None
-    for text in (raw.get("page_heading"), subtitle, contract):
+    dte_low_confidence = False
+
+    for text in candidates:
         if not text:
             continue
-        m = DTE_PATTERN.search(text)
+        m = DTE_PATTERN_STRICT.search(text)
         if m:
             dte = float(m.group(1).replace(",", ""))
             break
+
+    if dte is None:
+        for text in candidates:
+            if not text:
+                continue
+            m = DTE_PATTERN_LOOSE.search(text)
+            if m:
+                dte = float(m.group(1).replace(",", ""))
+                dte_low_confidence = True
+                break
 
     missing = [k for k, v in {
         "future_price": future_price,
@@ -77,6 +97,7 @@ def parse(raw: dict) -> dict:
     return {
         "contract": contract,
         "dte": dte,
+        "dte_low_confidence": dte_low_confidence,
         "future_price": future_price,
         "future_chg": future_chg,
         "put_volume": int(put_volume) if put_volume is not None else None,

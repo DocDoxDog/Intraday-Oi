@@ -39,6 +39,9 @@ Gamma Exposure ที่ Market Maker ต้อง hedge ไม่ได้เ�
   (macro, momentum) มากกว่า options positioning ล้วนๆ
 ให้ปรับ "confidence" ของทุกโซนแนวรับ/แนวต้านตาม dte นี้เสมอ และพูดถึงผลของ DTE สั้นๆ ใน market_overview ด้วย
 
+**ถ้า "current.dte_low_confidence" เป็น true**: ค่า dte นี้ดึงมาได้แบบไม่มั่นใจเต็มที่ (fallback pattern)
+ให้พูดใน dte_context สั้นๆ ว่าตัวเลข DTE รอบนี้ความมั่นใจต่ำกว่าปกติ และลดน้ำหนักการฟันธงเรื่อง 0DTE effect ลง
+
 หลักการตีความที่ต้องใช้ (ในมุมมองของ Market Maker hedging flow):
 - Put/Call volume: ฝั่งไหนสูงกว่า สะท้อนโมเมนตัม/ความสนใจของตลาดไปทางนั้น และสะท้อนฝั่งที่ MM ต้อง hedge หนักกว่า
 - **เทียบ current กับ hour_ago เสมอ**: P/C ratio เปลี่ยนไปทางไหน, Vol Chg แรงขึ้นหรือลง, ราคาเคลื่อนไปกี่จุด — 
