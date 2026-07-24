@@ -64,7 +64,14 @@ def run():
     print(f"    hour_ago snapshot: {hr_ago_status} | today snapshots: {today_count}")
 
     print("[5/7] Analyzing with Gemini...")
-    ai_result = analyze(parsed, history=hist_context)
+    try:
+        ai_result = analyze(parsed, history=hist_context)
+    except Exception as e:
+        # กันไว้อีกชั้น เผื่อ analyze.py มี unexpected error ที่ไม่ใช่ RequestException
+        # (เช่น bug ใหม่ในอนาคต) — ไม่ให้ข้อมูลที่ scrape มาดีๆ เสียทิ้งทั้งรอบ
+        print(f"⚠️  Unexpected error in analyze() (continuing to save raw data): {e}", file=sys.stderr)
+        ai_result = {"error": f"Unexpected exception: {e}"}
+
     if "error" in ai_result:
         print(f"⚠️  AI analysis had an issue: {ai_result['error']}")
     else:
@@ -103,4 +110,3 @@ def run():
 
 if __name__ == "__main__":
     run()
-    
