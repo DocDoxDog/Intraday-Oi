@@ -123,23 +123,39 @@ def analyze(parsed: dict, history: dict | None = None) -> dict:
         },
     }
 
-    try:
-        resp = requests.post(
-            url,
-            headers={"x-goog-api-key": api_key, "Content-Type": "application/json"},
-            json=payload,
-            timeout=30,
-        )
-        resp.raise_for_status()
-    except requests.HTTPError as e:
-        detail = ""
+    max_retries = 2
+    last_error = None
+    for attempt in range(max_retries + 1):
         try:
-            detail = resp.text[:500]
-        except Exception:
-            pass
-        return {"error": f"Gemini API error: {e}", "detail": detail}
+            resp = requests.post(
+                url,
+                headers={"x-goog-api-key": api_key, "Content-Type": "application/json"},
+                json=payload,
+                timeout=45,
+            )
+            resp.raise_for_status()
+            break
+        except requests.exceptions.RequestException as e:
+            # ครอบคลุมทุกปัญหาเครือข่าย: timeout, connection error, HTTPError (4xx/5xx) ฯลฯ
+            # ไม่ใช่แค่ HTTPError เดิม — กัน pipeline ทั้งก้อนพังเพราะ Gemini ตอบช้า/เน็ตสะดุดชั่วคราว
+            last_error = e
+            detail = ""
+            resp_obj = locals().get("resp")
+            if resp_obj is not None:
+                try:
+                    detail = resp_obj.text[:500]
+                except Exception:
+                    pass
+            if attempt < max_retries:
+                print(f"    ⚠️  Gemini call attempt {attempt + 1} failed ({e}), retrying...")
+                continue
+            return {"error": f"Gemini API error after {max_retries + 1} attempts: {last_error}", "detail": detail}
 
-    data = resp.json()
+    try:
+        data = resp.json()
+    except json.JSONDecodeError as e:
+        return {"error": f"Gemini ตอบกลับมาไม่ใช่ JSON: {e}", "raw_text": resp.text[:500]}
+
     try:
         text = data["candidates"][0]["content"]["parts"][0]["text"]
         return json.loads(text)
