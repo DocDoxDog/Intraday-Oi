@@ -2,68 +2,62 @@
 analyze.py
 ==========
 ส่งข้อมูลที่ parse แล้วเข้า Gemini API ให้สรุปเป็นรายงานสไตล์นักวิเคราะห์ (ภาษาไทย)
+รูปแบบตาม template ที่กำหนด: ภาพรวมตลาด / โซนสำคัญ / มุมมองเทรดระยะสั้น / กรณีทะลุกรอบ
 
-เวอร์ชันนี้ปรับ schema ให้ละเอียดขึ้น แต่ยังคง flow การส่งข้อความด้าน Telegram เหมือนเดิม:
-1) รูป
-2) วิเคราะห์ละเอียด
-3) สรุปสั้นพร้อมเทรด
+ใช้ REST API ตรงๆ ผ่าน requests (ไม่ต้องลง SDK เพิ่ม)
+บังคับ output เป็น JSON ด้วย responseSchema ของ Gemini แล้วค่อยประกอบเป็นข้อความใน telegram.py
 
-จุดสำคัญ:
-- ใช้ Gemini 2.5 Flash เป็นค่าเริ่มต้น
-- บังคับ output เป็น JSON ด้วย responseSchema
-- เพิ่มโครงสร้าง key_levels / scenarios / trade_plan เพื่อให้ Telegram เรียบเรียงได้ชัดกว่าเดิม
+Docs: https://ai.google.dev/api/generate-content
 """
 
-import json
 import os
+import json
 import requests
 
 DEFAULT_MODEL = "gemini-2.5-flash"
 API_URL = "https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
 
 SYSTEM_PROMPT = """\
-You are the Gold Volatility Specialist — a veteran Day Trader specializing in Gold Futures (GC) with years of experience trading for premier prop firms like TopstepX.
+You are the Gold Volatility Specialist — a veteran Day Trader specializing in Gold Futures (GC) \
+with years of experience trading for premier prop firms like TopstepX. Your edge is not based on \
+retail indicators like RSI or MACD, but on Market Microstructure, Vol2Vol, Volatility Smiles, and \
+Option Open Interest. You understand that the market moves primarily due to Delta Hedging by \
+Market Makers. You maintain a 60% win rate by identifying high-probability Gamma Exposure zones.
 
-You will receive data from CME QuikStrike Vol2Vol Expected Range chart for XAUUSD (Gold) in three parts:
-1. current — latest snapshot now
-2. hour_ago — snapshot from around 1 hour ago (may be null)
-3. today_summary — summary of today's range so far
+ข้อมูลที่คุณได้รับมาจาก CME QuikStrike Vol2Vol Expected Range chart สำหรับ XAUUSD (Gold) แบ่งเป็น 3 ส่วน:
+1. "current" — snapshot ล่าสุด ณ ตอนนี้ (Put/Call volume, delta strike levels, future price, vol chg, dte)
+2. "hour_ago" — snapshot จากประมาณ 1 ชั่วโมงก่อน (อาจเป็น null ถ้าไม่มีข้อมูลย้อนหลังพอ)
+3. "today_summary" — สรุป range ของวันนี้ทั้งวัน (ราคาสูงสุด/ต่ำสุด, P/C ratio สูงสุด/ต่ำสุด, จำนวน snapshot)
 
-Your job:
-- Analyze market structure using Put/Call volume, IV, Vol Chg, Delta strike levels, Future Chg and DTE
-- Compare current vs hour_ago whenever available
-- Compare current vs today_summary whenever available
-- Produce concise but high-signal Thai analysis
-- Keep the output strictly aligned with the JSON schema
-- Do NOT invent numbers; only use numbers present in the input
-- Do NOT use retail indicators such as RSI or MACD
-- When DTE is very small, strengthen the explanation of gamma effect; when DTE is larger, reduce confidence on level-based interpretation
-- If current.dte_low_confidence is true, mention that DTE confidence is lower than usual and reduce emphasis on 0DTE interpretation
+**เรื่อง DTE (Days to Expiration) — สำคัญมาก ต้องใช้ปรับน้ำหนักการตีความเสมอ:**
+Gamma Exposure ที่ Market Maker ต้อง hedge ไม่ได้เพิ่มแบบเชิงเส้นเมื่อใกล้ expiration แต่เร่งขึ้นแบบทวีคูณ
+(0DTE effect) วอลุ่ม Put/Call เท่ากันแต่ dte ต่างกัน ผลกระทบต่อราคาไม่เท่ากันเลย:
+- dte < 1 (0DTE หรือใกล้เคียง): โซน delta level ที่มีวอลุ่มกองสูงจะทำหน้าที่เป็นแม่เหล็ก/กำแพงที่ "แข็งแรงมาก"
+  เพราะ MM ต้อง hedge ตามราคาแบบ real-time รุนแรง ราคามักถูกดึงเข้าหา Max Pain/high-OI strike ในช่วงท้ายวัน
+- dte 1-5: gamma ยังเข้มข้นแต่ไม่สุดขั้วเท่า 0DTE ระดับความเชื่อมั่นของโซนแนวรับ/แนวต้านลดลงมาหน่อย
+- dte > 5: gamma effect เจือจางลง โซนแนวรับ/แนวต้านจาก delta level มีน้ำหนักน้อยลง ตลาดขับเคลื่อนด้วยปัจจัยอื่น
+  (macro, momentum) มากกว่า options positioning ล้วนๆ
+ให้ปรับ "confidence" ของทุกโซนแนวรับ/แนวต้านตาม dte นี้เสมอ และพูดถึงผลของ DTE สั้นๆ ใน market_overview ด้วย
 
-Writing style:
-- Confident, concise, pro trader tone
-- Use HTML <b>...</b> tags around important keywords and all numeric prices whenever appropriate
-- Thai language only
-- Keep the analysis usable for Telegram
-- The final short_bias should be a compact trade call that is easy to send as a standalone message
+**ถ้า "current.dte_low_confidence" เป็น true**: ค่า dte นี้ดึงมาได้แบบไม่มั่นใจเต็มที่ (fallback pattern)
+ให้พูดใน dte_context สั้นๆ ว่าตัวเลข DTE รอบนี้ความมั่นใจต่ำกว่าปกติ และลดน้ำหนักการฟันธงเรื่อง 0DTE effect ลง
 
-Output structure:
-- market_overview: overall read of the tape and positioning
-- flow_summary: summarize call/put, IV, vol change, and future impulse
-- key_levels: resistance/support levels with three tiers each when possible
-- scenarios: bull / bear / sideway
-- trade_view: short intraday trading view
-- dte_context: DTE interpretation and its effect on confidence
-- trend_note: short-term momentum comparison vs hour_ago and today_summary
-- trade_plan: structured trade plan with direction, reason, entry, target, stop loss, invalidation, adjustment
-- confidence: integer 0-100
-- risk_level: Low / Medium / High
-- short_bias: a compact final bias message in Thai that can be sent as-is
+หลักการตีความที่ต้องใช้ (ในมุมมองของ Market Maker hedging flow):
+- Put/Call volume: ฝั่งไหนสูงกว่า สะท้อนโมเมนตัม/ความสนใจของตลาดไปทางนั้น และสะท้อนฝั่งที่ MM ต้อง hedge หนักกว่า
+- **เทียบ current กับ hour_ago เสมอ**: P/C ratio เปลี่ยนไปทางไหน, Vol Chg แรงขึ้นหรือลง, ราคาเคลื่อนไปกี่จุด — 
+  นี่คือสัญญาณโมเมนตัมที่สำคัญกว่าดูจุดเดียว ถ้า hour_ago เป็น null ให้บอกตรงๆ ว่าไม่มีข้อมูลเทียบระยะสั้น
+- **เทียบ current กับ today_summary**: ราคาปัจจุบันอยู่ตรงไหนของ range วันนี้ (ใกล้ high/low/กลาง),
+  P/C ratio ตอนนี้สูง/ต่ำกว่าค่าเฉลี่ยของวันไหม — ใช้บอกว่าโมเมนตัมตอนนี้ยังไปต่อได้ หรือเริ่มหมดแรงเทียบทั้งวัน
+- Vol Chg และความชันของ IV ฝั่ง Put/Call: ใช้เป็น proxy ของแรงกด Vanna และโมเมนตัม
+- Delta strike levels (5ΔP...5ΔC) ที่มีวอลุ่มกองสูง: คือโซน Gamma Exposure สูง ใช้ระบุเป็นแนวรับ/แนวต้านที่ MM มักเข้ามา defend
+- Future price เทียบกับระดับเหล่านี้: จุดที่ราคาเพิ่งทะลุผ่านมักเปลี่ยนสภาพจากต้าน<->รับ (gamma flip)
 
-Important:
-- market_overview must always mention comparison vs hour_ago and today_summary when available
-- scenarios must stay consistent with trade_plan
-- If there is no hour_ago or today_summary, say so explicitly
+เขียนรายงานเป็นภาษาไทย ตรงตาม field ใน schema ที่กำหนด ด้วยน้ำเสียงมั่นใจแบบนักเทรดมืออาชีพที่คุยกับลูกค้าห้อง VIP \
+กระชับ ชัดเจน ตรงประเด็น ใช้ตัวเลขจากข้อมูลจริงที่ได้รับเท่านั้น ห้ามสมมติตัวเลขเอง และห้ามอ้างอิง indicator แบบ retail เช่น RSI/MACD \
+**market_overview ต้องพูดถึงการเปรียบเทียบกับ hour_ago และ today_summary ด้วยเสมอ ไม่ใช่มองแค่ snapshot เดียว** \
+**สำหรับ short_bias ให้ฟันธงทิศทาง (Long/Short/Wait) ที่มั่นใจที่สุดตอนนี้ พร้อมเหตุผลสั้นๆ 1-2 ประโยค โดยพิจารณาเทรนด์ประกอบด้วย**
+
+**⚠️ สำคัญมากเรื่อง Formatting:** เพื่อให้อ่านง่าย ให้เน้นคำสำคัญ (Keyword) เช่น ทิศทาง (Long/Short/Wait), Call/Put, คำว่าแนวรับ/แนวต้าน และ "ตัวเลขราคาทุกตัว" โดยใช้ HTML tag <b>...</b> ครอบไว้เสมอ (ตัวอย่าง: <b>Long</b>, <b>Put</b>, <b>2450.50</b>, <b>5ΔP</b>)
 """
 
 RESPONSE_SCHEMA = {
@@ -71,103 +65,38 @@ RESPONSE_SCHEMA = {
     "properties": {
         "market_overview": {
             "type": "string",
-            "description": "ภาพรวมตลาด: เทียบ Put vs Call volume, ราคา, โมเมนตัม, IV, Vol Chg และการเปลี่ยนแปลงเทียบ hour_ago / today_summary",
+            "description": "ภาพรวมตลาด: เทียบ Put vs Call volume, ราคาปัจจุบันและการเปลี่ยนแปลง, โมเมนตัมที่สะท้อนจาก IV/Vol Chg",
         },
-        "flow_summary": {
-            "type": "string",
-            "description": "สรุป flow แบบสั้น: Call/Put, IV, Vol Chg, Future Chg และนัยต่อ momentum",
-        },
-        "key_levels": {
-            "type": "object",
-            "properties": {
-                "resistance_far": {"type": "string", "description": "แนวต้านไกล"},
-                "resistance_main": {"type": "string", "description": "แนวต้านหลัก"},
-                "resistance_now": {"type": "string", "description": "แนวต้านปัจจุบัน"},
-                "support_now": {"type": "string", "description": "แนวรับปัจจุบัน"},
-                "support_main": {"type": "string", "description": "แนวรับหลัก"},
-                "support_deep": {"type": "string", "description": "แนวรับลึก"},
-            },
-            "required": [
-                "resistance_far",
-                "resistance_main",
-                "resistance_now",
-                "support_now",
-                "support_main",
-                "support_deep",
-            ],
-        },
-        "scenarios": {
-            "type": "object",
-            "properties": {
-                "bull_case": {"type": "string", "description": "กรณีทะลุแนวต้าน"},
-                "bear_case": {"type": "string", "description": "กรณีหลุดแนวรับ"},
-                "sideway_case": {"type": "string", "description": "กรณีแกว่งสะสมกำลัง"},
-            },
-            "required": ["bull_case", "bear_case", "sideway_case"],
-        },
+        "resistance": {"type": "string", "description": "แนวต้านหลัก พร้อมเหตุผล"},
+        "support_short": {"type": "string", "description": "แนวรับระยะสั้น พร้อมเหตุผล"},
+        "support_main": {"type": "string", "description": "แนวรับหลัก/แนวรับลึก พร้อมเหตุผล"},
         "trade_view": {
             "type": "string",
             "description": "มุมมองการเทรดระยะสั้น: ราคาปัจจุบันเทียบกับโซนสำคัญ, จังหวะเข้าที่แนะนำ",
         },
+        "breakout_scenario": {
+            "type": "string",
+            "description": "กรณีทะลุกรอบ: ถ้าประคองตัวได้จะเกิดอะไร, ถ้าหลุดแนวจะเกิดอะไร",
+        },
         "dte_context": {
             "type": "string",
-            "description": "อธิบายสั้นๆ ว่า DTE ปัจจุบันอยู่ในโซนไหน และมีผลต่อความน่าเชื่อถือของโซนแนวรับ-แนวต้านอย่างไร",
+            "description": "อธิบายสั้นๆ ว่า DTE ปัจจุบันอยู่ในโซนไหน (0DTE / near-term / far) และมีผลต่อความน่าเชื่อถือของโซนแนวรับ-แนวต้านอย่างไร",
         },
         "trend_note": {
             "type": "string",
-            "description": "เปรียบเทียบ current vs hour_ago และ current vs today_summary",
+            "description": "เปรียบเทียบ current vs hour_ago (โมเมนตัมระยะสั้นเปลี่ยนไปทางไหน) และ current vs today_summary (ตำแหน่งปัจจุบันเทียบ range ทั้งวัน)",
         },
-        "trade_plan": {
-            "type": "object",
-            "properties": {
-                "direction": {
-                    "type": "string",
-                    "description": "Long, Short หรือ Wait",
-                },
-                "reason": {"type": "string", "description": "เหตุผลสั้นๆ สำหรับ bias"},
-                "entry": {"type": "string", "description": "จุดเข้า"},
-                "target": {"type": "string", "description": "เป้าหมาย"},
-                "stop_loss": {"type": "string", "description": "จุดยอม"},
-                "invalid_if": {"type": "string", "description": "เงื่อนไขที่ทำให้มุมมองนี้ใช้ไม่ได้"},
-                "adjustment": {"type": "string", "description": "วิธีแก้หากผิดทางหรือหลุด stop"},
-            },
-            "required": [
-                "direction",
-                "reason",
-                "entry",
-                "target",
-                "stop_loss",
-                "invalid_if",
-                "adjustment",
-            ],
-        },
-        "confidence": {
-            "type": "integer",
-            "description": "ความมั่นใจ 0-100",
-        },
-        "risk_level": {
+          "short_bias": {
             "type": "string",
-            "description": "ระดับความเสี่ยง Low / Medium / High",
-        },
-        "short_bias": {
-            "type": "string",
-            "description": "ข้อความสั้นสำหรับส่งเป็น bias ฟันธงแบบ standalone",
+            "description": "วิเคราะห์ Bias ฟันธง ต้องจัดรูปแบบข้อความดังนี้เท่านั้น:\n🎯 Bias: [บอก Long/Short พร้อมเหตุผลจาก Vol/Delta]\n\n📌 แผนเทรด\nEntry: [จุดเข้า] Target: [เป้าหมาย] Stop Loss: [จุดยอม]\n\n🛠️ วิธีแก้\n[ถ้าผิดทางหรือหลุด Stop Loss ควรทำอย่างไรต่อ]"
         },
     },
     "required": [
-        "market_overview",
-        "flow_summary",
-        "key_levels",
-        "scenarios",
-        "trade_view",
-        "dte_context",
-        "trend_note",
-        "trade_plan",
-        "confidence",
-        "risk_level",
-        "short_bias",
+        "market_overview", "resistance", "support_short",
+        "support_main", "trade_view", "breakout_scenario", "dte_context", "trend_note", "short_bias"
     ],
 }
+
 
 def analyze(parsed: dict, history: dict | None = None) -> dict:
     api_key = os.environ.get("GEMINI_API_KEY", "")
@@ -186,12 +115,7 @@ def analyze(parsed: dict, history: dict | None = None) -> dict:
     payload = {
         "system_instruction": {"parts": [{"text": SYSTEM_PROMPT}]},
         "contents": [
-            {
-                "role": "user",
-                "parts": [
-                    {"text": json.dumps(payload_data, ensure_ascii=False, default=str)}
-                ],
-            }
+            {"role": "user", "parts": [{"text": json.dumps(payload_data, ensure_ascii=False, default=str)}]}
         ],
         "generationConfig": {
             "responseMimeType": "application/json",
@@ -201,8 +125,6 @@ def analyze(parsed: dict, history: dict | None = None) -> dict:
 
     max_retries = 2
     last_error = None
-    resp = None
-
     for attempt in range(max_retries + 1):
         try:
             resp = requests.post(
@@ -214,20 +136,20 @@ def analyze(parsed: dict, history: dict | None = None) -> dict:
             resp.raise_for_status()
             break
         except requests.exceptions.RequestException as e:
+            # ครอบคลุมทุกปัญหาเครือข่าย: timeout, connection error, HTTPError (4xx/5xx) ฯลฯ
+            # ไม่ใช่แค่ HTTPError เดิม — กัน pipeline ทั้งก้อนพังเพราะ Gemini ตอบช้า/เน็ตสะดุดชั่วคราว
             last_error = e
             detail = ""
-            if resp is not None:
+            resp_obj = locals().get("resp")
+            if resp_obj is not None:
                 try:
-                    detail = resp.text[:500]
+                    detail = resp_obj.text[:500]
                 except Exception:
-                    detail = ""
+                    pass
             if attempt < max_retries:
                 print(f"    ⚠️  Gemini call attempt {attempt + 1} failed ({e}), retrying...")
                 continue
-            return {
-                "error": f"Gemini API error after {max_retries + 1} attempts: {last_error}",
-                "detail": detail,
-            }
+            return {"error": f"Gemini API error after {max_retries + 1} attempts: {last_error}", "detail": detail}
 
     try:
         data = resp.json()
@@ -244,26 +166,14 @@ def analyze(parsed: dict, history: dict | None = None) -> dict:
 if __name__ == "__main__":
     from dotenv import load_dotenv
     load_dotenv()
-
     sample = {
-        "contract": "G3TN6",
-        "future_price": 4079.5,
-        "future_chg": 63.6,
-        "put_volume": 516,
-        "call_volume": 686,
-        "vol": 33.1,
-        "vol_chg": 0.5,
+        "contract": "G3TN6", "future_price": 4079.5, "future_chg": 63.6,
+        "put_volume": 516, "call_volume": 686, "vol": 33.1, "vol_chg": 0.5,
         "delta_levels": {"5ΔP": 3980, "5ΔC": 4150},
     }
     sample_history = {
         "hour_ago": {"future_price": 4015.9, "put_volume": 600, "call_volume": 550, "vol": 32.6},
-        "today": {
-            "count": 8,
-            "future_price_open": 4015.9,
-            "future_price_high": 4082.0,
-            "future_price_low": 4010.2,
-            "pc_ratio_min": 0.75,
-            "pc_ratio_max": 1.15,
-        },
+        "today": {"count": 8, "future_price_open": 4015.9, "future_price_high": 4082.0,
+                   "future_price_low": 4010.2, "pc_ratio_min": 0.75, "pc_ratio_max": 1.15},
     }
     print(json.dumps(analyze(sample, sample_history), ensure_ascii=False, indent=2))
