@@ -15,19 +15,28 @@ from scraper import scrape, ScrapeError
 from parser import parse, ParseError
 from analyze import analyze
 from supabase_client import insert_snapshot, upload_screenshot, get_active_chat_ids
+from url_manager import UrlManager, UrlManagerError
 import history
 import telegram
 
 
 def run():
-    print("[1/7] Scraping QuikStrike...")
+    print("[1/8] Resolving QuikStrike URL (self-healing)...")
     try:
-        raw = scrape()
+        url_manager = UrlManager()
+        quikstrike_url = url_manager.get_url()
+    except UrlManagerError as e:
+        print(f"❌ URL resolution failed completely: {e}", file=sys.stderr)
+        sys.exit(1)
+
+    print("[2/8] Scraping QuikStrike...")
+    try:
+        raw = scrape(quikstrike_url)
     except ScrapeError as e:
         print(f"❌ Scrape failed: {e}", file=sys.stderr)
         sys.exit(1)
 
-    print("[2/7] Parsing raw data...")
+    print("[3/8] Parsing raw data...")
     try:
         parsed = parse(raw)
     except ParseError as e:
@@ -41,7 +50,7 @@ def run():
               "— ค่านี้อาจไม่แม่นยำ ควรเช็คหน้า QuikStrike ว่าโครง heading เปลี่ยนไปหรือไม่",
               file=sys.stderr)
 
-    print("[3/7] Uploading screenshot to Supabase Storage...")
+    print("[4/8] Uploading screenshot to Supabase Storage...")
     screenshot_bytes = parsed.pop("screenshot", None)
     screenshot_path = None
     screenshot_url = None
@@ -57,13 +66,13 @@ def run():
     else:
         print("    ⚠️  ไม่มี screenshot จากขั้นตอน scrape (ข้ามขั้นตอนนี้)")
 
-    print("[4/7] Fetching history context (hour-ago + today range)...")
+    print("[5/8] Fetching history context (hour-ago + today range)...")
     hist_context = history.get_context(contract=parsed.get("contract"))
     hr_ago_status = "พบ" if hist_context.get("hour_ago") else "ไม่พบ"
     today_count = hist_context.get("today", {}).get("count", 0)
     print(f"    hour_ago snapshot: {hr_ago_status} | today snapshots: {today_count}")
 
-    print("[5/7] Analyzing with Gemini...")
+    print("[6/8] Analyzing with Gemini...")
     try:
         ai_result = analyze(parsed, history=hist_context)
     except Exception as e:
@@ -77,7 +86,9 @@ def run():
     else:
         print(f"    market_overview: {ai_result.get('market_overview', '')[:80]}...")
 
-    print("[6/7] Inserting into Supabase...")
+    ai_failed = "error" in ai_result
+
+    print("[7/8] Inserting into Supabase...")
     import json
     
     # ⚠️ สกัดข้อมูล dte_low_confidence ทิ้งตรงนี้ เพื่อป้องกันบั๊กเวลาส่งลงฐานข้อมูล
@@ -91,7 +102,14 @@ def run():
     )
     print(f"✅ Done. Row id={row.get('id')}")
 
-    print("[7/7] Sending to Telegram...")
+    print("[8/8] Sending to Telegram...")
+    if ai_failed:
+        # ห้ามส่ง error message ไปให้ลูกค้าเด็ดขาด — retry ใน analyze.py ล้มเหลวครบทุกรอบแล้วจริงๆ
+        # ข้อมูลถูก insert ลง Supabase ไปแล้วสำหรับ debug ทีหลัง แค่ข้าม step ส่ง Telegram รอบนี้ไปเลย
+        print("    ⏭️  ข้าม Telegram send รอบนี้ (AI analysis ล้มเหลว — ไม่ส่ง error ให้ลูกค้าเห็น)",
+              file=sys.stderr)
+        sys.exit(1)  # ให้ GitHub Actions รู้ว่า run นี้ไม่สมบูรณ์ (ขึ้นแดงใน Actions tab ให้เช็คได้)
+
     # อ่านรายชื่อผู้รับจากตาราง customers ใน Supabase ก่อน (เพิ่ม/ปิดคนได้โดยไม่ต้องแก้ Secret)
     # ถ้ายังไม่ได้รัน migration 005 หรือตารางว่างเปล่า -> fallback ไปใช้ TELEGRAM_CHAT_ID (env) แบบเดิม
     chat_ids = get_active_chat_ids()
