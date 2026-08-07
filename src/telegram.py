@@ -53,6 +53,29 @@ def _safe_get(d: dict, key: str, default: str = "-") -> str:
     return default if val in (None, "") else str(val)
 
 
+_BIAS_EMOJI = {"long": "🟢", "short": "🔴", "wait": "🟡"}
+
+
+def _fmt_levels(levels) -> str:
+    if not levels:
+        return "-"
+    lines = []
+    for lv in levels:
+        if isinstance(lv, dict):
+            price = lv.get("price", "-")
+            delta = lv.get("delta")
+            lines.append(f"{price} ({delta})" if delta else str(price))
+        else:
+            lines.append(str(lv))
+    return "\n".join(lines)
+
+
+def _fmt_reasons(reasons) -> str:
+    if not reasons:
+        return "-"
+    return "\n".join(f"• {r}" for r in reasons)
+
+
 def format_message(parsed: dict, ai_result: dict) -> str:
     header = _thai_datetime_str()
     dte = parsed.get("dte")
@@ -67,60 +90,41 @@ def format_message(parsed: dict, ai_result: dict) -> str:
     if "error" in ai_result:
         return f"{header}\n\n⚠️ AI analysis error: {ai_result['error']}"
 
-    key_levels = ai_result.get("key_levels", {}) or {}
-    scenarios = ai_result.get("scenarios", {}) or {}
     trade_plan = ai_result.get("trade_plan", {}) or {}
 
-    confidence = ai_result.get("confidence", "-")
-    risk_level = ai_result.get("risk_level", "-")
-
     return (
-        f"📊 <b>รายงาน Volatility & Options Flow (Gold)</b>{dte_line}\n"
+        f"📈 <b>วิเคราะห์ตลาด</b>{dte_line}\n"
         f"{header}\n\n"
-        f"<b>• ภาพรวมตลาด</b>\n{_safe_get(ai_result, 'market_overview')}\n\n"
-        f"<b>• Flow Summary</b>\n{_safe_get(ai_result, 'flow_summary')}\n\n"
-        f"<b>• โซนสำคัญ</b>\n"
-        f"แนวต้านไกล: {_safe_get(key_levels, 'resistance_far')}\n"
-        f"แนวต้านหลัก: {_safe_get(key_levels, 'resistance_main')}\n"
-        f"แนวต้านปัจจุบัน: {_safe_get(key_levels, 'resistance_now')}\n"
-        f"แนวรับปัจจุบัน: {_safe_get(key_levels, 'support_now')}\n"
-        f"แนวรับหลัก: {_safe_get(key_levels, 'support_main')}\n"
-        f"แนวรับลึก: {_safe_get(key_levels, 'support_deep')}\n\n"
-        f"<b>• Scenario</b>\n"
-        f"<b>Bull Case</b>\n{_safe_get(scenarios, 'bull_case')}\n\n"
-        f"<b>Bear Case</b>\n{_safe_get(scenarios, 'bear_case')}\n\n"
-        f"<b>Sideway Case</b>\n{_safe_get(scenarios, 'sideway_case')}\n\n"
-        f"<b>• มุมมองการเทรดระยะสั้น</b>\n{_safe_get(ai_result, 'trade_view')}\n\n"
-        f"<b>• DTE Context</b>\n{_safe_get(ai_result, 'dte_context')}\n\n"
-        f"<b>• Trend Note</b>\n{_safe_get(ai_result, 'trend_note')}\n\n"
-        f"<b>• Trade Plan</b>\n"
-        f"Bias: {_safe_get(trade_plan, 'direction')}\n"
-        f"เหตุผล: {_safe_get(trade_plan, 'reason')}\n"
-        f"Entry: {_safe_get(trade_plan, 'entry')}\n"
-        f"Target: {_safe_get(trade_plan, 'target')}\n"
-        f"Stop Loss: {_safe_get(trade_plan, 'stop_loss')}\n"
-        f"Invalid if: {_safe_get(trade_plan, 'invalid_if')}\n"
-        f"Adjustment: {_safe_get(trade_plan, 'adjustment')}\n\n"
-        f"<b>• Confidence / Risk</b>\n"
-        f"Confidence: {confidence}\n"
-        f"Risk Level: {risk_level}"
+        f"🌍 <b>ภาพรวมตลาด</b>\n{_safe_get(ai_result, 'market_overview')}\n\n"
+        f"🔍 <b>สิ่งที่ต้องจับตา</b>\n{_safe_get(ai_result, 'watch_insight')}\n\n"
+        f"🎯 <b>โซนสำคัญ</b>\n"
+        f"🔺 <b>แนวต้าน</b>\n{_fmt_levels(ai_result.get('resistance_levels'))}\n\n"
+        f"🔻 <b>แนวรับ</b>\n{_fmt_levels(ai_result.get('support_levels'))}\n\n"
+        f"📌 <b>Scenario</b>\n"
+        f"🟢 Bull {_safe_get(ai_result, 'scenario_bull')}\n"
+        f"🔴 Bear {_safe_get(ai_result, 'scenario_bear')}\n"
+        f"🟡 Sideway {_safe_get(ai_result, 'scenario_sideway')}"
     )
 
 
 def format_short_bias(ai_result: dict) -> str:
     if "error" in ai_result:
-        return f"🎯 <b>Bias ฟันธง!</b>\nAI analysis error: {ai_result['error']}"
+        return f"⚡ <b>สรุปพร้อมเทรด</b>\nAI analysis error: {ai_result['error']}"
 
-    short_bias = ai_result.get("short_bias")
-    if short_bias:
-        return f"🎯 <b>Bias ฟันธง!</b>\n{short_bias}"
-
+    direction = _safe_get(ai_result, "bias_direction")
+    emoji = _BIAS_EMOJI.get(direction.strip().lower(), "⚪️")
     trade_plan = ai_result.get("trade_plan", {}) or {}
+
     return (
-        f"🎯 <b>Bias ฟันธง!</b>\n"
-        f"Bias: {_safe_get(trade_plan, 'direction')}\n"
-        f"Entry: {_safe_get(trade_plan, 'entry')} | Target: {_safe_get(trade_plan, 'target')} | SL: {_safe_get(trade_plan, 'stop_loss')}\n"
-        f"Reason: {_safe_get(trade_plan, 'reason')}"
+        f"⚡ <b>สรุปพร้อมเทรด</b>\n\n"
+        f"🎯 <b>Bias ฟันธง</b>\n"
+        f"<b>{direction}</b> {emoji}\n\n"
+        f"เหตุผล\n{_fmt_reasons(ai_result.get('bias_reasons'))}\n\n"
+        f"📌 <b>แผนเทรด</b>\n"
+        f"Entry {_safe_get(trade_plan, 'entry')}\n"
+        f"TP {_safe_get(trade_plan, 'target')}\n"
+        f"SL {_safe_get(trade_plan, 'stop_loss')}\n"
+        f"Invalid {_safe_get(trade_plan, 'invalid')}"
     )
 
 

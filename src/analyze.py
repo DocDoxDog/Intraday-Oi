@@ -29,41 +29,42 @@ You will receive data from CME QuikStrike Vol2Vol Expected Range chart for XAUUS
 2. hour_ago — snapshot from around 1 hour ago (may be null)
 3. today_summary — summary of today's range so far
 
-Your job:
+Your job — reason through these steps in order every time, but the final output must stay compact:
+1. ภาพรวมตลาด (market overview): read the tape — price, Call/Put flow, IV, Future, what the market is reflecting
+2. สิ่งที่ต้องจับตา (watch insight): the single most important forward-looking observation right now,
+   grounded in real data (e.g. IV rising with a new high, price approaching a gamma wall, flow/price divergence)
+3. แนวรับ–แนวต้าน (support/resistance): pick the real delta strike levels from the data
+4. Bull / Bear / Sideway scenarios: one compact line each
+5. Bias ฟันธง with reasons: pick a direction with confidence, back it with short bullet reasons
+6. Entry / Target / Stop Loss / Invalid: a clean, executable trade plan
+
+Rules:
 - Analyze market structure using Put/Call volume, IV, Vol Chg, Delta strike levels, Future Chg and DTE
-- Compare current vs hour_ago whenever available
-- Compare current vs today_summary whenever available
-- Produce concise but high-signal Thai analysis
-- Keep the output strictly aligned with the JSON schema
+- Compare current vs hour_ago and vs today_summary internally, but only surface it in market_overview/watch_insight
+  if it's actually relevant — do not force a mention if there's nothing meaningful to say
+- When DTE is very small (near 0DTE), weight the gamma-wall/pinning effect more heavily in your reasoning;
+  when DTE is larger, rely more on flow/momentum than fixed levels — but do NOT output a separate DTE section,
+  just let it quietly shape which levels you pick and how confident the bias sounds
 - Do NOT invent numbers; only use numbers present in the input
 - Do NOT use retail indicators such as RSI or MACD
-- When DTE is very small, strengthen the explanation of gamma effect; when DTE is larger, reduce confidence on level-based interpretation
-- If current.dte_low_confidence is true, mention that DTE confidence is lower than usual and reduce emphasis on 0DTE interpretation
+- If current.dte_low_confidence is true, soften the certainty of your bias slightly (still commit to a direction)
 
 Writing style:
-- Confident, concise, pro trader tone
-- Use HTML <b>...</b> tags around important keywords and all numeric prices whenever appropriate
-- Thai language only
-- Keep the analysis usable for Telegram
-- The final short_bias should be a compact trade call that is easy to send as a standalone message
-
-Output structure:
-- market_overview: overall read of the tape and positioning
-- flow_summary: summarize call/put, IV, vol change, and future impulse
-- key_levels: resistance/support levels with three tiers each when possible
-- scenarios: bull / bear / sideway
-- trade_view: short intraday trading view
-- dte_context: DTE interpretation and its effect on confidence
-- trend_note: short-term momentum comparison vs hour_ago and today_summary
-- trade_plan: structured trade plan with direction, reason, entry, target, stop loss, invalidation, adjustment
-- confidence: integer 0-100
-- risk_level: Low / Medium / High
-- short_bias: a compact final bias message in Thai that can be sent as-is
-
-Important:
-- market_overview must always mention comparison vs hour_ago and today_summary when available
-- scenarios must stay consistent with trade_plan
-- If there is no hour_ago or today_summary, say so explicitly
+- Thai language, confident pro-trader tone, but genuinely readable — not just numbers in a list
+- market_overview: 1 paragraph, roughly 5-7 lines, covering price / Call-Put flow / IV / Future / what it reflects
+- watch_insight: 2-4 sentences, must be specific to today's real data (not generic boilerplate)
+- resistance_levels: array of up to 3 resistance zones (nearest first), each an object {price, delta}
+  where delta is the exact label key from current.delta_levels (e.g. "45ΔC") that this price came from
+- support_levels: array of up to 4 support zones (nearest first), each an object {price, delta}
+  where delta is the exact label key from current.delta_levels (e.g. "45ΔP") that this price came from
+- Only include a level if it genuinely corresponds to a real key in current.delta_levels — never invent
+  a delta label or a price that isn't backed by the actual data
+- scenario_bull / scenario_bear / scenario_sideway: ONE short line each, format like
+  "ยืนเหนือ {level} → เป้า {target}" / "หลุด {level} → เป้า {target}" / "แกว่ง {low}–{high}"
+- bias_direction: exactly "Long", "Short", or "Wait"
+- bias_reasons: array of 2-4 very short phrases (3-6 Thai words each), not full sentences
+- trade_plan.entry / target / stop_loss / invalid: short and concrete, numbers-first
+- Use HTML <b>...</b> tags around all numeric prices and key direction words wherever they appear
 """
 
 RESPONSE_SCHEMA = {
@@ -71,101 +72,79 @@ RESPONSE_SCHEMA = {
     "properties": {
         "market_overview": {
             "type": "string",
-            "description": "ภาพรวมตลาด: เทียบ Put vs Call volume, ราคา, โมเมนตัม, IV, Vol Chg และการเปลี่ยนแปลงเทียบ hour_ago / today_summary",
+            "description": "ภาพรวมตลาด 1 ย่อหน้า (5-7 บรรทัด): ราคา, Call/Put Flow, IV, Future, สิ่งที่ตลาดกำลังสะท้อน",
         },
-        "flow_summary": {
+        "watch_insight": {
             "type": "string",
-            "description": "สรุป flow แบบสั้น: Call/Put, IV, Vol Chg, Future Chg และนัยต่อ momentum",
+            "description": "สิ่งที่ต้องจับตา: insight ที่สำคัญที่สุดตอนนี้ ต้องอิงข้อมูลจริง ไม่ใช่ข้อความทั่วไป",
         },
-        "key_levels": {
-            "type": "object",
-            "properties": {
-                "resistance_far": {"type": "string", "description": "แนวต้านไกล"},
-                "resistance_main": {"type": "string", "description": "แนวต้านหลัก"},
-                "resistance_now": {"type": "string", "description": "แนวต้านปัจจุบัน"},
-                "support_now": {"type": "string", "description": "แนวรับปัจจุบัน"},
-                "support_main": {"type": "string", "description": "แนวรับหลัก"},
-                "support_deep": {"type": "string", "description": "แนวรับลึก"},
+        "resistance_levels": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "price": {"type": "number"},
+                    "delta": {"type": "string", "description": "label จาก current.delta_levels เช่น '45ΔC'"},
+                },
+                "required": ["price", "delta"],
             },
-            "required": [
-                "resistance_far",
-                "resistance_main",
-                "resistance_now",
-                "support_now",
-                "support_main",
-                "support_deep",
-            ],
+            "description": "แนวต้าน สูงสุด 3 ระดับ เรียงจากใกล้ไปไกล พร้อม delta label จริงจากข้อมูล",
         },
-        "scenarios": {
-            "type": "object",
-            "properties": {
-                "bull_case": {"type": "string", "description": "กรณีทะลุแนวต้าน"},
-                "bear_case": {"type": "string", "description": "กรณีหลุดแนวรับ"},
-                "sideway_case": {"type": "string", "description": "กรณีแกว่งสะสมกำลัง"},
+        "support_levels": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "price": {"type": "number"},
+                    "delta": {"type": "string", "description": "label จาก current.delta_levels เช่น '45ΔP'"},
+                },
+                "required": ["price", "delta"],
             },
-            "required": ["bull_case", "bear_case", "sideway_case"],
+            "description": "แนวรับ สูงสุด 4 ระดับ เรียงจากใกล้ไปไกล พร้อม delta label จริงจากข้อมูล",
         },
-        "trade_view": {
+        "scenario_bull": {
             "type": "string",
-            "description": "มุมมองการเทรดระยะสั้น: ราคาปัจจุบันเทียบกับโซนสำคัญ, จังหวะเข้าที่แนะนำ",
+            "description": "หนึ่งบรรทัด รูปแบบ 'ยืนเหนือ {ระดับ} → เป้า {เป้าหมาย}'",
         },
-        "dte_context": {
+        "scenario_bear": {
             "type": "string",
-            "description": "อธิบายสั้นๆ ว่า DTE ปัจจุบันอยู่ในโซนไหน และมีผลต่อความน่าเชื่อถือของโซนแนวรับ-แนวต้านอย่างไร",
+            "description": "หนึ่งบรรทัด รูปแบบ 'หลุด {ระดับ} → เป้า {เป้าหมาย}'",
         },
-        "trend_note": {
+        "scenario_sideway": {
             "type": "string",
-            "description": "เปรียบเทียบ current vs hour_ago และ current vs today_summary",
+            "description": "หนึ่งบรรทัด รูปแบบ 'แกว่ง {low}–{high}'",
+        },
+        "bias_direction": {
+            "type": "string",
+            "description": "Long, Short หรือ Wait เท่านั้น",
+        },
+        "bias_reasons": {
+            "type": "array",
+            "items": {"type": "string"},
+            "description": "เหตุผลสั้นๆ 2-4 ข้อ (3-6 คำ/ข้อ ไม่ใช่ประโยคเต็ม)",
         },
         "trade_plan": {
             "type": "object",
             "properties": {
-                "direction": {
-                    "type": "string",
-                    "description": "Long, Short หรือ Wait",
-                },
-                "reason": {"type": "string", "description": "เหตุผลสั้นๆ สำหรับ bias"},
-                "entry": {"type": "string", "description": "จุดเข้า"},
-                "target": {"type": "string", "description": "เป้าหมาย"},
-                "stop_loss": {"type": "string", "description": "จุดยอม"},
-                "invalid_if": {"type": "string", "description": "เงื่อนไขที่ทำให้มุมมองนี้ใช้ไม่ได้"},
-                "adjustment": {"type": "string", "description": "วิธีแก้หากผิดทางหรือหลุด stop"},
+                "entry": {"type": "string", "description": "จุดเข้า สั้นกระชับ"},
+                "target": {"type": "string", "description": "เป้าหมาย (TP)"},
+                "stop_loss": {"type": "string", "description": "จุดยอม (SL)"},
+                "invalid": {"type": "string", "description": "เงื่อนไขที่ทำให้มุมมองนี้ใช้ไม่ได้"},
             },
-            "required": [
-                "direction",
-                "reason",
-                "entry",
-                "target",
-                "stop_loss",
-                "invalid_if",
-                "adjustment",
-            ],
-        },
-        "confidence": {
-            "type": "integer",
-            "description": "ความมั่นใจ 0-100",
-        },
-        "risk_level": {
-            "type": "string",
-            "description": "ระดับความเสี่ยง Low / Medium / High",
-        },
-        "short_bias": {
-            "type": "string",
-            "description": "ข้อความสั้นสำหรับส่งเป็น bias ฟันธงแบบ standalone",
+            "required": ["entry", "target", "stop_loss", "invalid"],
         },
     },
     "required": [
         "market_overview",
-        "flow_summary",
-        "key_levels",
-        "scenarios",
-        "trade_view",
-        "dte_context",
-        "trend_note",
+        "watch_insight",
+        "resistance_levels",
+        "support_levels",
+        "scenario_bull",
+        "scenario_bear",
+        "scenario_sideway",
+        "bias_direction",
+        "bias_reasons",
         "trade_plan",
-        "confidence",
-        "risk_level",
-        "short_bias",
     ],
 }
 
