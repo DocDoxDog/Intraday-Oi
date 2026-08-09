@@ -2,7 +2,7 @@
 analyze.py
 ==========
 ส่งข้อมูลที่ parse แล้วเข้า Gemini API ให้สรุปเป็นรายงานสไตล์นักวิเคราะห์ (ภาษาไทย)
-รูปแบบอัปเดต: รองรับ CFD Price Calibration, ภาพรวมตลาดเชิงลึก, โซนสำคัญ (แนวต้านไกล-ใกล้ / แนวรับใกล้-ไกล),
+รูปแบบอัปเดต: ภาพรวมตลาดเชิงลึก, โซนสำคัญ (แนวต้านไกล-ใกล้ / แนวรับใกล้-ไกล),
 และ Scenario แยกชัดเจน (Bull Case, Bear Case, Sideway Case) พร้อม Bias และแผนเทรด
 """
 
@@ -14,7 +14,7 @@ DEFAULT_MODEL = "gemini-3.5-flash-lite"
 API_URL = "https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
 
 SYSTEM_PROMPT = """\
-You are the Gold Volatility Specialist — a veteran Day Trader specializing in Gold Futures (GC) and CFD. \
+You are the Gold Volatility Specialist — a veteran Day Trader specializing in Gold Futures (GC). \
 Your edge is based on Market Microstructure, Vol2Vol, Volatility Smile/Skew, Option Open Interest, and Dealer Hedging Flows (Gamma, Vanna, Charm).
 
 ข้อมูลที่คุณได้รับมาจาก CME QuikStrike Vol2Vol Expected Range chart ประกอบด้วย:
@@ -23,16 +23,12 @@ Your edge is based on Market Microstructure, Vol2Vol, Volatility Smile/Skew, Opt
 3. "today_summary" — สรุป range ทั้งวัน
 4. "raw_series_summary" — สรุปการกระจายตัวของ Gamma ตาม strike, Volatility Settle shape, และ Expected Ranges
 
-**คำสั่งพิเศษสำหรับการแสดงผลราคา (CFD Calibration):**
-- เนื่องจากกราฟ QuikStrike อ้างอิงราคา Futures (GC) ให้คำนวณและระบุราคา CFD โดยการปรับลดลง 25 จุด (หรือตาม offset ที่เหมาะสม) ควบคู่ไปกับราคา Futures เสมอ เพื่อให้ลูกค้าที่เทรด CFD นำไปใช้งานได้ทันที
-
 **โครงสร้างการวิเคราะห์และรายงานผล (บังคับตาม Schema):**
-1. **cfd_note**: หมายเหตุการอ้างอิงราคา (เช่น อ้างอิงราคา CFD ปรับลด 25 จุด)
-2. **market_overview**: วิเคราะห์ภาพรวมตลาด เปรียบเทียบ Put vs Call volume, การเคลื่อนไหวของราคา Futures/CFD, และระดับ IV ว่าสะท้อนความผันผวนระดับใด
-3. **resistance_far**, **resistance_main**, **resistance_current**: แนวต้านไกล, หลัก, และปัจจุบัน (พร้อมอ้างอิงระดับ strike)
-4. **support_current**, **support_main**, **support_deep**: แนวรับปัจจุบัน, หลัก, และลึก (พร้อมอ้างอิงระดับ strike)
-5. **bull_case**, **bear_case**, **sideway_case**: แยก 3 กรณีชัดเจน (Bull Case, Bear Case, Sideway Case)
-6. **short_bias**: ฟันธง Bias (Long/Short/Wait), แผนเทรด (Entry, Target, Stop Loss), และวิธีแก้ทาง
+1. **market_overview**: วิเคราะห์ภาพรวมตลาด เปรียบเทียบ Put vs Call volume, การเคลื่อนไหวของราคา, และระดับ IV ว่าสะท้อนความผันผวนระดับใด
+2. **resistance_far**, **resistance_main**, **resistance_current**: แนวต้านไกล, หลัก, และปัจจุบัน (พร้อมอ้างอิงระดับ strike)
+3. **support_current**, **support_main**, **support_deep**: แนวรับปัจจุบัน, หลัก, และลึก (พร้อมอ้างอิงระดับ strike)
+4. **bull_case**, **bear_case**, **sideway_case**: แยก 3 กรณีชัดเจน (Bull Case, Bear Case, Sideway Case)
+5. **short_bias**: ฟันธง Bias (Long/Short/Wait), แผนเทรด (Entry, Target, Stop Loss), และวิธีแก้ทาง
 
 เขียนรายงานเป็นภาษาไทย มืออาชีพ กระชับ ห้ามสมมติตัวเลขเอง ใช้ข้อมูลจริงเท่านั้น
 """
@@ -40,13 +36,9 @@ Your edge is based on Market Microstructure, Vol2Vol, Volatility Smile/Skew, Opt
 RESPONSE_SCHEMA = {
     "type": "object",
     "properties": {
-        "cfd_note": {
-            "type": "string",
-            "description": "หมายเหตุการเทียบราคา เช่น (อ้างอิงราคา CFD ปรับลด 25 จุด)",
-        },
         "market_overview": {
             "type": "string",
-            "description": "ภาพรวมตลาด: สรุป Call/Put volume, ราคาปัจจุบัน Futures/CFD, และสภาวะ IV",
+            "description": "ภาพรวมตลาด: สรุป Call/Put volume, ราคาปัจจุบัน, และสภาวะ IV",
         },
         "resistance_far": {"type": "string", "description": "แนวต้านไกล พร้อมรายละเอียด strike"},
         "resistance_main": {"type": "string", "description": "แนวต้านหลัก พร้อมรายละเอียด strike"},
@@ -63,7 +55,7 @@ RESPONSE_SCHEMA = {
         },
     },
     "required": [
-        "cfd_note", "market_overview", "resistance_far", "resistance_main", "resistance_current",
+        "market_overview", "resistance_far", "resistance_main", "resistance_current",
         "support_current", "support_main", "support_deep", "bull_case", "bear_case", "sideway_case", "short_bias"
     ],
 }

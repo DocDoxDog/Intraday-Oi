@@ -2,7 +2,7 @@
 telegram.py
 ===========
 ประกอบผลวิเคราะห์เป็นรายงานสไตล์นักวิเคราะห์ แล้วส่งเข้า Telegram
-รูปแบบอัปเดต: รองรับ CFD Note, โซนสำคัญครบถ้วน (ต้านไกล/หลัก/ปัจจุบัน, รับปัจจุบัน/หลัก/ลึก),
+รูปแบบอัปเดต: โซนสำคัญครบถ้วน (ต้านไกล/หลัก/ปัจจุบัน, รับปัจจุบัน/หลัก/ลึก),
 และ Scenarios (1) Bull Case, 2) Bear Case, 3) Sideway Case) พร้อม Chat 2 (Bias & Action Plan)
 """
 
@@ -42,12 +42,9 @@ def format_message(parsed: dict, ai_result: dict) -> str:
     if "error" in ai_result:
         return f"{header}\n\n⚠️ AI analysis error: {ai_result['error']}"
 
-    cfd_note = ai_result.get('cfd_note', '(อ้างอิงราคา CFD ปรับลด 25 จุด)')
-
     return (
         f"📊 <b>รายงาน Volatility & Options Flow (Gold)</b>{dte_line}\n"
-        f"{header}\n"
-        f"<i>{cfd_note}</i>\n\n"
+        f"{header}\n\n"
         f"<b>• ภาพรวมตลาด</b>\n{ai_result.get('market_overview', '-')}\n\n"
         f"<b>• โซนสำคัญ</b>\n"
         f" • แนวต้านไกล: {ai_result.get('resistance_far', '-')}\n"
