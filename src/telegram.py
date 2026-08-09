@@ -1,11 +1,9 @@
 """
 telegram.py
 ===========
-ประกอบผลวิเคราะห์เป็นรายงานสไตล์นักวิเคราะห์ (ตาม template ที่กำหนด) แล้วส่งเข้า Telegram
-ผ่าน Bot API ตรงๆ (ใช้ requests ไม่ต้องพึ่ง library เพิ่ม)
-
-ปรับปรุงใหม่: เพิ่มการแสดงผล DTE Context และ Trend Note ให้ครบถ้วนตาม schema ใหม่
-พร้อมจัดระเบียบข้อความให้อ่านง่าย สะอาดตา และคงรูปแบบ Chat 1 / Chat 2 ตามที่ผู้ใช้ต้องการ
+ประกอบผลวิเคราะห์เป็นรายงานสไตล์นักวิเคราะห์ แล้วส่งเข้า Telegram
+รูปแบบอัปเดต: รองรับ CFD Note, โซนสำคัญครบถ้วน (ต้านไกล/หลัก/ปัจจุบัน, รับปัจจุบัน/หลัก/ลึก),
+และ Scenarios (1) Bull Case, 2) Bear Case, 3) Sideway Case) พร้อม Chat 2 (Bias & Action Plan)
 """
 
 import os
@@ -44,19 +42,24 @@ def format_message(parsed: dict, ai_result: dict) -> str:
     if "error" in ai_result:
         return f"{header}\n\n⚠️ AI analysis error: {ai_result['error']}"
 
-    # จัดระเบียบ Chat 1 ให้ครบถ้วน สวยงาม อ่านง่าย
+    cfd_note = ai_result.get('cfd_note', '(อ้างอิงราคา CFD ปรับลด 25 จุด)')
+
     return (
         f"📊 <b>รายงาน Volatility & Options Flow (Gold)</b>{dte_line}\n"
-        f"{header}\n\n"
+        f"{header}\n"
+        f"<i>{cfd_note}</i>\n\n"
         f"<b>• ภาพรวมตลาด</b>\n{ai_result.get('market_overview', '-')}\n\n"
         f"<b>• โซนสำคัญ</b>\n"
-        f"• แนวต้านหลัก: {ai_result.get('resistance', '-')}\n"
-        f"• แนวรับระยะสั้น: {ai_result.get('support_short', '-')}\n"
-        f"• แนวรับหลัก: {ai_result.get('support_main', '-')}\n\n"
-        f"<b>• มุมมองการเทรดระยะสั้น</b>\n{ai_result.get('trade_view', '-')}\n\n"
-        f"<b>• กรณีทะลุกรอบ</b>\n{ai_result.get('breakout_scenario', '-')}\n\n"
-        f"<b>• ⏳ DTE & Vol Context</b>\n{ai_result.get('dte_context', '-')}\n\n"
-        f"<b>• 📈 Trend & Momentum</b>\n{ai_result.get('trend_note', '-')}"
+        f" • แนวต้านไกล: {ai_result.get('resistance_far', '-')}\n"
+        f" • แนวต้านหลัก: {ai_result.get('resistance_main', '-')}\n"
+        f" • แนวต้านปัจจุบัน: {ai_result.get('resistance_current', '-')}\n"
+        f" • แนวรับปัจจุบัน: {ai_result.get('support_current', '-')}\n"
+        f" • แนวรับหลัก: {ai_result.get('support_main', '-')}\n"
+        f" • แนวรับลึก: {ai_result.get('support_deep', '-')}\n\n"
+        f"<b>• Scenario</b>\n"
+        f"<b>1) Bull Case</b>\n{ai_result.get('bull_case', '-')}\n\n"
+        f"<b>2) Bear Case</b>\n{ai_result.get('bear_case', '-')}\n\n"
+        f"<b>3) Sideway Case (มุมมองหลัก)</b>\n{ai_result.get('sideway_case', '-')}"
     )
 
 

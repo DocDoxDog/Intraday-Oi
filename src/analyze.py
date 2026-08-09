@@ -2,10 +2,8 @@
 analyze.py
 ==========
 ส่งข้อมูลที่ parse แล้วเข้า Gemini API ให้สรุปเป็นรายงานสไตล์นักวิเคราะห์ (ภาษาไทย)
-รูปแบบตาม template ที่กำหนด: ภาพรวมตลาด / โซนสำคัญ / มุมมองเทรดระยะสั้น / กรณีทะลุกรอบ
-
-ปรับปรุงใหม่: เพิ่มทฤษฎี Market Microstructure (Gamma Flip, Vanna, Charm, 0DTE Dynamics) 
-และจัดระเบียบ Schema ให้แสดงผลใน Telegram ได้อย่างสะอาดตา อ่านง่าย เป็นระเบียบ
+รูปแบบอัปเดต: รองรับ CFD Price Calibration, ภาพรวมตลาดเชิงลึก, โซนสำคัญ (แนวต้านไกล-ใกล้ / แนวรับใกล้-ไกล),
+และ Scenario แยกชัดเจน (Bull Case, Bear Case, Sideway Case) พร้อม Bias และแผนเทรด
 """
 
 import os
@@ -16,9 +14,8 @@ DEFAULT_MODEL = "gemini-3.5-flash-lite"
 API_URL = "https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
 
 SYSTEM_PROMPT = """\
-You are the Gold Volatility Specialist — a veteran Day Trader specializing in Gold Futures (GC) \
-with years of experience trading for premier prop firms. Your edge is based on Market Microstructure, \
-Vol2Vol, Volatility Smile/Skew, Option Open Interest, and Dealer Hedging Flows (Gamma, Vanna, Charm).
+You are the Gold Volatility Specialist — a veteran Day Trader specializing in Gold Futures (GC) and CFD. \
+Your edge is based on Market Microstructure, Vol2Vol, Volatility Smile/Skew, Option Open Interest, and Dealer Hedging Flows (Gamma, Vanna, Charm).
 
 ข้อมูลที่คุณได้รับมาจาก CME QuikStrike Vol2Vol Expected Range chart ประกอบด้วย:
 1. "current" — snapshot ล่าสุด (Put/Call volume, delta strike levels, future price, vol chg, dte)
@@ -26,59 +23,48 @@ Vol2Vol, Volatility Smile/Skew, Option Open Interest, and Dealer Hedging Flows (
 3. "today_summary" — สรุป range ทั้งวัน
 4. "raw_series_summary" — สรุปการกระจายตัวของ Gamma ตาม strike, Volatility Settle shape, และ Expected Ranges
 
-**หลักการวิเคราะห์เชิงลึก (Advanced Market Microstructure):**
-- **0DTE & Gamma Exposure**: เมื่อ DTE น้อยกว่า 1 วัน แรงกดดันจากการ Hedge ของ Market Maker จะสูงทวีคูณ โซนที่มีวอลุ่มหนาแน่นจะทำหน้าที่เป็นแม่เหล็ก (Pinning) หรือกำแพงป้องกันที่แข็งแกร่ง
-- **Vanna & Charm Effect**: พิจารณาว่าความเปลี่ยนแปลงของ Implied Volatility (Vanna) และการเสื่อมของเวลา (Charm) ส่งผลให้ Dealer ต้องซื้อหรือขาย Futures เพิ่มเติมอย่างไร
-- **Gamma Flip & Range**: ระบุจุดเปลี่ยนผ่านของสภาพคล่อง และประเมินว่าราคาปัจจุบันอยู่ในกรอบ Expected Move หรือกำลังจะ Breakout
+**คำสั่งพิเศษสำหรับการแสดงผลราคา (CFD Calibration):**
+- เนื่องจากกราฟ QuikStrike อ้างอิงราคา Futures (GC) ให้คำนวณและระบุราคา CFD โดยการปรับลดลง 25 จุด (หรือตาม offset ที่เหมาะสม) ควบคู่ไปกับราคา Futures เสมอ เพื่อให้ลูกค้าที่เทรด CFD นำไปใช้งานได้ทันที
 
-เขียนรายงานเป็นภาษาไทย จัดรูปแบบให้สะอาดตา อ่านง่าย เป็นระเบียบ ตรงตาม field ใน schema ที่กำหนด \
-ใช้ตัวเลขจากข้อมูลจริงเท่านั้น ห้ามสมมติตัวเลข และห้ามอ้างอิง indicator ทั่วไปเช่น RSI/MACD \
-**สำหรับ short_bias ให้ฟันธงทิศทางชัดเจนตามรูปแบบที่กำหนด**
+**โครงสร้างการวิเคราะห์และรายงานผล (บังคับตาม Schema):**
+1. **cfd_note**: หมายเหตุการอ้างอิงราคา (เช่น อ้างอิงราคา CFD ปรับลด 25 จุด)
+2. **market_overview**: วิเคราะห์ภาพรวมตลาด เปรียบเทียบ Put vs Call volume, การเคลื่อนไหวของราคา Futures/CFD, และระดับ IV ว่าสะท้อนความผันผวนระดับใด
+3. **resistance_far**, **resistance_main**, **resistance_current**: แนวต้านไกล, หลัก, และปัจจุบัน (พร้อมอ้างอิงระดับ strike)
+4. **support_current**, **support_main**, **support_deep**: แนวรับปัจจุบัน, หลัก, และลึก (พร้อมอ้างอิงระดับ strike)
+5. **bull_case**, **bear_case**, **sideway_case**: แยก 3 กรณีชัดเจน (Bull Case, Bear Case, Sideway Case)
+6. **short_bias**: ฟันธง Bias (Long/Short/Wait), แผนเทรด (Entry, Target, Stop Loss), และวิธีแก้ทาง
+
+เขียนรายงานเป็นภาษาไทย มืออาชีพ กระชับ ห้ามสมมติตัวเลขเอง ใช้ข้อมูลจริงเท่านั้น
 """
 
 RESPONSE_SCHEMA = {
     "type": "object",
     "properties": {
+        "cfd_note": {
+            "type": "string",
+            "description": "หมายเหตุการเทียบราคา เช่น (อ้างอิงราคา CFD ปรับลด 25 จุด)",
+        },
         "market_overview": {
             "type": "string",
-            "description": "📊 ภาพรวมตลาด: สรุปทิศทาง Put vs Call volume, ราคาปัจจุบัน, โมเมนตัม และแรงกดดันจาก Dealer Hedging",
+            "description": "ภาพรวมตลาด: สรุป Call/Put volume, ราคาปัจจุบัน Futures/CFD, และสภาวะ IV",
         },
-        "resistance": {
-            "type": "string",
-            "description": "🔴 แนวต้านหลัก: ระบุระดับราคาและเหตุผลเชิง Gamma/Strike",
-        },
-        "support_short": {
-            "type": "string",
-            "description": "🟡 แนวรับระยะสั้น: ระบุระดับราคาและเหตุผลสนับสนุน",
-        },
-        "support_main": {
-            "type": "string",
-            "description": "🟢 แนวรับหลัก / แนวรับลึก: ระบุโซนป้องกันสำคัญ",
-        },
-        "trade_view": {
-            "type": "string",
-            "description": "💡 มุมมองการเทรดระยะสั้น: จุดสังเกตการณ์และจังหวะเข้าทำกำไร",
-        },
-        "breakout_scenario": {
-            "type": "string",
-            "description": "⚡ กรณีทะลุกรอบ: ผลกระทบหากราคา Breakout หรือหลุดแนวรับสำคัญ",
-        },
-        "dte_context": {
-            "type": "string",
-            "description": "⏳ DTE & Volatility Context: ผลกระทบของอายุสัญญาและ Vanna/Charm ต่อความแข็งแกร่งของโซน",
-        },
-        "trend_note": {
-            "type": "string",
-            "description": "📈 Trend & Momentum Note: เปรียบเทียบกับ 1 ชั่วโมงก่อนและช่วงเช้าของวัน",
-        },
+        "resistance_far": {"type": "string", "description": "แนวต้านไกล พร้อมรายละเอียด strike"},
+        "resistance_main": {"type": "string", "description": "แนวต้านหลัก พร้อมรายละเอียด strike"},
+        "resistance_current": {"type": "string", "description": "แนวต้านปัจจุบัน พร้อมรายละเอียด strike"},
+        "support_current": {"type": "string", "description": "แนวรับปัจจุบัน พร้อมรายละเอียด strike"},
+        "support_main": {"type": "string", "description": "แนวรับหลัก พร้อมรายละเอียด strike"},
+        "support_deep": {"type": "string", "description": "แนวรับลึก พร้อมรายละเอียด strike"},
+        "bull_case": {"type": "string", "description": "1) Bull Case: เงื่อนไขทะลุแนวต้านและผลกระทบ Gamma Squeeze"},
+        "bear_case": {"type": "string", "description": "2) Bear Case: เงื่อนไขหลุดแนวรับและแรงกดดันเทขาย"},
+        "sideway_case": {"type": "string", "description": "3) Sideway Case: มุมมองหลักเมื่อ IV สูงและการแกว่งตัว"},
         "short_bias": {
             "type": "string",
-            "description": "🎯 Bias & Action Plan (จัดรูปแบบตามนี้):\n🎯 Bias: [Long/Short/Wait พร้อมเหตุผล]\n\n📌 แผนเทรด\nEntry: [...] Target: [...] Stop Loss: [...]\n\n🛠️ วิธีแก้\n[แนวทางจัดการเมื่อผิดทาง]"
+            "description": "🎯 Bias ฟันธง & แผนเทรด จัดรูปแบบ:\n🎯 Bias: [Long/Short/Wait พร้อมเหตุผล]\n\n📌 แผนเทรด\nEntry: [...] Target: [...] Stop Loss: [...]\n\n🛠️ วิธีแก้\n[แนวทางจัดการเมื่อผิดทาง]"
         },
     },
     "required": [
-        "market_overview", "resistance", "support_short",
-        "support_main", "trade_view", "breakout_scenario", "dte_context", "trend_note", "short_bias"
+        "cfd_note", "market_overview", "resistance_far", "resistance_main", "resistance_current",
+        "support_current", "support_main", "support_deep", "bull_case", "bear_case", "sideway_case", "short_bias"
     ],
 }
 
@@ -143,7 +129,6 @@ def analyze(parsed: dict, history: dict | None = None) -> dict:
     }
 
     max_retries = 2
-    last_error = None
     for attempt in range(max_retries + 1):
         try:
             resp = requests.post(
@@ -155,10 +140,9 @@ def analyze(parsed: dict, history: dict | None = None) -> dict:
             resp.raise_for_status()
             break
         except requests.exceptions.RequestException as e:
-            last_error = e
             if attempt < max_retries:
                 continue
-            return {"error": f"Gemini API error: {last_error}"}
+            return {"error": f"Gemini API error: {e}"}
 
     try:
         data = resp.json()
