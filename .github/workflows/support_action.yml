@@ -1,0 +1,122 @@
+name: ☕ Support Request
+
+on:
+  workflow_dispatch:
+    inputs:
+      target:
+        description: "ส่งให้ใคร: all = ลูกค้าที่ active ทั้งหมด หรือใส่ chat_id เฉพาะคน"
+        required: true
+        default: "all"
+      dry_run:
+        description: "ทดสอบก่อนส่งจริง (true/false)"
+        required: true
+        default: "false"
+
+jobs:
+  support:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Send support message
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          TARGET: ${{ inputs.target }}
+          DRY_RUN: ${{ inputs.dry_run }}
+        run: |
+          python - <<'PY'
+          import os
+          import time
+          import requests
+
+          token = os.environ["TELEGRAM_BOT_TOKEN"]
+          supabase_url = os.environ["SUPABASE_URL"].rstrip("/")
+          supabase_key = os.environ["SUPABASE_SERVICE_ROLE_KEY"]
+          target = os.environ["TARGET"].strip()
+          dry_run = os.environ["DRY_RUN"].lower() == "true"
+
+          message = """☕ <b>สนับสนุนค่ากาแฟ</b>
+
+          หากเห็นว่า OI BOT มีประโยชน์ และต้องการสนับสนุน
+          ค่ากาแฟหรือค่าเซิร์ฟเวอร์ สามารถสนับสนุนได้ตามสะดวกครับ 🙏
+
+          🏦 <b>ธนาคารกสิกรไทย</b>
+          เลขบัญชี: <code>1641750162</code>
+          ชื่อบัญชี: <b>นายสุภเดช บุญยะราช</b>
+
+          ขอบคุณสำหรับทุกการสนับสนุนครับ ❤️"""
+
+          headers = {
+              "apikey": supabase_key,
+              "Authorization": f"Bearer {supabase_key}",
+              "Content-Type": "application/json",
+          }
+
+          if target.lower() == "all":
+              url = f"{supabase_url}/rest/v1/customers"
+              params = {
+                  "select": "chat_id,name",
+                  "active": "eq.true",
+              }
+              r = requests.get(url, headers=headers, params=params, timeout=20)
+              r.raise_for_status()
+              customers = r.json()
+          else:
+              customers = [{"chat_id": target, "name": "manual target"}]
+
+          print(f"🎯 พบเป้าหมาย {len(customers)} คน")
+
+          if dry_run:
+              print("🧪 DRY RUN — ยังไม่ได้ส่งข้อความ")
+              for c in customers:
+                  print(f"  - {c.get('name')} ({c.get('chat_id')})")
+              raise SystemExit(0)
+
+          telegram_url = f"https://api.telegram.org/bot{token}/sendMessage"
+
+          success = 0
+          failed = 0
+
+          for customer in customers:
+              chat_id = str(customer["chat_id"])
+              name = customer.get("name", chat_id)
+
+              try:
+                  response = requests.post(
+                      telegram_url,
+                      json={
+                          "chat_id": chat_id,
+                          "text": message,
+                          "parse_mode": "HTML",
+                          "disable_web_page_preview": True,
+                      },
+                      timeout=20,
+                  )
+
+                  if response.ok:
+                      success += 1
+                      print(f"✅ {name} ({chat_id})")
+                  else:
+                      failed += 1
+                      print(
+                          f"❌ {name} ({chat_id}) "
+                          f"HTTP {response.status_code}: {response.text}"
+                      )
+
+              except Exception as e:
+                  failed += 1
+                  print(f"❌ {name} ({chat_id}): {e}")
+
+              # เว้นช่วงเล็กน้อย ป้องกันยิงถี่เกินไป
+              time.sleep(0.5)
+
+          print()
+          print("━━━━━━━━━━━━━━━━━━━━")
+          print(f"✅ สำเร็จ: {success}")
+          print(f"❌ ล้มเหลว: {failed}")
+          print("━━━━━━━━━━━━━━━━━━━━")
+
+          if failed:
+              raise SystemExit(1)
+          PY
