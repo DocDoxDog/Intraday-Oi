@@ -31,6 +31,7 @@ jobs:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          LINE_CHANNEL_ACCESS_TOKEN: ${{ secrets.LINE_CHANNEL_ACCESS_TOKEN }}
         run: |
           echo "QUIKSTRIKE_URL length: ${#QUIKSTRIKE_URL}"
           echo "SUPABASE_URL length: ${#SUPABASE_URL}"
@@ -38,6 +39,7 @@ jobs:
           echo "GEMINI_API_KEY length: ${#GEMINI_API_KEY}"
           echo "TELEGRAM_BOT_TOKEN length: ${#TELEGRAM_BOT_TOKEN}"
           echo "TELEGRAM_CHAT_ID length: ${#TELEGRAM_CHAT_ID}"
+          echo "LINE_CHANNEL_ACCESS_TOKEN length: ${#LINE_CHANNEL_ACCESS_TOKEN}"
 
       - name: Run pipeline
         env:
@@ -47,4 +49,5 @@ jobs:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          LINE_CHANNEL_ACCESS_TOKEN: ${{ secrets.LINE_CHANNEL_ACCESS_TOKEN }}
         run: python src/main.py
