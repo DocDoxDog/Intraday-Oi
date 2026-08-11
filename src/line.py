@@ -97,6 +97,7 @@ def send(parsed: dict, ai_result: dict, screenshot_url: str | None = None) -> No
     messages.append(_text_message(short_bias_message))
 
     # แบ่งเป็น chunk ละไม่เกิน 5 message objects ตามข้อจำกัดของ LINE API
+    errors: list[str] = []
     for i in range(0, len(messages), MAX_MESSAGES_PER_REQUEST):
         chunk = messages[i : i + MAX_MESSAGES_PER_REQUEST]
         try:
@@ -104,4 +105,10 @@ def send(parsed: dict, ai_result: dict, screenshot_url: str | None = None) -> No
             print(f"✅ ส่ง LINE broadcast สำเร็จ ({len(chunk)} ข้อความ)")
         except Exception as e:
             print(f"❌ ส่ง LINE broadcast ล้มเหลว: {e}")
+            errors.append(str(e))
         time.sleep(0.5)
+
+    # ถ้ามี chunk ไหนล้มเหลว ให้ raise ออกไปจริง — กัน main.py print "✅ Sent to LINE"
+    # ทั้งที่จริงๆ ส่งไม่สำเร็จ (ก่อนหน้านี้ error ถูกกลืนไว้เงียบๆ ในนี้)
+    if errors:
+        raise RuntimeError(f"LINE broadcast ล้มเหลว {len(errors)}/{ (len(messages) + MAX_MESSAGES_PER_REQUEST - 1) // MAX_MESSAGES_PER_REQUEST } chunk(s): " + " | ".join(errors))
