@@ -18,6 +18,7 @@ from supabase_client import insert_snapshot, upload_screenshot, get_active_chat_
 from url_manager import UrlManager, UrlManagerError
 import history
 import telegram
+import line
 
 
 def run():
@@ -124,6 +125,16 @@ def run():
         print("✅ Sent to Telegram")
     except Exception as e:
         print(f"⚠️  Telegram send failed (data still saved to Supabase): {e}", file=sys.stderr)
+
+    print("[8/8] Sending to LINE (broadcast to all OA friends)...")
+    if os.environ.get("LINE_CHANNEL_ACCESS_TOKEN"):
+        try:
+            line.send(parsed, ai_result, screenshot_url=screenshot_url)
+            print("✅ Sent to LINE")
+        except Exception as e:
+            print(f"⚠️  LINE send failed (data still saved to Supabase): {e}", file=sys.stderr)
+    else:
+        print("    ⏭️  ข้าม LINE (ไม่ได้ตั้งค่า LINE_CHANNEL_ACCESS_TOKEN)")
 
 
 if __name__ == "__main__":
