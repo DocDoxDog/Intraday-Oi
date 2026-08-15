@@ -1,11 +1,12 @@
+# v2 (2026-08-15): Trigger จาก cron-job.org repository_dispatch เพียงอย่างเดียว
+# ไม่มี schedule cron ในโค้ด — นาฬิกากลางอยู่ที่ cron-job.org
+# Job: scrape-hourly — ทุกชม. 07:00–22:00 ICT (ดู CRONJOB_SETUP.md)
 name: Scrape OI Intraday
 
 on:
-    # ปรับตามช่วง session ที่สนใจ (UTC) — ตอนนี้ตั้ง 4 ครั้ง/วันคร่าวๆ
-    
   workflow_dispatch: {}  # กดรันเองได้จาก GitHub UI ด้วย
-  repository_dispatch: 
-      types: [run-analysis]
+  repository_dispatch:
+      types: [scrape-hourly]
 
 jobs:
   scrape:
