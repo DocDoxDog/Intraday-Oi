@@ -22,6 +22,24 @@ Pipeline ดึงข้อมูล Options Flow (Vol2Vol Expected Range) จ�
 
 `put_volume` และ `call_volume` ใน schema เดิมหมายถึง **Intraday Volume** ตามตัวชี้วัดของแท็บ Intraday ส่วน regular Volume, OI และยอดรวมทุกประเภทเก็บเพิ่มเติมไว้ใน `raw_series.totals` และใน `strike_rows`
 
+## Expiration policy
+
+ก่อน scrape ระบบจะเปิด expiration selector และเลือก Gold Options Friday series รหัส `OG<number><month><year>` ที่มี DTE เป็นบวกน้อยที่สุด โดยไม่เลือก Gold Futures daily series รหัส `G...`. ในสัปดาห์สุดท้ายของเดือน ระบบจะเลือก standard monthly options รหัส `OG<month><year>` ของเดือนปัจจุบันแทน weekly. ค่า `dte` ใช้ fractional DTE จาก expiration selector เช่น `3.27` แทนค่าในหัวกราฟที่อาจปัดลงเป็น `3 DTE`; รายละเอียด selection ถูกเก็บใน `raw_series.expiration_selection`
+
+## Twelve Data Futures-to-CFD conversion
+
+เมื่อมี `TWELVEDATA_API_KEY` ระบบจะดึงราคาปิด XAU/USD ล่าสุดจาก Twelve Data แล้วคำนวณ basis จาก snapshot เดียวกันดังนี้: `diff = Futures price - Spot price` และ `CFD level = Futures level - diff`. ค่า Futures จาก QuikStrike จะไม่ถูกเขียนทับ. ระบบเก็บ `spot_price`, `basis_diff`, `cfd_price`, `raw_series.cfd_strike_rows` และ `raw_series.cfd_expected_ranges` เพิ่มเติม เพื่อให้รายงานใช้ระดับ OI และ Expected Range ในหน่วย CFD ได้. ต้องเพิ่ม `TWELVEDATA_API_KEY` ใน GitHub Actions Secrets; หากไม่มี key ระบบจะใช้ระดับ Futures แบบเดิมและไม่ทำให้ pipeline ล้มเหลว
+
+เมื่อมี key เดียวกัน ระบบยังดึง OHLC ของ `H4`, `H1`, `M15`, `M5` และ `M1` เพื่อคำนวณ EMA50/EMA200, trend, liquidity sweep, BOS, FVG และ Fibonacci ภายใน `technical_context`. ข้อมูลนี้ส่งให้ AI ใช้ยืนยันหรือหักล้าง Bias และคัดกรอง Entry/SL/TP/RR แต่ไม่แสดงเป็นหัวข้อ indicator ในรายงานปกติของผู้รับ
+
+## LINE delivery
+
+ระบบส่งรายงาน LINE สองทางในรอบเดียวกัน: Broadcast ไปยังผู้ติดตาม/ผู้ที่แชทกับ OA ตามสิทธิ์ของ LINE และ Push Message ซ้ำไปยัง `LINE_GROUP_ID` หากตั้งค่าไว้. Group ID ไม่ถูกใช้แทนรายชื่อผู้ติดตาม และไม่ต้องเก็บ user ID รายคนสำหรับ Broadcast. ใน GitHub Actions ให้ตั้ง `LINE_CHANNEL_ACCESS_TOKEN`, `LINE_GROUP_ID` และ `TWELVEDATA_API_KEY` เป็น Secrets.
+
+## User 8622081180 micro-scalp
+
+ผู้รับ `8622081180` ใช้การ์ดสั้นแยกจากรายงานทั่วไป โดยเลือกแผนเดียว (`LONG`, `SHORT` หรือ `WAIT`) และแสดง Entry/Limit, SL ไม่เกิน 10 ดอลลาร์ และ TP1–TP4 ระยะสั้น 5/10/15/20 ดอลลาร์. OI, IV, Flow, CFD conversion และ technical context ยังใช้คัดกรองภายในเหมือนเดิม แต่ไม่แสดง indicator ยาวในข้อความ.
+
 ## การจัดการ duplicate strike
 
 CME อาจสร้าง image-map area ซ้ำสำหรับแท่งเดียวกันบนกราฟ บาง snapshot พบ strike ซ้ำ 10 จุด แต่ payload เหมือนกันทุกฟิลด์ parser จึง deduplicate เฉพาะรายการที่ payload เหมือนกันแบบครบถ้วน หากอนาคต payload ต่างกัน parser จะเก็บไว้ทั้งคู่เพื่อไม่ทิ้งข้อมูล
