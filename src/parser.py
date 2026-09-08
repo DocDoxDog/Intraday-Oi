@@ -186,6 +186,13 @@ def _parse_intraday(raw: dict) -> dict:
     heading = raw.get("page_heading") or chart.get("heading") or ""
     page_text = raw.get("page_text") or ""
     dte, dte_low_confidence = _extract_dte(heading, page_text)
+    expiration_selection = raw.get("expiration_selection") or {}
+    selector_dte = expiration_selection.get("dte_hint")
+    if isinstance(selector_dte, (int, float)) and selector_dte > 0:
+        # The selector exposes fractional time-to-expiry (e.g. 2.45), while
+        # the chart heading rounds it down to an integer (e.g. 2 DTE).
+        dte = float(selector_dte)
+        dte_low_confidence = False
 
     contract = heading.strip() or None
     if contract:
@@ -238,6 +245,7 @@ def _parse_intraday(raw: dict) -> dict:
 
     raw_series = {
         "mode": "intraday",
+        "expiration_selection": expiration_selection,
         "object_id": chart.get("object_id"),
         "chart_image_url": chart.get("chart_image_url"),
         "chart_image_width": chart.get("chart_image_width"),

@@ -16,6 +16,7 @@ import time
 import requests
 
 LINE_BROADCAST_API = "https://api.line.me/v2/bot/message/broadcast"
+LINE_PUSH_API = "https://api.line.me/v2/bot/message/push"
 
 # LINE จำกัดสูงสุด 5 message objects ต่อ 1 คำขอ broadcast
 MAX_MESSAGES_PER_REQUEST = 5
@@ -77,6 +78,20 @@ def _post_broadcast(token: str, messages: list[dict]) -> None:
         raise RuntimeError(f"LINE broadcast ล้มเหลว [{resp.status_code}]: {resp.text}")
 
 
+def _post_push(token: str, to: str, messages: list[dict]) -> None:
+    resp = requests.post(
+        LINE_PUSH_API,
+        headers={
+            "Authorization": f"Bearer {token}",
+            "Content-Type": "application/json",
+        },
+        json={"to": to, "messages": messages},
+        timeout=20,
+    )
+    if resp.status_code != 200:
+        raise RuntimeError(f"LINE group push ล้มเหลว [{resp.status_code}]: {resp.text}")
+
+
 def send(parsed: dict, ai_result: dict, screenshot_url: str | None = None) -> None:
     """
     ส่ง broadcast ไปหาผู้ที่แอดเพื่อน LINE OA ทุกคน
@@ -96,7 +111,7 @@ def send(parsed: dict, ai_result: dict, screenshot_url: str | None = None) -> No
     messages.append(_text_message(detailed_text))
     messages.append(_text_message(short_bias_message))
 
-    # แบ่งเป็น chunk ละไม่เกิน 5 message objects ตามข้อจำกัดของ LINE API
+    # Broadcast ไปยังผู้ติดตาม/ผู้ที่แชทกับ OA ตามเงื่อนไขของ LINE
     errors: list[str] = []
     for i in range(0, len(messages), MAX_MESSAGES_PER_REQUEST):
         chunk = messages[i : i + MAX_MESSAGES_PER_REQUEST]
@@ -107,6 +122,21 @@ def send(parsed: dict, ai_result: dict, screenshot_url: str | None = None) -> No
             print(f"❌ ส่ง LINE broadcast ล้มเหลว: {e}")
             errors.append(str(e))
         time.sleep(0.5)
+
+    # Push ข้อความชุดเดียวกันเข้า Group แยกจาก Broadcast
+    group_id = os.environ.get("LINE_GROUP_ID", "").strip()
+    if group_id:
+        for i in range(0, len(messages), MAX_MESSAGES_PER_REQUEST):
+            chunk = messages[i : i + MAX_MESSAGES_PER_REQUEST]
+            try:
+                _post_push(token, group_id, chunk)
+                print(f"✅ ส่ง LINE group push สำเร็จ ({len(chunk)} ข้อความ)")
+            except Exception as e:
+                print(f"❌ ส่ง LINE group push ล้มเหลว: {e}")
+                errors.append(str(e))
+            time.sleep(0.5)
+    else:
+        print("⏭️  ข้าม LINE group push (ไม่ได้ตั้งค่า LINE_GROUP_ID)")
 
     # ถ้ามี chunk ไหนล้มเหลว ให้ raise ออกไปจริง — กัน main.py print "✅ Sent to LINE"
     # ทั้งที่จริงๆ ส่งไม่สำเร็จ (ก่อนหน้านี้ error ถูกกลืนไว้เงียบๆ ในนี้)

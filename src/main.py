@@ -14,6 +14,8 @@ load_dotenv()
 from scraper import scrape, ScrapeError
 from parser import parse, ParseError
 from analyze import analyze
+from twelve_data import fetch_spot, enrich_with_basis, TwelveDataError
+from technical_analysis import build_context
 from supabase_client import insert_snapshot, upload_screenshot, get_active_chat_ids
 from url_manager import UrlManager, UrlManagerError
 import history
@@ -50,6 +52,34 @@ def run():
         print("    ⚠️  DTE จับได้จาก fallback pattern เท่านั้น (ไม่เจอ 'vs <price>' ต่อท้าย) "
               "— ค่านี้อาจไม่แม่นยำ ควรเช็คหน้า QuikStrike ว่าโครง heading เปลี่ยนไปหรือไม่",
               file=sys.stderr)
+
+    print("[3.5/8] Fetching XAU/USD spot and converting Futures levels to CFD...")
+    if os.environ.get("TWELVEDATA_API_KEY"):
+        try:
+            spot_data = fetch_spot()
+            enrich_with_basis(parsed, spot_data)
+            print(
+                f"    spot={parsed['spot_price']} diff={parsed['basis_diff']} "
+                f"cfd={parsed['cfd_price']}"
+            )
+        except TwelveDataError as e:
+            print(f"⚠️  Twelve Data enrichment failed (keeping Futures levels): {e}", file=sys.stderr)
+    else:
+        print("    ⏭️  ข้าม Twelve Data (ไม่ได้ตั้งค่า TWELVEDATA_API_KEY)")
+
+    print("[3.7/8] Building hidden multi-timeframe technical confirmation...")
+    if os.environ.get("TWELVEDATA_API_KEY"):
+        try:
+            parsed["technical_context"] = build_context()
+            confirmation = parsed["technical_context"].get("confirmation", {})
+            print(
+                f"    bias={confirmation.get('bias')} "
+                f"htf_aligned={confirmation.get('htf_aligned')}"
+            )
+        except Exception as e:
+            print(f"⚠️  Technical confirmation failed (AI will use Options data only): {e}", file=sys.stderr)
+    else:
+        print("    ⏭️  ข้าม technical confirmation (ไม่มี Twelve Data key)")
 
     print("[4/8] Uploading screenshot to Supabase Storage...")
     screenshot_bytes = parsed.pop("screenshot", None)
@@ -94,6 +124,9 @@ def run():
     
     # ⚠️ สกัดข้อมูล dte_low_confidence ทิ้งตรงนี้ เพื่อป้องกันบั๊กเวลาส่งลงฐานข้อมูล
     parsed.pop("dte_low_confidence", None) 
+    # technical_context is used by analyze() but is not a column in the
+    # existing Supabase table; keep it in ai_summary only.
+    technical_context = parsed.pop("technical_context", None)
     
     row = insert_snapshot(
         parsed,

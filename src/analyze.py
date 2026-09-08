@@ -22,6 +22,8 @@ Your edge is based on Market Microstructure, Vol2Vol, Volatility Smile/Skew, Opt
 2. "hour_ago" — snapshot จาก 1 ชั่วโมงก่อน
 3. "today_summary" — สรุป range ทั้งวัน
 4. "raw_series_summary" — สรุปการกระจายตัวของ Gamma ตาม strike, Volatility Settle shape, และ Expected Ranges
+5. "spot_price", "basis_diff", และระดับที่ลงท้ายด้วย `_cfd` — ราคาสปอตจาก Twelve Data และระดับ OI/Expected Range ที่แปลงจาก CME Futures เป็น CFD ด้วย CFD = Futures level - (Futures price - Spot price)
+6. "technical_context" — ข้อมูลภายในจาก Twelve Data หลาย timeframe (H4/H1/M15/M5/M1) สำหรับ EMA50/EMA200, trend, sweep, BOS, FVG และ Fibonacci; ใช้เป็น confirmation เท่านั้น ไม่ต้องแสดงชื่อ indicator เหล่านี้ในรายงานหลัก เว้นแต่จำเป็นต่อเหตุผล
 
 **โครงสร้างการวิเคราะห์และรายงานผล (บังคับตาม Schema):**
 1. **market_overview**: วิเคราะห์ภาพรวมตลาด เปรียบเทียบ Put vs Call volume, การเคลื่อนไหวของราคา, และระดับ IV ว่าสะท้อนความผันผวนระดับใด
@@ -30,7 +32,7 @@ Your edge is based on Market Microstructure, Vol2Vol, Volatility Smile/Skew, Opt
 4. **bull_case**, **bear_case**, **sideway_case**: แยก 3 กรณีชัดเจน (Bull Case, Bear Case, Sideway Case)
 5. **short_bias**: ฟันธง Bias (Long/Short/Wait), แผนเทรด (Entry, Target, Stop Loss), และวิธีแก้ทาง
 
-เขียนรายงานเป็นภาษาไทย มืออาชีพ กระชับ ห้ามสมมติตัวเลขเอง ใช้ข้อมูลจริงเท่านั้น
+เขียนรายงานเป็นภาษาไทย มืออาชีพ กระชับ ห้ามสมมติตัวเลขเอง ใช้ข้อมูลจริงเท่านั้น. ถ้า technical_context มี bias ไม่ตรงกัน, ไม่มีข้อมูลเพียงพอ, หรือ RR ไม่ผ่าน ให้ลดความมั่นใจและใช้ WAIT แทนการฟันธง. ใช้ระดับ CFD เมื่อพูดถึง Entry, Target, Stop และโซนสำคัญ เพราะผู้รับดูราคาสปอต/CFD. Indicator จาก technical_context ใช้คัดกรองภายในและไม่ต้องเพิ่มหัวข้อใหม่ในรูปแบบรายงานเดิม
 """
 
 RESPONSE_SCHEMA = {
@@ -106,6 +108,20 @@ def summarize_raw_series(raw_series) -> dict:
                 for row in rows[::max(1, len(rows) // 8)]
             ]
             summary["expected_ranges"] = raw_series.get("expected_ranges", [])
+            summary["cfd_expected_ranges"] = raw_series.get("cfd_expected_ranges", [])
+            summary["top_cfd_oi_levels"] = [
+                {
+                    "strike_cfd": row.get("strike_cfd"),
+                    "oiPut": row.get("oiPut"),
+                    "oiCall": row.get("oiCall"),
+                    "oiTotal": row.get("oiTotal"),
+                }
+                for row in sorted(
+                    raw_series.get("cfd_strike_rows", []),
+                    key=lambda row: row.get("oiTotal") or 0,
+                    reverse=True,
+                )[:10]
+            ]
             summary["delta_markers"] = raw_series.get("delta_markers", [])
             return summary
 

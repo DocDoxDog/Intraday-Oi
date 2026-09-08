@@ -13,12 +13,15 @@ range ครบกว่าการอ่านข้อความบนห�
 from __future__ import annotations
 
 import os
+import re
+from datetime import datetime, timedelta, timezone
 from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
 from playwright.sync_api import sync_playwright
 
 
 INTRADAY_SELECTOR = "map area[fields]"
 INTRADAY_LINK_ID = "MainContent_ucViewControl_IntegratedV2VExpectedRange_1_lbIntraday"
+EXPIRATION_LINK_SELECTOR = "a[id*='ucExpirationGroup'][id$='lbExpiration']"
 
 
 EXTRACT_INTRADAY_JS = r"""
@@ -132,6 +135,88 @@ class ScrapeError(Exception):
     pass
 
 
+def _select_preferred_expiration(page) -> dict:
+    """เลือก Gold option expiry ตาม policy ของงานนี้.
+
+    ปกติเลือก Gold Options Friday expiry (`OG<number><month><year>`) ที่มี DTE
+    เป็นบวกน้อยที่สุด ซึ่งคือวันศุกร์ถัดไปและไม่ใช่ 0DTE Futures รายวัน. ในสัปดาห์
+    สุดท้ายของเดือน ให้เลือก standard monthly Gold Options (`OG<month><year>`)
+    ของเดือนปัจจุบันแทน weekly.
+    """
+    links = page.locator(EXPIRATION_LINK_SELECTOR)
+    candidates = []
+    for i in range(links.count()):
+        link = links.nth(i)
+        try:
+            code = (link.locator(".item-name").inner_text() or "").strip()
+            text = link.inner_text() or ""
+        except Exception:
+            continue
+        if not code.startswith("OG"):
+            continue
+        match = re.search(r"\(([0-9]+(?:\.[0-9]+)?)\s*DTE\)", text, re.I)
+        if not match:
+            continue
+        dte = float(match.group(1))
+        if dte <= 0.5:
+            continue
+        weekly_friday = bool(re.match(r"^OG\d+[A-Z]\d$", code, re.I))
+        monthly = bool(re.match(r"^OG[A-Z]\d$", code, re.I))
+        if weekly_friday or monthly:
+            candidates.append({"link": link, "code": code, "dte": dte, "weekly": weekly_friday, "monthly": monthly})
+
+    if not candidates:
+        return {"selected": None, "policy": "no_positive_gold_expiry_found"}
+
+    now = datetime.now(timezone(timedelta(hours=7))).date()
+    next_friday = now + timedelta(days=(4 - now.weekday()) % 7)
+    next_month = (now.replace(day=28) + timedelta(days=4)).replace(day=1)
+    month_end = next_month - timedelta(days=1)
+    last_friday = month_end - timedelta(days=(month_end.weekday() - 4) % 7)
+    last_week = next_friday >= last_friday
+
+    if last_week:
+        monthly = [x for x in candidates if x["monthly"]]
+        if monthly:
+            expected = max(0, (last_friday - now).days)
+            chosen = min(monthly, key=lambda x: abs(x["dte"] - expected))
+            policy = "current_month_end_monthly_options_last_week"
+        else:
+            chosen = min(candidates, key=lambda x: x["dte"])
+            policy = "weekly_options_fallback_no_monthly_series"
+    else:
+        weekly = [x for x in candidates if x["weekly"]]
+        chosen = min(weekly or candidates, key=lambda x: x["dte"])
+        policy = "next_friday_weekly_options"
+
+    selected = chosen["code"]
+    current_heading = page.locator(".viewheader-info h3").first.inner_text() if page.locator(".viewheader-info h3").count() else ""
+    if selected not in current_heading:
+        try:
+            target_link = chosen["link"]
+            if not target_link.is_visible():
+                trigger = page.locator("#ctl00_ucSelector_hlExpiration")
+                if trigger.count():
+                    trigger.click(timeout=10_000)
+                    page.wait_for_timeout(250)
+            # Expiration links live inside a hidden popup; force the ASP.NET
+            # postback click rather than relying on popup visibility.
+            target_link.click(force=True, timeout=10_000)
+            # This postback is a full reload in some QuikStrike deployments
+            # and an async update in others. A short polling loop handles both
+            # without relying on a navigation event that can be missed.
+            for _ in range(30):
+                page.wait_for_timeout(1_000)
+                heading = page.locator(".viewheader-info h3").first.inner_text() if page.locator(".viewheader-info h3").count() else ""
+                if selected in heading:
+                    break
+            else:
+                raise ScrapeError(f"postback แล้วแต่ heading ไม่เปลี่ยนเป็น {selected}")
+        except Exception as exc:
+            raise ScrapeError(f"เลือก expiration {selected} ไม่สำเร็จ: {exc}") from exc
+    return {"selected": selected, "policy": policy, "dte_hint": chosen["dte"]}
+
+
 def _load_intraday_chart(page) -> None:
     """รอ chart เดิมก่อน แล้ว force postback ไปแท็บ Intraday ถ้ายังไม่มี image-map."""
     try:
@@ -185,6 +270,7 @@ def scrape(url: str | None = None) -> dict:
         try:
             page.goto(url, wait_until="domcontentloaded", timeout=60_000)
             page.wait_for_timeout(500)
+            expiration_selection = _select_preferred_expiration(page)
             _load_intraday_chart(page)
             page.wait_for_timeout(500)
 
@@ -220,6 +306,7 @@ def scrape(url: str | None = None) -> dict:
                 if chart_data.get("strike_rows")
                 else "quikstrike_highcharts_fallback",
                 "chart_data": chart_data,
+                "expiration_selection": expiration_selection,
                 "page_heading": page_heading,
                 "page_text": page_text,
                 "screenshot": screenshot,
