@@ -1,84 +1,48 @@
 # OI-intraday
 
-Pipeline ดึงข้อมูล Options Flow (Vol2Vol Expected Range) จาก CME QuikStrike
-สำหรับ XAUUSD (Gold) → เก็บลง Supabase → วิเคราะห์ด้วย Claude API → ส่งต่อ QontWise
+Pipeline ดึงข้อมูล Options Flow (Vol2Vol Expected Range) จาก CME QuikStrike สำหรับ Gold Futures แล้วเก็บลง Supabase, วิเคราะห์ และส่งต่อ Telegram/LINE
 
-## สถาปัตยกรรม
+## กลไก scraping ปัจจุบัน
 
-```
-scraper.py (Playwright)
-    -> ดึงข้อมูลจาก Highcharts object ในหน้า QuikStrike โดยตรง
+หน้า QuikStrike รุ่นปัจจุบันไม่ได้สร้าง Highcharts object สำหรับแท็บ Intraday แบบเดิมเสมอไป แต่ส่ง chart เป็น PNG ที่มี HTML image-map กำกับอยู่ ค่าใน tooltip ราย strike ถูกเก็บใน attribute `fields` ของ `<area>`. `src/scraper.py` จึงทำงานดังนี้:
 
-parser.py
-    -> แปลง raw JSON เป็น schema ที่ใช้งานได้ (P/C ratio, delta levels ฯลฯ)
+1. เปิดหน้า QuikStrike ด้วย Playwright
+2. สั่ง postback ที่แท็บ `MainContent_ucViewControl_IntegratedV2VExpectedRange_1_lbIntraday`
+3. อ่าน `map area[fields]` โดยตรง แทนการ parse รูปภาพหรือ OCR
+4. เก็บข้อมูลทุก strike, expected range, delta marker, DataObjectId, chart URL และ screenshot
+5. `src/parser.py` แปลงค่า numeric และรักษาข้อมูลราย strike ไว้ใน `raw_series` พร้อมคีย์เดิมที่ pipeline ใช้อยู่
 
-analyze.py
-    -> ส่งข้อมูล current + hour_ago + today_summary เข้า Gemini API เพื่อสรุปเป็น sentiment/insight
-       (เทียบเทรนด์ ไม่ใช่มองแค่ snapshot เดียว)
+ถ้า CME เปลี่ยนกลับไปสร้าง Highcharts, scraper ยังมี legacy fallback สำหรับ Highcharts object เดิม
 
-history.py
-    -> ดึงข้อมูลย้อนหลังจาก Supabase: snapshot ของ ~1 ชม.ก่อน + สรุป range ของทั้งวัน
-       ใช้เสริม context ให้ analyze.py เห็นทิศทาง ไม่ใช่แค่ตัดขวางเวลาเดียว
-       ถ้า query history พัง จะไม่ทำให้ pipeline หลักล่ม (fail-safe)
+## ฟิลด์ที่ดึงได้จาก Intraday
 
-supabase_client.py
-    -> insert record ลง Supabase table `options_flow_snapshots`
-    -> อัปโหลดรูป screenshot ของ chart ขึ้น Storage bucket `oi-screenshots` (private)
+ใน `raw_series.strike_rows` มีข้อมูลต่อ strike ได้แก่ strike, call/put/straddle premium, settle, change, implied volatility, call/put delta, gamma, vega, theta, call/put/total open interest และการเปลี่ยนแปลง, call/put/total volume และการเปลี่ยนแปลง, intraday volume แยก call/put/total รวมถึง class flags ที่หน้าเว็บใช้บอกทิศทางขึ้น/ลง
 
-main.py
-    -> orchestrate ทั้ง 5 ขั้นตอนข้างบนเป็น pipeline เดียว (scrape -> parse -> analyze
-       -> upload screenshot -> insert -> ส่ง Telegram พร้อมรูป)
-```
+ใน `raw_series.expected_ranges` มีช่วง One, Two และ Three Standard Deviations พร้อม lower/upper, เปอร์เซ็นต์ความน่าจะเป็น และเปอร์เซ็นต์การเบี่ยงเบนจากราคาอนาคต ส่วน `raw_series.delta_markers` มีระดับ 5/15/25/35/45 delta ฝั่ง Call/Put ตามที่หน้าแสดง
 
-## Screenshot
+`put_volume` และ `call_volume` ใน schema เดิมหมายถึง **Intraday Volume** ตามตัวชี้วัดของแท็บ Intraday ส่วน regular Volume, OI และยอดรวมทุกประเภทเก็บเพิ่มเติมไว้ใน `raw_series.totals` และใน `strike_rows`
 
-`scraper.py` แคปรูป chart (element `.highcharts-container`, fallback เป็นทั้งหน้าถ้าหาไม่เจอ)
-พร้อมกับดึงข้อมูล แล้วอัปโหลดขึ้น Supabase Storage bucket `oi-screenshots`
+## การจัดการ duplicate strike
 
-**bucket ตั้งเป็น private** เพราะ CME data ใช้ส่วนตัวเท่านั้น (ดูหัวข้อ "ข้อควรระวัง") —
-เข้าถึงรูปผ่าน signed URL อายุสั้น (1 ชม.) เท่านั้น ไม่มี public URL ตรงๆ
-
-ใน table เก็บ 2 column:
-- `screenshot_path` — path ถาวรใน bucket ใช้ regenerate signed url ใหม่ได้ทีหลังผ่าน
-  `supabase_client.get_signed_url(path)`
-- `screenshot_url` — signed url ตอน capture (หมดอายุแล้วถ้าเปิดดูย้อนหลังนานเกิน 1 ชม.
-  ให้ regenerate จาก `screenshot_path` แทน)
-
-รูปจะถูกส่งเข้า Telegram ก่อนข้อความวิเคราะห์เสมอ (ถ้า capture/upload สำเร็จ) — ถ้าแคปรูป
-หรืออัปโหลดพลาด pipeline จะไม่ล้ม แค่ข้ามขั้นตอนนี้ไปเฉยๆ (ข้อมูลตัวเลข/วิเคราะห์สำคัญกว่า)
+CME อาจสร้าง image-map area ซ้ำสำหรับแท่งเดียวกันบนกราฟ บาง snapshot พบ strike ซ้ำ 10 จุด แต่ payload เหมือนกันทุกฟิลด์ parser จึง deduplicate เฉพาะรายการที่ payload เหมือนกันแบบครบถ้วน หากอนาคต payload ต่างกัน parser จะเก็บไว้ทั้งคู่เพื่อไม่ทิ้งข้อมูล
 
 ## Setup
 
 ```bash
 pip install -r requirements.txt
 playwright install chromium
-cp .env.example .env   # แล้วกรอกค่าจริง
+cp .env.example .env
 python src/main.py
 ```
 
 ## Environment Variables
 
-ดู `.env.example` — ต้องมี:
-- `QUIKSTRIKE_URL` — URL หน้า Vol2Vol ที่จะดึง (session id เปลี่ยนได้ ต้อง refresh เป็นระยะ)
-- `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY` — จาก Supabase Dashboard → Settings → API
-  **ห้าม commit ค่าเหล่านี้ลง git เด็ดขาด ใช้ GitHub Secrets สำหรับ CI**
-- `GEMINI_API_KEY` — สำหรับขั้นตอนวิเคราะห์ (เอาได้ฟรีจาก https://aistudio.google.com/apikey)
-- `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID` — สำหรับส่งผลวิเคราะห์เข้า Telegram
-  (หา `chat_id` ได้จากส่งข้อความหา bot แล้วเปิด `https://api.telegram.org/bot<token>/getUpdates`)
+ดู `.env.example` สำหรับ `QUIKSTRIKE_URL`, Supabase, Gemini, Telegram และ LINE credentials. ห้าม commit credentials ลง git; ใช้ GitHub Secrets ใน CI
 
-## ข้อควรระวัง (สำคัญ)
+## ข้อควรระวัง
 
-1. **Data license / ToS** — CME market data มีเงื่อนไขการใช้งาน ใช้เพื่อวิเคราะห์ส่วนตัวเท่านั้น ห้ามเผยแพร่ข้อมูลดิบต่อสาธารณะ
-2. **Session (`qsid`) หมดอายุ** — URL ผูกกับ session id ที่อาจหมดอายุ ต้องมีแผน refresh URL เป็นระยะ (ยังไม่ auto-refresh ใน v1 นี้)
-3. **โครงหน้าเปลี่ยน** — ถ้า CME เปลี่ยน UI, scraper อาจพังกะทันหัน — ดู `scraper.py` มันจะ raise error ชัดเจนถ้า `Highcharts.charts` ว่างเปล่า อย่า silent-fail
-4. **ความถี่การรัน** — แนะนำ 2-4 ครั้ง/วัน ไม่ใช่ real-time เพื่อลดความเสี่ยงโดน rate-limit/บล็อก IP
-
-## GitHub Actions (scheduled scraping)
-
-ดู `.github/workflows/scrape.yml` — รันตาม cron schedule, ใช้ GitHub Secrets สำหรับ credentials ทั้งหมด
-ปรับ schedule ได้ตามช่วง session ที่สนใจ (London open / NY open / EOD)
+CME market data มีเงื่อนไขการใช้งาน ควรใช้เพื่อวิเคราะห์ส่วนตัวและไม่เผยแพร่ข้อมูลดิบต่อสาธารณะ. `qsid` อาจหมดอายุและระบบ URL manager จะพยายามหา session ใหม่ตามลำดับที่กำหนดไว้. ความถี่การดึงควรจำกัดเพื่อลดความเสี่ยง rate-limit และควรตรวจสิทธิ์การเข้าถึง QuikStrike ให้ตรงกับแผนบริการ
 
 ## Supabase Schema
 
-ดู `supabase/migrations/001_init.sql` — table `options_flow_snapshots` มี RLS เปิดอยู่ (ไม่มี public policy)
-เข้าถึงได้เฉพาะผ่าน service role key เท่านั้น
+ตารางเดิม `options_flow_snapshots` ยังรองรับฟิลด์หลักและ `raw_series` แบบ JSONB. migration ที่มีอยู่เพิ่ม `dte`, screenshot columns และ customer configuration ตามลำดับ
