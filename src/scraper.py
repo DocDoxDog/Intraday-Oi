@@ -135,16 +135,27 @@ class ScrapeError(Exception):
 def _load_intraday_chart(page) -> None:
     """รอ chart เดิมก่อน แล้ว force postback ไปแท็บ Intraday ถ้ายังไม่มี image-map."""
     try:
-        page.wait_for_selector(INTRADAY_SELECTOR, state="attached", timeout=12_000)
+        # ResizerPanel loads Chart.aspx asynchronously; GitHub Actions runners
+        # are often slower than local Chromium, so give the first chart up to
+        # 35 seconds to appear before deciding that a postback is necessary.
+        page.wait_for_selector(INTRADAY_SELECTOR, state="attached", timeout=35_000)
         return
     except PlaywrightTimeoutError:
         pass
 
     link = page.locator(f"#{INTRADAY_LINK_ID}")
     if link.count() == 0:
+        # Fallback for minor ASP.NET naming/container changes.
+        link = page.locator("a").filter(has_text="Intraday").first
+    if link.count() == 0:
+        try:
+            body = page.locator("body").inner_text(timeout=5_000) or ""
+        except Exception:
+            body = ""
         raise ScrapeError(
             "ไม่พบแท็บ Intraday หรือ image-map ในหน้า QuikStrike; "
-            "หน้าอาจเปลี่ยนโครงสร้างหรือ session หมดอายุ"
+            "หน้าอาจเปลี่ยนโครงสร้างหรือ session หมดอายุ; "
+            f"page_text={body[:500]!r}"
         )
 
     # ลิงก์เป็น ASP.NET __doPostBack; บางรุ่นตอบด้วย full navigation และบางรุ่น

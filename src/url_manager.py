@@ -82,18 +82,28 @@ class UrlManager:
     # ---------- validate ----------
 
     def validate(self, url: str) -> bool:
-        """เปิด url จริงแล้วเช็คว่ามี Highcharts โหลดสำเร็จไหม (ไม่ error/session หมดอายุ)"""
+        """ตรวจว่า URL โหลด chart รุ่นเก่าหรือ image-map รุ่นใหม่ได้จริง."""
         try:
             with sync_playwright() as p:
-                browser = p.chromium.launch(headless=True)
+                browser = p.chromium.launch(
+                    headless=True,
+                    args=["--no-sandbox", "--disable-dev-shm-usage"],
+                )
                 page = browser.new_page(viewport={"width": 1600, "height": 1000})
-                page.goto(url, wait_until="networkidle", timeout=30000)
-                page.wait_for_timeout(3000)
+                page.goto(url, wait_until="domcontentloaded", timeout=60000)
+
+                # QuikStrike loads Chart.aspx asynchronously; waiting for
+                # networkidle is unreliable because the page keeps timers/XHRs.
+                try:
+                    page.wait_for_selector("map area[fields]", state="attached", timeout=35000)
+                except Exception:
+                    page.wait_for_timeout(3000)
 
                 has_chart = page.evaluate(
                     "() => typeof Highcharts !== 'undefined' "
                     "&& Highcharts.charts && Highcharts.charts.some(c => c)"
                 )
+                has_image_map = page.locator("map area[fields]").count() > 0
                 page_text = (page.evaluate("() => document.body.innerText") or "").lower()
                 browser.close()
 
@@ -101,7 +111,7 @@ class UrlManager:
                 kw in page_text
                 for kw in ("session expired", "session has expired", "not found", "an error occurred")
             )
-            return bool(has_chart) and not has_error_text
+            return bool(has_chart or has_image_map) and not has_error_text
         except Exception as e:
             print(f"⚠️  validate() เปิด URL ไม่สำเร็จ: {e}")
             return False
