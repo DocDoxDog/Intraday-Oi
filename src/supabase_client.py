@@ -15,6 +15,16 @@ SCREENSHOT_BUCKET = os.environ.get("SUPABASE_STORAGE_BUCKET", "oi-screenshots")
 # เพราะ CME data ต้องใช้ส่วนตัวเท่านั้น ห้ามเปิด public (ดู README หัวข้อ "ข้อควรระวัง")
 SIGNED_URL_EXPIRY_SECONDS = 3600
 
+# Keep the insert compatible with deployments that have the original schema.
+# New enrichment fields (spot_price, basis_diff, cfd_price, technical_context)
+# remain available to analysis and inside raw_series JSONB, but are not sent as
+# top-level columns unless a migration explicitly adds them.
+SNAPSHOT_COLUMNS = {
+    "captured_at", "contract", "dte", "future_price", "future_chg",
+    "put_volume", "call_volume", "vol", "vol_chg", "delta_levels",
+    "raw_series", "ai_summary", "screenshot_path", "screenshot_url",
+}
+
 
 def get_client() -> Client:
     url = os.environ["SUPABASE_URL"]
@@ -64,7 +74,7 @@ def insert_snapshot(
 ) -> dict:
     client = get_client()
     row = {
-        **parsed,
+        **{key: value for key, value in parsed.items() if key in SNAPSHOT_COLUMNS},
         "ai_summary": ai_summary,
         "screenshot_path": screenshot_path,
         "screenshot_url": screenshot_url,
