@@ -1,11 +1,9 @@
 name: Scrape OI Intraday
 
 on:
-    # ปรับตามช่วง session ที่สนใจ (UTC) — ตอนนี้ตั้ง 4 ครั้ง/วันคร่าวๆ
-    
-  workflow_dispatch: {}  # กดรันเองได้จาก GitHub UI ด้วย
-  repository_dispatch: 
-      types: [run-analysis]
+  workflow_dispatch: {}
+  repository_dispatch:
+    types: [run-analysis]
 
 jobs:
   scrape:
@@ -32,6 +30,8 @@ jobs:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
           LINE_CHANNEL_ACCESS_TOKEN: ${{ secrets.LINE_CHANNEL_ACCESS_TOKEN }}
+          LINE_GROUP_ID: ${{ secrets.LINE_GROUP_ID }}
+          TWELVEDATA_API_KEY: ${{ secrets.TWELVEDATA_API_KEY }}
         run: |
           echo "QUIKSTRIKE_URL length: ${#QUIKSTRIKE_URL}"
           echo "SUPABASE_URL length: ${#SUPABASE_URL}"
@@ -40,6 +40,8 @@ jobs:
           echo "TELEGRAM_BOT_TOKEN length: ${#TELEGRAM_BOT_TOKEN}"
           echo "TELEGRAM_CHAT_ID length: ${#TELEGRAM_CHAT_ID}"
           echo "LINE_CHANNEL_ACCESS_TOKEN length: ${#LINE_CHANNEL_ACCESS_TOKEN}"
+          echo "LINE_GROUP_ID length: ${#LINE_GROUP_ID}"
+          echo "TWELVEDATA_API_KEY length: ${#TWELVEDATA_API_KEY}"
 
       - name: Run pipeline
         env:
@@ -50,4 +52,7 @@ jobs:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
           LINE_CHANNEL_ACCESS_TOKEN: ${{ secrets.LINE_CHANNEL_ACCESS_TOKEN }}
+          LINE_GROUP_ID: ${{ secrets.LINE_GROUP_ID }}
+          TWELVEDATA_API_KEY: ${{ secrets.TWELVEDATA_API_KEY }}
+          TWELVEDATA_SYMBOL: XAU/USD
         run: python src/main.py
