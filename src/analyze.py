@@ -62,11 +62,56 @@ RESPONSE_SCHEMA = {
 
 
 def summarize_raw_series(raw_series) -> dict:
-    if not raw_series or not isinstance(raw_series, list):
+    if not raw_series:
         return {"note": "No raw series available"}
-    
+
     summary = {}
     try:
+        # New scraper format: preserve the complete per-strike payload in the
+        # database, but send only compact aggregates to the LLM.
+        if isinstance(raw_series, dict):
+            rows = raw_series.get("strike_rows", [])
+            totals = raw_series.get("totals", {})
+            summary["mode"] = raw_series.get("mode")
+            summary["totals"] = totals
+            summary["top_intraday_volume_strikes"] = [
+                {
+                    "strike": row.get("strike"),
+                    "put": row.get("ivolumePut"),
+                    "call": row.get("ivolumeCall"),
+                    "total": row.get("ivolumeTotal"),
+                    "iv": row.get("vol"),
+                }
+                for row in sorted(
+                    rows,
+                    key=lambda row: row.get("ivolumeTotal") or 0,
+                    reverse=True,
+                )[:10]
+            ]
+            summary["top_open_interest_strikes"] = [
+                {
+                    "strike": row.get("strike"),
+                    "put": row.get("oiPut"),
+                    "call": row.get("oiCall"),
+                    "total": row.get("oiTotal"),
+                }
+                for row in sorted(
+                    rows,
+                    key=lambda row: row.get("oiTotal") or 0,
+                    reverse=True,
+                )[:10]
+            ]
+            summary["iv_sample"] = [
+                {"strike": row.get("strike"), "iv": row.get("vol")}
+                for row in rows[::max(1, len(rows) // 8)]
+            ]
+            summary["expected_ranges"] = raw_series.get("expected_ranges", [])
+            summary["delta_markers"] = raw_series.get("delta_markers", [])
+            return summary
+
+        # Backward-compatible format for snapshots created by the old scraper.
+        if not isinstance(raw_series, list):
+            return {"note": "Unknown raw series format"}
         put_data, call_data, vol_data, ranges_data = [], [], [], []
         for series in raw_series:
             name = series.get("name", "")
@@ -75,13 +120,10 @@ def summarize_raw_series(raw_series) -> dict:
             elif name == "Call": call_data = data
             elif name == "Vol Settle": vol_data = data
             elif name == "Ranges": ranges_data = data
-        
+
         combined_strikes = {}
-        for p in put_data:
-            combined_strikes[p.get("x")] = combined_strikes.get(p.get("x"), 0) + p.get("y", 0)
-        for c in call_data:
-            combined_strikes[c.get("x")] = combined_strikes.get(c.get("x"), 0) + c.get("y", 0)
-            
+        for point in put_data + call_data:
+            combined_strikes[point.get("x")] = combined_strikes.get(point.get("x"), 0) + (point.get("y") or 0)
         sorted_strikes = sorted(combined_strikes.items(), key=lambda item: item[1], reverse=True)
         summary["top_volume_strikes"] = [{"strike": s[0], "total_vol": s[1]} for s in sorted_strikes[:5]]
         summary["vol_settle_sample"] = [{"strike": v.get("x"), "iv": v.get("y")} for v in vol_data[::max(1, len(vol_data)//5)]]
