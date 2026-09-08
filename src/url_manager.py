@@ -105,13 +105,29 @@ class UrlManager:
                 )
                 has_image_map = page.locator("map area[fields]").count() > 0
                 page_text = (page.evaluate("() => document.body.innerText") or "").lower()
+                has_intraday_control = (
+                    "intraday" in page_text
+                    or page.locator("a").filter(has_text="Intraday").count() > 0
+                )
                 browser.close()
 
             has_error_text = any(
                 kw in page_text
                 for kw in ("session expired", "session has expired", "not found", "an error occurred")
             )
-            return bool(has_chart or has_image_map) and not has_error_text
+            # EOD Volume pages also contain an image-map, but cannot satisfy
+            # the Intraday Vol2Vol Expected Range scraper. Do not let an old
+            # EOD URL in Supabase shadow the correct env URL.
+            is_expected_range = (
+                "expected range" in page_text
+                and "vol2vol" in page_text
+            )
+            return (
+                bool(has_chart or has_image_map)
+                and is_expected_range
+                and has_intraday_control
+                and not has_error_text
+            )
         except Exception as e:
             print(f"⚠️  validate() เปิด URL ไม่สำเร็จ: {e}")
             return False
