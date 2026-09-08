@@ -6,6 +6,7 @@ Insert record ลง table `options_flow_snapshots`
 """
 
 import os
+import re
 import time
 from supabase import create_client, Client
 
@@ -30,7 +31,12 @@ def upload_screenshot(image_bytes: bytes | None, contract: str | None = None) ->
         return None
 
     client = get_client()
-    safe_contract = (contract or "unknown").replace("/", "-").replace(" ", "_")
+    # Supabase Storage object keys reject/interpret several characters that
+    # appear in QuikStrike contract headings: |, ™, %, parentheses and spaces.
+    # Keep only portable ASCII key characters; the original contract remains
+    # in the database row, so no identifying information is lost.
+    safe_contract = re.sub(r"[^A-Za-z0-9._-]+", "_", contract or "unknown")
+    safe_contract = re.sub(r"_+", "_", safe_contract).strip("._-") or "unknown"
     path = f"{safe_contract}/{time.strftime('%Y%m%d-%H%M%S')}.png"
 
     client.storage.from_(SCREENSHOT_BUCKET).upload(
