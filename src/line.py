@@ -47,20 +47,58 @@ def format_message(parsed: dict, ai_result: dict) -> str:
     if "error" in ai_result:
         return f"⚠️ AI analysis error: {ai_result['error']}"
 
+    raw = parsed.get("raw_series") or {}
+    totals = raw.get("totals") or {}
+    spot = parsed.get("cfd_price", parsed.get("future_price", "-"))
+    iv = parsed.get("vol", "-")
+    put = totals.get("intraday_volume_put", parsed.get("put_volume", "-"))
+    call = totals.get("intraday_volume_call", parsed.get("call_volume", "-"))
+    def compact(value):
+        text = " ".join(str(value or "-").split())
+        if len(text) <= 220:
+            return text
+        return text[:220].rsplit(" ", 1)[0] + "..."
+    rows = raw.get("cfd_strike_rows") or []
+    try:
+        price = float(spot)
+    except (TypeError, ValueError):
+        price = None
+    puts = [r for r in rows if r.get("strike_cfd") is not None and (r.get("oiPut") or 0) > 0]
+    calls = [r for r in rows if r.get("strike_cfd") is not None and (r.get("oiCall") or 0) > 0]
+    put_wall = max((r for r in puts if price is not None and float(r["strike_cfd"]) < price), key=lambda r: float(r["strike_cfd"]), default=None)
+    call_wall = min((r for r in calls if price is not None and float(r["strike_cfd"]) > price), key=lambda r: float(r["strike_cfd"]), default=None)
+    ai_bias = str(ai_result.get("short_bias") or "").lower()
+    is_short = any(w in ai_bias for w in ("short", "sell", "ขาย"))
+    is_long = any(w in ai_bias for w in ("long", "buy", "ซื้อ")) or (not is_short and float(call or 0) > float(put or 0))
+    direction = "SELL" if is_short else "BUY" if is_long else "WAIT"
+    wall = put_wall if direction == "SELL" else call_wall if direction == "BUY" else None
+    if wall:
+        entry = float(wall["strike_cfd"])
+        stop = entry + 30 if direction == "SELL" else entry - 30
+        tps = [entry + (x if direction == "BUY" else -x) for x in (20, 40, 60, 90)]
+        confirmed = price is not None and (price <= entry if direction == "SELL" else price >= entry)
+        status = ("🟢 BUY" if direction == "BUY" and confirmed else "🔴 SELL" if direction == "SELL" and confirmed else "🟡 WAIT")
+        plan = f"{status} | Entry {entry:.2f} | SL {stop:.2f}\n" + " | ".join(f"TP{i} {tp:.2f} (+{abs(tp-entry)/entry*100:.2f}%)" for i, tp in enumerate(tps, 1))
+    else:
+        plan = "🟡 WAIT | รอทิศทางและระดับยืนยันก่อนเปิดสถานะ"
     return (
-        f"📊 รายงาน Volatility & Options Flow (Gold){dte_line}\n\n"
-        f"• ภาพรวมตลาด\n{ai_result.get('market_overview', '-')}\n\n"
-        f"• โซนสำคัญ\n"
-        f" - แนวต้านไกล: {ai_result.get('resistance_far', '-')}\n"
-        f" - แนวต้านหลัก: {ai_result.get('resistance_main', '-')}\n"
-        f" - แนวต้านปัจจุบัน: {ai_result.get('resistance_current', '-')}\n"
-        f" - แนวรับปัจจุบัน: {ai_result.get('support_current', '-')}\n"
-        f" - แนวรับหลัก: {ai_result.get('support_main', '-')}\n"
-        f" - แนวรับลึก: {ai_result.get('support_deep', '-')}\n\n"
-        f"• Scenario\n"
-        f"1) Bull Case\n{ai_result.get('bull_case', '-')}\n\n"
-        f"2) Bear Case\n{ai_result.get('bear_case', '-')}\n\n"
-        f"3) Sideway Case (มุมมองหลัก)\n{ai_result.get('sideway_case', '-')}"
+        f"📊 Gold Options Flow{dte_line}\n\n"
+        f"สรุป: CFD {spot} | IV {iv}%\n"
+        f"Intraday: Put {put} | Call {call}\n"
+        f"Bias: {ai_result.get('short_bias', '-')}\n\n"
+        f"วิเคราะห์\n{compact(ai_result.get('market_overview'))}\n\n"
+        f"KEY LEVELS (CFD)\n"
+        f"ต้านไกล: {ai_result.get('resistance_far', '-')}\n"
+        f"ต้านหลัก: {ai_result.get('resistance_main', '-')}\n"
+        f"ต้านใกล้: {ai_result.get('resistance_current', '-')}\n"
+        f"รับใกล้: {ai_result.get('support_current', '-')}\n"
+        f"รับหลัก: {ai_result.get('support_main', '-')}\n"
+        f"รับลึก: {ai_result.get('support_deep', '-')}\n\n"
+        f"TRADE PLAN (ภาพใหญ่ / CFD)\n{plan}\n\n"
+        f"แผน\n"
+        f"Bull: {compact(ai_result.get('bull_case'))}\n"
+        f"Bear: {compact(ai_result.get('bear_case'))}\n"
+        f"มุมมอง: {compact(ai_result.get('sideway_case'))}"
     )
 
 

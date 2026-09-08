@@ -43,21 +43,73 @@ def format_message(parsed: dict, ai_result: dict) -> str:
     if "error" in ai_result:
         return f"{header}\n\n⚠️ AI analysis error: {ai_result['error']}"
 
+    raw = parsed.get("raw_series") or {}
+    totals = raw.get("totals") or {}
+    spot = parsed.get("cfd_price", parsed.get("future_price", "-"))
+    iv = parsed.get("vol", "-")
+    put = totals.get("intraday_volume_put", parsed.get("put_volume", "-"))
+    call = totals.get("intraday_volume_call", parsed.get("call_volume", "-"))
+    bias = ai_result.get("short_bias", "-")
+    def compact(value):
+        text = " ".join(str(value or "-").split())
+        if len(text) <= 220:
+            return text
+        return text[:220].rsplit(" ", 1)[0] + "..."
+
+    # Wider-horizon plan for regular recipients. Unlike user 8622's
+    # micro-scalp ladder, this uses a wider stop/target ladder.
+    rows = raw.get("cfd_strike_rows") or []
+    try:
+        price = float(spot)
+    except (TypeError, ValueError):
+        price = None
+    puts = [r for r in rows if r.get("strike_cfd") is not None and (r.get("oiPut") or 0) > 0]
+    calls = [r for r in rows if r.get("strike_cfd") is not None and (r.get("oiCall") or 0) > 0]
+    put_wall = max((r for r in puts if price is not None and float(r["strike_cfd"]) < price), key=lambda r: float(r["strike_cfd"]), default=None)
+    call_wall = min((r for r in calls if price is not None and float(r["strike_cfd"]) > price), key=lambda r: float(r["strike_cfd"]), default=None)
+    ai_bias = str(ai_result.get("short_bias") or "").lower()
+    is_short = any(w in ai_bias for w in ("short", "sell", "ขาย"))
+    is_long = any(w in ai_bias for w in ("long", "buy", "ซื้อ")) or (not is_short and float(call or 0) > float(put or 0))
+    plan_direction = "SELL" if is_short else "BUY" if is_long else "WAIT"
+    if plan_direction == "BUY" and call_wall:
+        entry = float(call_wall["strike_cfd"]); stop = entry - 30; tps = [entry + x for x in (20, 40, 60, 90)]
+        trigger = f"ยืนเหนือ {entry:.2f}"
+        confirmed = price is not None and price >= entry
+    elif plan_direction == "SELL" and put_wall:
+        entry = float(put_wall["strike_cfd"]); stop = entry + 30; tps = [entry - x for x in (20, 40, 60, 90)]
+        trigger = f"หลุด {entry:.2f}"
+        confirmed = price is not None and price <= entry
+    else:
+        entry = stop = None; tps = []; trigger = "รอระดับยืนยัน"; confirmed = False
+    plan_status = ("🟢 BUY" if plan_direction == "BUY" and confirmed else
+                   "🔴 SELL" if plan_direction == "SELL" and confirmed else
+                   "🟡 WAIT")
+    if entry is not None:
+        plan_lines = (
+            f"{plan_status} | รอ/เข้าเมื่อ {trigger}\n"
+            f"Entry / Limit: {entry:.2f}  |  SL: {stop:.2f}\n" +
+            "\n".join(f"TP{i}: {tp:.2f} (+{abs(tp-entry)/entry*100:.2f}%)" for i, tp in enumerate(tps, 1))
+        )
+    else:
+        plan_lines = "🟡 WAIT | รอทิศทางและระดับยืนยันก่อนเปิดสถานะ"
     return (
-        f"📊 <b>รายงาน Volatility & Options Flow (Gold)</b>{dte_line}\n"
-        f"{header}\n\n"
-        f"<b>• ภาพรวมตลาด</b>\n{ai_result.get('market_overview', '-')}\n\n"
-        f"<b>• โซนสำคัญ</b>\n"
-        f" • แนวต้านไกล: {ai_result.get('resistance_far', '-')}\n"
-        f" • แนวต้านหลัก: {ai_result.get('resistance_main', '-')}\n"
-        f" • แนวต้านปัจจุบัน: {ai_result.get('resistance_current', '-')}\n"
-        f" • แนวรับปัจจุบัน: {ai_result.get('support_current', '-')}\n"
-        f" • แนวรับหลัก: {ai_result.get('support_main', '-')}\n"
-        f" • แนวรับลึก: {ai_result.get('support_deep', '-')}\n\n"
-        f"<b>• Scenario</b>\n"
-        f"<b>1) Bull Case</b>\n{ai_result.get('bull_case', '-')}\n\n"
-        f"<b>2) Bear Case</b>\n{ai_result.get('bear_case', '-')}\n\n"
-        f"<b>3) Sideway Case (มุมมองหลัก)</b>\n{ai_result.get('sideway_case', '-')}"
+        f"📊 <b>Gold Options Flow</b>{dte_line}\n{header}\n\n"
+        f"<b>สรุป</b>  CFD <b>{spot}</b>  |  IV <b>{iv}%</b>\n"
+        f"Intraday  Put <b>{put}</b>  •  Call <b>{call}</b>\n"
+        f"Bias: <b>{bias}</b>\n\n"
+        f"<b>วิเคราะห์</b>\n{compact(ai_result.get('market_overview'))}\n\n"
+        f"<b>KEY LEVELS (CFD)</b>\n"
+        f"ต้านไกล  {ai_result.get('resistance_far', '-')}\n"
+        f"ต้านหลัก  {ai_result.get('resistance_main', '-')}\n"
+        f"ต้านใกล้  {ai_result.get('resistance_current', '-')}\n"
+        f"รับใกล้    {ai_result.get('support_current', '-')}\n"
+        f"รับหลัก    {ai_result.get('support_main', '-')}\n"
+        f"รับลึก     {ai_result.get('support_deep', '-')}\n\n"
+        f"<b>TRADE PLAN (ภาพใหญ่ / CFD)</b>\n{plan_lines}\n\n"
+        f"<b>แผน</b>\n"
+        f"Bull: {compact(ai_result.get('bull_case'))}\n"
+        f"Bear: {compact(ai_result.get('bear_case'))}\n"
+        f"มุมมอง: {compact(ai_result.get('sideway_case'))}"
     )
 
 
@@ -121,25 +173,33 @@ def _short_trader_message(parsed: dict, ai_result: dict) -> str:
     ai_bias = str(ai_result.get("short_bias") or "").lower()
     if any(word in ai_bias for word in ("short", "sell", "ขาย")):
         direction = "SHORT"
-        direction_label = "แผน Short"
+        direction_label = "แผน SELL"
         trigger = f"หลุด Put wall {put_level} แล้วไม่สามารถ reclaim กลับได้"
         target = f"เป้าหมายถัดไป: Expected Range / OI wall ด้านล่าง"
         invalidation = f"ยกเลิกแผนเมื่อราคากลับเหนือ {put_level}"
         status = "รอยืนยัน Short"
     elif any(word in ai_bias for word in ("long", "buy", "ซื้อ")) or float(call_iv or 0) > float(put_iv or 0):
         direction = "LONG"
-        direction_label = "แผน Long"
+        direction_label = "แผน BUY"
         trigger = f"ยืนเหนือ Call wall {call_level} และไม่หลุดกลับลงมา"
         target = f"เป้าหมายถัดไป: OI wall / Expected Range ด้านบน"
         invalidation = f"ยกเลิกแผนเมื่อราคาหลุดกลับใต้ {call_level}"
         status = "รอยืนยัน Long"
     else:
         direction = "WAIT"
-        direction_label = "แผน Wait"
+        direction_label = "แผน WAIT"
         trigger = "รอ Flow และราคายืนยันไปในทิศทางเดียวกัน"
         target = "ยังไม่กำหนด Target จนกว่าจะมีทิศทางชัดเจน"
         invalidation = "ไม่เปิดสถานะกลางกรอบ"
         status = "WAIT"
+
+    # BUY/SELL is green/red only after the CFD price crosses its trigger.
+    if direction == "LONG" and price is not None and price >= float(call_wall.get("strike_cfd", price + 1)):
+        status, status_icon = "BUY", "🟢"
+    elif direction == "SHORT" and price is not None and price <= float(put_wall.get("strike_cfd", price - 1)):
+        status, status_icon = "SELL", "🔴"
+    else:
+        status, status_icon = "WAIT", "🟡"
 
     # Micro-scalp ladder for this recipient. OI/Expected Range still validate
     # direction, but the execution plan stays tight and does not use swing
@@ -163,6 +223,11 @@ def _short_trader_message(parsed: dict, ai_result: dict) -> str:
     entry_text = fmt(entry_level) if entry_level is not None else "รอทิศทางชัดเจน"
     sl_text = fmt(sl_level) if sl_level is not None else "ยังไม่กำหนด"
     tp_text = [fmt(x) if x is not None else "-" for x in target_values]
+    def tp_percent(value):
+        if entry_level is None or value is None or not float(entry_level):
+            return "-"
+        return f"{abs(float(value) - float(entry_level)) / abs(float(entry_level)) * 100:.2f}%"
+    tp_percent_text = [tp_percent(x) for x in target_values]
     sd_low = fmt(one_sd.get("lower_cfd", "-"))
     sd_high = fmt(one_sd.get("upper_cfd", "-"))
     return (
@@ -171,8 +236,8 @@ def _short_trader_message(parsed: dict, ai_result: dict) -> str:
         f"<b>{expiry}</b>  •  Friday Options\n"
         f"DTE {dte}  •  CFD <b>{cfd}</b>\n\n"
         f"<b>สถานะ</b>\n"
-        f"⚪ <b>{status}</b>\n"
-        f"แผนหลัก: <b>{direction}</b>\n"
+        f"{status_icon} <b>{status}</b>\n"
+        f"แผนหลัก: <b>{'BUY' if direction == 'LONG' else 'SELL' if direction == 'SHORT' else 'WAIT'}</b>\n"
         f"Flow: <b>{bias}</b>\n\n"
         f"<b>ราคาอ้างอิง</b>\n"
         f"CFD {cfd}  |  Spot {spot}\n"
@@ -190,10 +255,10 @@ def _short_trader_message(parsed: dict, ai_result: dict) -> str:
         f"\n<b>TRADE PLAN (CFD)</b>\n"
         f"Entry / Limit: <b>{entry_text}</b>\n"
         f"SL: <b>{sl_text}</b>\n"
-        f"TP1: <b>{tp_text[0]}</b>\n"
-        f"TP2: <b>{tp_text[1]}</b>\n"
-        f"TP3: <b>{tp_text[2]}</b>\n"
-        f"TP4: <b>{tp_text[3]}</b>\n\n"
+        f"TP1: <b>{tp_text[0]}</b>  (+{tp_percent_text[0]})\n"
+        f"TP2: <b>{tp_text[1]}</b>  (+{tp_percent_text[1]})\n"
+        f"TP3: <b>{tp_text[2]}</b>  (+{tp_percent_text[2]})\n"
+        f"TP4: <b>{tp_text[3]}</b>  (+{tp_percent_text[3]})\n\n"
         f"Invalidation: {invalidation}\n\n"
         f"<i>Technical confirmation ใช้คัดกรองภายใน\n"
         f"แผนนี้ไม่ใช่การการันตีกำไร และห้ามเข้าในกลางกรอบ</i>"

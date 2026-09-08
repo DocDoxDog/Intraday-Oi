@@ -22,7 +22,9 @@ SIGNED_URL_EXPIRY_SECONDS = 3600
 SNAPSHOT_COLUMNS = {
     "captured_at", "contract", "dte", "future_price", "future_chg",
     "put_volume", "call_volume", "vol", "vol_chg", "delta_levels",
-    "raw_series", "ai_summary", "screenshot_path", "screenshot_url",
+    "raw_series", "spot_price", "basis_diff", "cfd_price",
+    "price_conversion", "technical_context", "ai_summary",
+    "screenshot_path", "screenshot_url",
 }
 
 

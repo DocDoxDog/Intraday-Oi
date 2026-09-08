@@ -124,10 +124,6 @@ def run():
     
     # ⚠️ สกัดข้อมูล dte_low_confidence ทิ้งตรงนี้ เพื่อป้องกันบั๊กเวลาส่งลงฐานข้อมูล
     parsed.pop("dte_low_confidence", None) 
-    # technical_context is used by analyze() but is not a column in the
-    # existing Supabase table; keep it in ai_summary only.
-    technical_context = parsed.pop("technical_context", None)
-    
     row = insert_snapshot(
         parsed,
         ai_summary=json.dumps(ai_result, ensure_ascii=False),
