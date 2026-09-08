@@ -40,6 +40,8 @@ Pipeline ดึงข้อมูล Options Flow (Vol2Vol Expected Range) จ�
 
 ผู้รับ `8622081180` ใช้การ์ดสั้นแยกจากรายงานทั่วไป โดยเลือกแผนเดียว (`LONG`, `SHORT` หรือ `WAIT`) และแสดง Entry/Limit, SL ไม่เกิน 10 ดอลลาร์ และ TP1–TP4 ระยะสั้น 5/10/15/20 ดอลลาร์. OI, IV, Flow, CFD conversion และ technical context ยังใช้คัดกรองภายในเหมือนเดิม แต่ไม่แสดง indicator ยาวในข้อความ.
 
+ในการ์ดที่ส่งจริงจะแสดงสถานะเป็น `🟢 BUY` เมื่อราคาผ่าน Buy trigger, `🔴 SELL` เมื่อราคาผ่าน Sell trigger และ `🟡 WAIT` ก่อน trigger ผ่าน. TP1–TP4 จะแสดงทั้งระดับราคาและเปอร์เซ็นต์การเปลี่ยนแปลงเทียบกับ Entry/Limit เพื่อช่วยตัดสินใจทยอยถือหรือปิดกำไร.
+
 ## การจัดการ duplicate strike
 
 CME อาจสร้าง image-map area ซ้ำสำหรับแท่งเดียวกันบนกราฟ บาง snapshot พบ strike ซ้ำ 10 จุด แต่ payload เหมือนกันทุกฟิลด์ parser จึง deduplicate เฉพาะรายการที่ payload เหมือนกันแบบครบถ้วน หากอนาคต payload ต่างกัน parser จะเก็บไว้ทั้งคู่เพื่อไม่ทิ้งข้อมูล
