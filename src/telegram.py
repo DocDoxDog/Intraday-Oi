@@ -47,9 +47,21 @@ def format_message(parsed: dict, ai_result: dict) -> str:
     totals = raw.get("totals") or {}
     spot = parsed.get("cfd_price", parsed.get("future_price", "-"))
     iv = parsed.get("vol", "-")
-    put = totals.get("intraday_volume_put", parsed.get("put_volume", "-"))
-    call = totals.get("intraday_volume_call", parsed.get("call_volume", "-"))
-    bias = ai_result.get("short_bias", "-")
+    put = totals.get("open_interest_view_put", totals.get("open_interest_put", "-"))
+    call = totals.get("open_interest_view_call", totals.get("open_interest_call", "-"))
+    delta_put = totals.get("oi_delta_put")
+    delta_call = totals.get("oi_delta_call")
+    churn = totals.get("churn")
+    bias_raw = str(ai_result.get("short_bias", "-") or "-")
+    bias_lower = bias_raw.lower()
+    if any(w in bias_lower for w in ("wait", "รอ", "ยังไม่")):
+        bias = "WAIT"
+    elif any(w in bias_lower for w in ("short", "sell", "ขาย")):
+        bias = "SELL"
+    elif any(w in bias_lower for w in ("long", "buy", "ซื้อ")):
+        bias = "BUY"
+    else:
+        bias = "WAIT"
     def compact(value):
         text = " ".join(str(value or "-").split())
         if len(text) <= 220:
@@ -67,11 +79,12 @@ def format_message(parsed: dict, ai_result: dict) -> str:
     calls = [r for r in rows if r.get("strike_cfd") is not None and (r.get("oiCall") or 0) > 0]
     put_wall = max((r for r in puts if price is not None and float(r["strike_cfd"]) < price), key=lambda r: float(r["strike_cfd"]), default=None)
     call_wall = min((r for r in calls if price is not None and float(r["strike_cfd"]) > price), key=lambda r: float(r["strike_cfd"]), default=None)
-    ai_bias = str(ai_result.get("short_bias") or "").lower()
-    is_short = any(w in ai_bias for w in ("short", "sell", "ขาย"))
-    is_long = any(w in ai_bias for w in ("long", "buy", "ซื้อ")) or (not is_short and float(call or 0) > float(put or 0))
+    ai_bias = bias_lower
+    is_wait = bias == "WAIT"
+    is_short = not is_wait and any(w in ai_bias for w in ("short", "sell", "ขาย"))
+    is_long = not is_wait and any(w in ai_bias for w in ("long", "buy", "ซื้อ"))
     plan_direction = "SELL" if is_short else "BUY" if is_long else "WAIT"
-    if plan_direction == "BUY" and call_wall:
+    if (plan_direction == "BUY" or plan_direction == "WAIT") and call_wall:
         entry = float(call_wall["strike_cfd"]); stop = entry - 30; tps = [entry + x for x in (20, 40, 60, 90)]
         trigger = f"ยืนเหนือ {entry:.2f}"
         confirmed = price is not None and price >= entry
@@ -94,8 +107,11 @@ def format_message(parsed: dict, ai_result: dict) -> str:
         plan_lines = "🟡 WAIT | รอทิศทางและระดับยืนยันก่อนเปิดสถานะ"
     return (
         f"📊 <b>Gold Options Flow</b>{dte_line}\n{header}\n\n"
-        f"<b>สรุป</b>  CFD <b>{spot}</b>  |  IV <b>{iv}%</b>\n"
-        f"Intraday  Put <b>{put}</b>  •  Call <b>{call}</b>\n"
+        f"CFD      <b>{spot}</b>\n"
+        f"Futures  {parsed.get('future_price', '-')}  |  Diff {parsed.get('basis_diff', '-')}\n"
+        f"IV       <b>{iv}%</b>\n\n"
+        f"<b>Open Interest Positioning</b>\nPut <b>{put}</b>  •  Call <b>{call}</b>\n"
+        f"ΔOI: {delta_put if delta_put is not None else '-'} Put  •  {delta_call if delta_call is not None else '-'} Call  |  Churn: {churn if churn is not None else '-'}\n"
         f"Bias: <b>{bias}</b>\n\n"
         f"<b>วิเคราะห์</b>\n{compact(ai_result.get('market_overview'))}\n\n"
         f"<b>KEY LEVELS (CFD)</b>\n"
@@ -106,10 +122,10 @@ def format_message(parsed: dict, ai_result: dict) -> str:
         f"รับหลัก    {ai_result.get('support_main', '-')}\n"
         f"รับลึก     {ai_result.get('support_deep', '-')}\n\n"
         f"<b>TRADE PLAN (ภาพใหญ่ / CFD)</b>\n{plan_lines}\n\n"
-        f"<b>แผน</b>\n"
-        f"Bull: {compact(ai_result.get('bull_case'))}\n"
-        f"Bear: {compact(ai_result.get('bear_case'))}\n"
-        f"มุมมอง: {compact(ai_result.get('sideway_case'))}"
+        f"<b>SCENARIO</b>\n"
+        f"🟢 Bull: {compact(ai_result.get('bull_case'))}\n"
+        f"🔴 Bear: {compact(ai_result.get('bear_case'))}\n"
+        f"🟡 Sideway: {compact(ai_result.get('sideway_case'))}"
     )
 
 
@@ -136,8 +152,8 @@ def _short_trader_message(parsed: dict, ai_result: dict) -> str:
     vol = parsed.get("vol", "-")
     raw = parsed.get("raw_series") or {}
     totals = raw.get("totals") or {}
-    put_iv = totals.get("intraday_volume_put", parsed.get("put_volume", "-"))
-    call_iv = totals.get("intraday_volume_call", parsed.get("call_volume", "-"))
+    put_iv = totals.get("open_interest_view_put", totals.get("open_interest_put", "-"))
+    call_iv = totals.get("open_interest_view_call", totals.get("open_interest_call", "-"))
     put_oi = totals.get("open_interest_put", "-")
     call_oi = totals.get("open_interest_call", "-")
     selection = raw.get("expiration_selection") or {}
@@ -243,8 +259,8 @@ def _short_trader_message(parsed: dict, ai_result: dict) -> str:
         f"CFD {cfd}  |  Spot {spot}\n"
         f"Futures {future}  |  Diff {diff}\n"
         f"ATM IV {fmt(vol)}%\n\n"
-        f"<b>FLOW / OI</b>\n"
-        f"Intraday  Put <b>{put_iv}</b>  •  Call <b>{call_iv}</b>\n"
+        f"<b>OPEN INTEREST</b>\n"
+        f"Put <b>{put_iv}</b>  •  Call <b>{call_iv}</b>\n"
         f"OI         Put <b>{put_oi}</b>  •  Call <b>{call_oi}</b>\n\n"
         f"<b>KEY LEVELS (CFD)</b>\n"
         f"🟢 Put wall   <b>{put_level}</b>  ({put_wall.get('oiPut', '-')})\n"
@@ -287,7 +303,7 @@ def send(
 
     detailed_text = format_message(parsed, ai_result)
     bias_text = ai_result.get('short_bias', 'ไม่มีข้อมูล Bias')
-    short_bias_message = f"🎯 <b>Bias ฟันธง!</b>\n{bias_text}"
+    short_bias_message = f"🎯 <b>Bias</b>\n{bias_text}"
 
     for cid in chat_ids:
         # 1. ส่งรูปภาพ (ถ้ามี)
@@ -318,6 +334,14 @@ def send(
         try:
             if str(cid) == SHORT_TRADER_CHAT_ID:
                 short_bias_message = _short_trader_message(parsed, ai_result)
+            else:
+                # The main report contains the full wider plan; keep the
+                # second message as a short, standardized status only.
+                raw_bias = str(bias_text).lower()
+                label = ("SELL" if any(w in raw_bias for w in ("short", "sell", "ขาย"))
+                         else "BUY" if any(w in raw_bias for w in ("long", "buy", "ซื้อ"))
+                         else "WAIT")
+                short_bias_message = f"🎯 <b>Bias: {label}</b>\n{'รอ Trigger ก่อนเข้า' if label == 'WAIT' else 'ทำตาม Trade Plan เมื่อ Trigger ผ่าน'}"
             requests.post(
                 TELEGRAM_API.format(token=token),
                 json={"chat_id": cid, "text": short_bias_message, "parse_mode": "HTML"},

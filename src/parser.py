@@ -1,334 +1,118 @@
 """
 parser.py
 =========
-แปลง raw dict จาก scraper.py เป็น schema เดิมของ options_flow_snapshots
-พร้อมเก็บข้อมูล intraday ราย strike ทุกค่าที่ QuikStrike ส่งมาไว้ใน raw_series.
+แปลง raw dict จาก scraper.py เป็น schema ของ options_flow_snapshots
+พร้อมรองรับ Open Interest View จาก QuikStrike free tier
 """
 
 from __future__ import annotations
-
 import re
 from typing import Any
-
 
 class ParseError(Exception):
     pass
 
-
 _NUM = r"-?[\d,]+(?:\.\d+)?"
-DTE_PATTERN_STRICT = re.compile(
-    rf"\(({_NUM})\s*DTE\)\s*vs\s*{_NUM}", re.IGNORECASE
-)
-DTE_PATTERN_LOOSE = re.compile(rf"\(({_NUM})\s*DTE\)", re.IGNORECASE)
-
-_INT_FIELDS = {
-    "oiCall", "oiPut", "oiTotal", "volumeCall", "volumePut", "volumeTotal",
-    "ivolumeCall", "ivolumePut", "ivolumeTotal",
-}
-_FLOAT_FIELDS = {
-    "callPremium", "putPremium", "straddlePremium", "callSettle", "putSettle",
-    "straddleSettle", "callChange", "putChange", "straddleChange", "vol",
-    "callDelta", "putDelta", "gamma", "vega", "theta", "oichgvCall",
-    "oichgvPut", "oichgvTotal",
-}
-_CHANGE_FIELDS = {
-    "oiCallChange", "oiPutChange", "oiTotalChange", "volumeCallChange",
-    "volumePutChange", "volumeTotalChange",
-}
-
+DTE_PATTERN_STRICT = re.compile(rf"\(({_NUM})\s*DTE\)\s*vs\s*{_NUM}", re.I)
+DTE_PATTERN_LOOSE = re.compile(rf"\(({_NUM})\s*DTE\)", re.I)
+_INT_FIELDS = {"oiCall","oiPut","oiTotal","volumeCall","volumePut","volumeTotal","ivolumeCall","ivolumePut","ivolumeTotal"}
+_FLOAT_FIELDS = {"callPremium","putPremium","straddlePremium","callSettle","putSettle","straddleSettle","callChange","putChange","straddleChange","vol","callDelta","putDelta","gamma","vega","theta","oichgvCall","oichgvPut","oichgvTotal"}
+_CHANGE_FIELDS = {"oiCallChange","oiPutChange","oiTotalChange","volumeCallChange","volumePutChange","volumeTotalChange"}
 
 def _number(value: Any) -> float | int | None:
-    if value is None:
-        return None
+    if value is None: return None
     text = str(value).strip().replace(",", "")
-    if not text or text.lower() in {"no change", "n/a", "na", "null", "none"}:
-        return None
-    try:
-        number = float(text)
-    except ValueError:
-        return None
+    if not text or text.lower() in {"no change","n/a","na","null","none"}: return None
+    try: number = float(text)
+    except ValueError: return None
     return int(number) if number.is_integer() else number
 
+def _extract_float(pattern: str, text: str) -> float | None:
+    match = re.search(pattern, text or "", re.I)
+    return float(match.group(1).replace(",", "")) if match else None
+
+def _extract_dte(*texts: str | None) -> tuple[float | None, bool]:
+    for text in texts:
+        if text:
+            m = DTE_PATTERN_STRICT.search(text)
+            if m: return float(m.group(1).replace(",", "")), False
+    for text in texts:
+        if text:
+            m = DTE_PATTERN_LOOSE.search(text)
+            if m: return float(m.group(1).replace(",", "")), True
+    return None, False
+
+def _marker_number(text: str, label: str) -> float | None:
+    return _extract_float(rf"{label}\s*:\s*({_NUM})", text)
 
 def _normalise_row(row: dict) -> dict:
     fields = dict(row.get("fields") or {})
     title = fields.get("title") or ""
-    strike_match = re.search(rf"({_NUM})\s*Strike", title, re.IGNORECASE)
-    strike = _number(strike_match.group(1)) if strike_match else None
-
-    out: dict[str, Any] = {
-        "strike": strike,
-        "coords": row.get("coords"),
-        "template_id": row.get("template_id"),
-    }
-    # Keep every field, including show/hide class flags, so no information from
-    # QuikStrike's tooltip payload is silently discarded.
+    m = re.search(rf"({_NUM})\s*Strike", title, re.I)
+    out = {"strike": _number(m.group(1)) if m else None, "coords": row.get("coords"), "template_id": row.get("template_id")}
     for key, value in fields.items():
-        if key in _INT_FIELDS:
-            out[key] = _number(value)
+        if key in _INT_FIELDS: out[key] = _number(value)
         elif key in _FLOAT_FIELDS or key in _CHANGE_FIELDS:
-            numeric = _number(value)
-            out[key] = value if numeric is None and value not in (None, "") else numeric
-        else:
-            out[key] = value
+            n = _number(value); out[key] = value if n is None and value not in (None, "") else n
+        else: out[key] = value
     return out
 
-
-def _deduplicate_rows(rows: list[dict]) -> list[dict]:
-    """ลบ overlay area ที่ซ้ำแบบ payload เดียวกันหลังแยกเป็น strike แล้ว."""
-    by_strike: dict[Any, list[dict]] = {}
+def _deduplicate_rows(rows):
+    out = {}
     for row in rows:
-        by_strike.setdefault(row.get("strike"), []).append(row)
-    result: list[dict] = []
-    for grouped in by_strike.values():
-        unique: list[dict] = []
-        for row in grouped:
-            # coords/template_id describe the overlay geometry, not a second
-            # market record; ignore them when comparing duplicate payloads.
-            identity = {k: v for k, v in row.items() if k not in {"coords", "template_id"}}
-            if not any(
-                identity == {k: v for k, v in existing.items() if k not in {"coords", "template_id"}}
-                for existing in unique
-            ):
-                unique.append(row)
-        result.extend(unique)
-    return sorted(result, key=lambda row: row.get("strike"))
+        key = row.get("strike")
+        identity = {k:v for k,v in row.items() if k not in {"coords","template_id"}}
+        out.setdefault(key, {})
+        out[key].setdefault(str(identity), row)
+    return sorted([v for group in out.values() for v in group.values()], key=lambda r: r.get("strike") or 0)
 
+def _build_series(rows, ranges):
+    def series(name, field):
+        return {"name":name,"data":[{"x":r.get("strike"),"y":r.get(field),"category":r.get("strike")} for r in rows if r.get("strike") is not None and r.get(field) is not None]}
+    return [series("Put OI","oiPut"),series("Call OI","oiCall"),series("Put OI Change","oiPutChange"),series("Call OI Change","oiCallChange"),series("Vol Settle","vol")]
 
-def _normalise_range(item: dict) -> dict:
-    fields = dict(item or {})
-    out = dict(fields)
-    for key in ("lower", "upper", "lowerPercent", "upperPercent", "vol"):
-        if key in out:
-            value = str(out[key]).replace("%", "")
-            numeric = _number(value)
-            out[key] = numeric if numeric is not None else out[key]
-    return out
-
-
-def _extract_dte(*texts: str | None) -> tuple[float | None, bool]:
-    for text in texts:
-        if not text:
-            continue
-        match = DTE_PATTERN_STRICT.search(text)
-        if match:
-            return float(match.group(1).replace(",", "")), False
-    for text in texts:
-        if not text:
-            continue
-        match = DTE_PATTERN_LOOSE.search(text)
-        if match:
-            return float(match.group(1).replace(",", "")), True
-    return None, False
-
-
-def _extract_float(pattern: str, text: str) -> float | None:
-    match = re.search(pattern, text or "", re.IGNORECASE)
-    if not match:
-        return None
-    return float(match.group(1).replace(",", ""))
-
-
-def _marker_number(marker_text: str, label: str) -> float | None:
-    return _extract_float(rf"{label}\s*:\s*({_NUM})", marker_text)
-
-
-def _build_series(rows: list[dict], ranges: list[dict]) -> list[dict]:
-    """สร้าง series ที่ analyze.py รุ่นเดิมใช้ได้ และยังเก็บ metric ใหม่ใน raw_rows."""
-    def series(name: str, field: str) -> dict:
-        return {
-            "name": name,
-            "data": [
-                {"x": row.get("strike"), "y": row.get(field), "category": row.get("strike")}
-                for row in rows
-                if row.get("strike") is not None and row.get(field) is not None
-            ],
-        }
-
-    result = [
-        series("Put", "ivolumePut"),
-        series("Call", "ivolumeCall"),
-        series("Put Volume", "volumePut"),
-        series("Call Volume", "volumeCall"),
-        series("Put OI", "oiPut"),
-        series("Call OI", "oiCall"),
-        series("Vol Settle", "vol"),
-        series("Gamma", "gamma"),
-        series("Vega", "vega"),
-        series("Theta", "theta"),
-    ]
-    result.append({
-        "name": "Ranges",
-        "data": [
-            {"x": item.get("title"), "y": item.get("upper"), "lower": item.get("lower")}
-            for item in ranges
-        ],
-    })
-    return result
-
-
-def _parse_intraday(raw: dict) -> dict:
-    chart = raw.get("chart_data") or {}
-    rows = [_normalise_row(item) for item in chart.get("strike_rows", [])]
-    rows = [row for row in rows if row.get("strike") is not None]
-    rows = _deduplicate_rows(rows)
-    if not rows:
-        raise ParseError("พบ image-map แต่ไม่มี strike row ที่มีข้อมูล fields")
-
-    ranges_by_title: dict[str, dict] = {}
-    for item in chart.get("expected_ranges", []):
-        normalised = _normalise_range(item)
-        title = normalised.get("title")
-        if title:
-            ranges_by_title[title] = normalised
-    ranges = list(ranges_by_title.values())
-
+def _parse_image_map(raw):
+    chart = raw.get("chart_data") or {}; rows = _deduplicate_rows([_normalise_row(x) for x in chart.get("strike_rows",[])])
+    if not rows: raise ParseError("ไม่พบ OI strike rows")
     heading = raw.get("page_heading") or chart.get("heading") or ""
-    page_text = raw.get("page_text") or ""
-    dte, dte_low_confidence = _extract_dte(heading, page_text)
-    expiration_selection = raw.get("expiration_selection") or {}
-    selector_dte = expiration_selection.get("dte_hint")
-    if isinstance(selector_dte, (int, float)) and selector_dte > 0:
-        # The selector exposes fractional time-to-expiry (e.g. 2.45), while
-        # the chart heading rounds it down to an integer (e.g. 2 DTE).
-        dte = float(selector_dte)
-        dte_low_confidence = False
+    dte, low = _extract_dte(heading, raw.get("page_text")); sel=raw.get("expiration_selection") or {}
+    if isinstance(sel.get("dte_hint"),(int,float)): dte=float(sel["dte_hint"]); low=False
+    future=None
+    for marker in chart.get("future_markers") or []:
+        future=_marker_number(str(marker),"Future")
+        if future is not None: break
+    future = future or _extract_float(r"\bvs\s*(%s)"%_NUM,heading)
+    vols=[r["vol"] for r in rows if isinstance(r.get("vol"),(int,float))]
+    raw_series={"mode":"open_interest","expiration_selection":sel,"heading":heading,"strike_rows":rows,"oi_positioning_rows":rows,"totals":{"open_interest_view_put":sum(r.get("oiPut") or 0 for r in rows),"open_interest_view_call":sum(r.get("oiCall") or 0 for r in rows),"open_interest_view_total":sum(r.get("oiTotal") or 0 for r in rows),"open_interest_put":sum(r.get("oiPut") or 0 for r in rows),"open_interest_call":sum(r.get("oiCall") or 0 for r in rows),"open_interest_total":sum(r.get("oiTotal") or 0 for r in rows)},"series":_build_series(rows,[])}
+    chart_png=None
+    try:
+        from oi_chart import render_oi_positioning
+        chart_png=render_oi_positioning(rows,title=heading or "Gold")
+    except Exception: pass
+    return {"contract":heading,"dte":dte,"dte_low_confidence":low,"future_price":future,"future_chg":None,"put_volume":0,"call_volume":0,"vol":sum(vols)/len(vols) if vols else None,"vol_chg":None,"delta_levels":{},"raw_series":raw_series,"screenshot":chart_png or raw.get("screenshot")}
 
-    contract = heading.strip() or None
-    if contract:
-        contract = re.sub(r"\s+", " ", contract)
+def _parse_legacy(raw):
+    chart=(raw.get("chart_data") or {}).get("charts",[])
+    if not chart: raise ParseError("ไม่พบ Open Interest chart")
+    c=chart[0]; series={s.get("name",""):s.get("data",[]) for s in c.get("series",[])}
+    puts={p.get("x"):p.get("y") for p in series.get("Put",[])}; calls={p.get("x"):p.get("y") for p in series.get("Call",[])}
+    rows=[{"strike":x,"oiPut":puts.get(x,0),"oiCall":calls.get(x,0),"oiTotal":(puts.get(x,0) or 0)+(calls.get(x,0) or 0)} for x in sorted(set(puts)|set(calls))]
+    heading=raw.get("page_heading") or c.get("title") or ""
+    future=next((p.get("value") for p in c.get("plotLines",[]) if str(p.get("label","")).startswith("Future:")),None)
+    dte,low=_extract_dte(heading,raw.get("page_text"))
+    raw_series={"mode":"open_interest","heading":heading,"strike_rows":rows,"oi_positioning_rows":rows,"totals":{"open_interest_view_put":sum(r["oiPut"] or 0 for r in rows),"open_interest_view_call":sum(r["oiCall"] or 0 for r in rows),"open_interest_view_total":sum(r["oiTotal"] or 0 for r in rows),"open_interest_put":sum(r["oiPut"] or 0 for r in rows),"open_interest_call":sum(r["oiCall"] or 0 for r in rows),"open_interest_total":sum(r["oiTotal"] or 0 for r in rows)},"series":[{"name":"Put OI","data":[{"x":r["strike"],"y":r["oiPut"]} for r in rows]},{"name":"Call OI","data":[{"x":r["strike"],"y":r["oiCall"]} for r in rows]}]}
+    chart_png=None
+    try:
+        from oi_chart import render_oi_positioning
+        chart_png=render_oi_positioning(rows,title=heading or "Gold")
+    except Exception: pass
+    return {"contract":heading,"dte":dte,"dte_low_confidence":low,"future_price":future,"future_chg":None,"put_volume":0,"call_volume":0,"vol":None,"vol_chg":None,"delta_levels":{},"raw_series":raw_series,"screenshot":chart_png or raw.get("screenshot")}
 
-    future_price = None
-    future_chg = None
-    future_markers = chart.get("future_markers") or []
-    for marker in future_markers:
-        marker_text = str(marker)
-        if re.search(r"Settle\s*:", marker_text, re.IGNORECASE):
-            future_price = _marker_number(marker_text, "Future")
-            break
-    if future_price is None and future_markers:
-        future_price = _marker_number(str(future_markers[0]), "Future")
-    if future_price is None:
-        future_price = _extract_float(r"\bvs\s*(%s)" % _NUM, heading)
-
-    atm_vol = _extract_float(r"at\s*(%s)\s*%%\s*Volatility" % _NUM, heading)
-    if atm_vol is None and rows:
-        # The image-map's per-strike `vol` is the available fallback.
-        vols = [row["vol"] for row in rows if isinstance(row.get("vol"), (int, float))]
-        atm_vol = sum(vols) / len(vols) if vols else None
-
-    # Intraday Volume is the explicit metric in the QuikStrike tooltip. Keep
-    # regular Volume separately inside raw_series for callers that need it.
-    put_volume = sum(
-        row.get("ivolumePut") or 0 for row in rows
-        if isinstance(row.get("ivolumePut"), (int, float))
-    )
-    call_volume = sum(
-        row.get("ivolumeCall") or 0 for row in rows
-        if isinstance(row.get("ivolumeCall"), (int, float))
-    )
-    put_regular_volume = sum(
-        row.get("volumePut") or 0 for row in rows
-        if isinstance(row.get("volumePut"), (int, float))
-    )
-    call_regular_volume = sum(
-        row.get("volumeCall") or 0 for row in rows
-        if isinstance(row.get("volumeCall"), (int, float))
-    )
-
-    delta_levels: dict[str, float] = {}
-    for marker in chart.get("delta_markers") or []:
-        delta = marker.get("delta")
-        strike = _number(marker.get("strike"))
-        if delta and strike is not None:
-            delta_levels[str(delta)] = strike
-
-    raw_series = {
-        "mode": "intraday",
-        "expiration_selection": expiration_selection,
-        "object_id": chart.get("object_id"),
-        "chart_image_url": chart.get("chart_image_url"),
-        "chart_image_width": chart.get("chart_image_width"),
-        "chart_image_height": chart.get("chart_image_height"),
-        "heading": heading,
-        "future_markers": future_markers,
-        "delta_markers": chart.get("delta_markers") or [],
-        "expected_ranges": ranges,
-        "strike_rows": rows,
-        "totals": {
-            "intraday_volume_put": put_volume,
-            "intraday_volume_call": call_volume,
-            "intraday_volume_total": put_volume + call_volume,
-            "regular_volume_put": put_regular_volume,
-            "regular_volume_call": call_regular_volume,
-            "regular_volume_total": put_regular_volume + call_regular_volume,
-            "open_interest_put": sum(row.get("oiPut") or 0 for row in rows),
-            "open_interest_call": sum(row.get("oiCall") or 0 for row in rows),
-            "open_interest_total": sum(row.get("oiTotal") or 0 for row in rows),
-        },
-        "series": _build_series(rows, ranges),
-    }
-
-    return {
-        "contract": contract,
-        "dte": dte,
-        "dte_low_confidence": dte_low_confidence,
-        "future_price": future_price,
-        "future_chg": future_chg,
-        "put_volume": int(put_volume),
-        "call_volume": int(call_volume),
-        "vol": atm_vol,
-        "vol_chg": None,
-        "delta_levels": delta_levels,
-        "raw_series": raw_series,
-        "screenshot": raw.get("screenshot"),
-    }
-
-
-def _parse_legacy(raw: dict) -> dict:
-    """รองรับ raw จาก scraper รุ่นเดิมที่ยังคืน Highcharts charts เป็น list."""
-    if not raw.get("charts"):
-        raise ParseError("raw data ไม่มี charts หรือ intraday strike rows")
-    chart = raw["charts"][0]
-    subtitle = chart.get("subtitle") or ""
-    future_price = None
-    delta_levels = {}
-    for line in chart.get("plotLines", []):
-        label = line.get("label") or ""
-        if label.startswith("Future:"):
-            future_price = line.get("value")
-        elif label:
-            delta_levels[label] = line.get("value")
-    dte, low_conf = _extract_dte(
-        raw.get("page_text"), raw.get("page_heading"), subtitle, chart.get("title")
-    )
-    def get(pattern: str) -> float | None:
-        return _extract_float(pattern, subtitle)
-    put = get(r"Put:.*?>\s*(%s)" % _NUM)
-    call = get(r"Call:.*?>\s*(%s)" % _NUM)
-    if future_price is None or put is None or call is None:
-        raise ParseError("ดึงค่า legacy ไม่ครบ future/put/call")
-    return {
-        "contract": chart.get("title"), "dte": dte, "dte_low_confidence": low_conf,
-        "future_price": future_price, "future_chg": get(r"Future Chg:.*?>\s*(%s)" % _NUM),
-        "put_volume": int(put), "call_volume": int(call),
-        "vol": get(r"(?<!Chg)Vol:.*?>\s*(%s)" % _NUM),
-        "vol_chg": get(r"Vol Chg:.*?>\s*(%s)" % _NUM),
-        "delta_levels": delta_levels, "raw_series": chart.get("series", []),
-        "screenshot": raw.get("screenshot"),
-    }
-
-
-def parse(raw: dict) -> dict:
-    if raw.get("chart_data", {}).get("strike_rows"):
-        return _parse_intraday(raw)
+def parse(raw):
+    if (raw.get("chart_data") or {}).get("strike_rows"): return _parse_image_map(raw)
     return _parse_legacy(raw)
-
 
 if __name__ == "__main__":
     import json
     from scraper import scrape
-
-    parsed = parse(scrape())
-    debug = {**parsed, "screenshot": f"<{len(parsed['screenshot'])} bytes>" if parsed.get("screenshot") else None}
-    print(json.dumps(debug, ensure_ascii=False, indent=2))
+    p=parse(scrape()); print(json.dumps({**p,"screenshot":f"<{len(p['screenshot'])} bytes>" if p.get('screenshot') else None},ensure_ascii=False,indent=2))

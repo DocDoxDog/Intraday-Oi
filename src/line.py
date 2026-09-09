@@ -51,8 +51,11 @@ def format_message(parsed: dict, ai_result: dict) -> str:
     totals = raw.get("totals") or {}
     spot = parsed.get("cfd_price", parsed.get("future_price", "-"))
     iv = parsed.get("vol", "-")
-    put = totals.get("intraday_volume_put", parsed.get("put_volume", "-"))
-    call = totals.get("intraday_volume_call", parsed.get("call_volume", "-"))
+    put = totals.get("open_interest_view_put", totals.get("open_interest_put", "-"))
+    call = totals.get("open_interest_view_call", totals.get("open_interest_call", "-"))
+    delta_put = totals.get("oi_delta_put", "-")
+    delta_call = totals.get("oi_delta_call", "-")
+    churn = totals.get("churn", "-")
     def compact(value):
         text = " ".join(str(value or "-").split())
         if len(text) <= 220:
@@ -84,7 +87,8 @@ def format_message(parsed: dict, ai_result: dict) -> str:
     return (
         f"📊 Gold Options Flow{dte_line}\n\n"
         f"สรุป: CFD {spot} | IV {iv}%\n"
-        f"Intraday: Put {put} | Call {call}\n"
+        f"Open Interest: Put {put} | Call {call}\n"
+        f"ΔOI: Put {delta_put} | Call {delta_call} | Churn {churn}\n"
         f"Bias: {ai_result.get('short_bias', '-')}\n\n"
         f"วิเคราะห์\n{compact(ai_result.get('market_overview'))}\n\n"
         f"KEY LEVELS (CFD)\n"

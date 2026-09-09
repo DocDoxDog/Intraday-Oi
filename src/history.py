@@ -17,7 +17,7 @@ from supabase_client import get_client
 BANGKOK_TZ = timezone(timedelta(hours=7))
 
 # ฟิลด์ที่ดึงมาใช้จริง — ไม่ดึง raw_series/screenshot_url เพราะหนักและไม่จำเป็นสำหรับ trend summary
-FIELDS = "captured_at,contract,dte,future_price,future_chg,put_volume,call_volume,vol,vol_chg,delta_levels"
+FIELDS = "captured_at,contract,dte,future_price,future_chg,put_volume,call_volume,vol,vol_chg,delta_levels,raw_series"
 
 
 def _bangkok_day_bounds(now: datetime | None = None) -> tuple[str, str]:
@@ -91,6 +91,19 @@ def get_today_summary(contract: str | None = None) -> dict:
     }
 
 
+def get_oi_baseline(contract: str | None = None) -> dict | None:
+    """Return the latest snapshot before today's Bangkok session as EOD baseline."""
+    client = get_client()
+    start_iso, _ = _bangkok_day_bounds()
+    query = (client.table("options_flow_snapshots").select("captured_at,contract,raw_series")
+             .lt("captured_at", start_iso)
+             .order("captured_at", desc=True).limit(1))
+    if contract:
+        query = query.eq("contract", contract)
+    result = query.execute()
+    return result.data[0] if result.data else None
+
+
 def get_context(contract: str | None = None) -> dict:
     """เรียกใช้ตัวเดียวจาก main.py — คืนทั้งสองก้อนพร้อม fail-safe
     ถ้า query history พังไม่ควรทำให้ pipeline หลักล่ม แค่ analyze แบบไม่มี context ย้อนหลัง"""
@@ -106,4 +119,10 @@ def get_context(contract: str | None = None) -> dict:
         today = {"count": 0}
         print(f"⚠️  ดึง today summary ไม่สำเร็จ: {e}")
 
-    return {"hour_ago": hour_ago, "today": today}
+    try:
+        oi_baseline = get_oi_baseline(contract)
+    except Exception as e:
+        oi_baseline = None
+        print(f"⚠️  ดึง OI baseline ไม่สำเร็จ: {e}")
+
+    return {"hour_ago": hour_ago, "today": today, "oi_baseline": oi_baseline}

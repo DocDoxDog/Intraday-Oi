@@ -16,6 +16,7 @@ from parser import parse, ParseError
 from analyze import analyze
 from twelve_data import fetch_spot, enrich_with_basis, TwelveDataError
 from technical_analysis import build_context
+from oi_positioning import enrich as enrich_oi_positioning
 from supabase_client import insert_snapshot, upload_screenshot, get_active_chat_ids
 from url_manager import UrlManager, UrlManagerError
 import history
@@ -102,6 +103,12 @@ def run():
     hr_ago_status = "พบ" if hist_context.get("hour_ago") else "ไม่พบ"
     today_count = hist_context.get("today", {}).get("count", 0)
     print(f"    hour_ago snapshot: {hr_ago_status} | today snapshots: {today_count}")
+    parsed = enrich_oi_positioning(parsed, hist_context.get("oi_baseline"))
+    oi_totals = (parsed.get("raw_series") or {}).get("totals") or {}
+    print(
+        f"    OI positioning baseline={'yes' if oi_totals.get('oi_baseline_available') else 'no'} "
+        f"ΔOI put={oi_totals.get('oi_delta_put', 0)} call={oi_totals.get('oi_delta_call', 0)}"
+    )
 
     print("[6/8] Analyzing with Gemini...")
     try:

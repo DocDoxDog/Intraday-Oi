@@ -5,9 +5,9 @@ scraper.py
 
 โครงหน้าใหม่ของ CME ไม่ได้สร้าง Highcharts object ใน DOM แล้ว แต่สร้างภาพ
 PNG พร้อม HTML image-map โดยเก็บค่าราย strike ทั้งหมดไว้ใน attribute `fields`.
-ฟังก์ชันนี้จึงสั่งเปิดแท็บ Intraday ให้เสร็จก่อน แล้วอ่าน image-map โดยตรง
-ซึ่งได้ข้อมูล IV, premium, Greeks, OI, volume, intraday volume และ expected
-range ครบกว่าการอ่านข้อความบนหน้าเว็บ.
+ฟังก์ชันนี้ใช้ chart Open Interest/EOD ที่เปิดให้ใช้ฟรี แล้วอ่าน image-map
+โดยตรง. Intraday volume และ Expected Range อาจไม่มีใน free tier จึงไม่ควร
+เรียก OI ว่า Intraday volume หรือสร้างค่าดังกล่าวขึ้นมาเอง.
 """
 
 from __future__ import annotations
@@ -76,7 +76,7 @@ EXTRACT_INTRADAY_JS = r"""
     const panel = document.querySelector('[dataobjectid]');
 
     return {
-        mode: 'intraday',
+        mode: 'open_interest',
         heading,
         object_id: panel?.getAttribute('dataobjectid') || null,
         chart_image_url: chart ? new URL(chart.getAttribute('src'), location.href).href : null,
@@ -218,7 +218,7 @@ def _select_preferred_expiration(page) -> dict:
 
 
 def _load_intraday_chart(page) -> None:
-    """รอ chart เดิมก่อน แล้ว force postback ไปแท็บ Intraday ถ้ายังไม่มี image-map."""
+    """โหลด chart ฟรีปัจจุบัน (Open Interest/EOD) โดยไม่คลิก Intraday."""
     try:
         # ResizerPanel loads Chart.aspx asynchronously; GitHub Actions runners
         # are often slower than local Chromium, so give the first chart up to
@@ -228,31 +228,10 @@ def _load_intraday_chart(page) -> None:
     except PlaywrightTimeoutError:
         pass
 
-    link = page.locator(f"#{INTRADAY_LINK_ID}")
-    if link.count() == 0:
-        # Fallback for minor ASP.NET naming/container changes.
-        link = page.locator("a").filter(has_text="Intraday").first
-    if link.count() == 0:
-        try:
-            body = page.locator("body").inner_text(timeout=5_000) or ""
-        except Exception:
-            body = ""
-        raise ScrapeError(
-            "ไม่พบแท็บ Intraday หรือ image-map ในหน้า QuikStrike; "
-            "หน้าอาจเปลี่ยนโครงสร้างหรือ session หมดอายุ; "
-            f"page_text={body[:500]!r}"
-        )
-
-    # ลิงก์เป็น ASP.NET __doPostBack; บางรุ่นตอบด้วย full navigation และบางรุ่น
-    # ตอบผ่าน submit/XHR โดย URL เดิม จึงไม่ห่อด้วย expect_navigation ซึ่งอาจค้าง
-    # จน timeout แม้ postback สำเร็จแล้ว.
-    link.click(timeout=10_000)
-
-    try:
-        page.wait_for_selector(INTRADAY_SELECTOR, state="attached", timeout=45_000)
-    except PlaywrightTimeoutError as exc:
-        body = (page.locator("body").inner_text(timeout=5_000) or "")[:1200]
-        raise ScrapeError(f"คลิก Intraday แล้วไม่พบข้อมูล chart: {body}") from exc
+    # Some free-tier pages render the OI chart as Highcharts rather than an
+    # image-map. Let scrape() use its Highcharts fallback instead of trying to
+    # click the unavailable Intraday tab.
+    return
 
 
 def scrape(url: str | None = None) -> dict:
