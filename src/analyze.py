@@ -30,7 +30,7 @@ Your edge is based on Market Microstructure, Vol2Vol, Volatility Smile/Skew, Opt
 2. **resistance_far**, **resistance_main**, **resistance_current**: แนวต้านไกล, หลัก, และปัจจุบัน (พร้อมอ้างอิงระดับ strike)
 3. **support_current**, **support_main**, **support_deep**: แนวรับปัจจุบัน, หลัก, และลึก (พร้อมอ้างอิงระดับ strike)
 4. **bull_case**, **bear_case**, **sideway_case**: แยก 3 กรณีชัดเจน (Bull Case, Bear Case, Sideway Case)
-5. **short_bias**: ฟันธง Bias (Long/Short/Wait), แผนเทรด (Entry, Target, Stop Loss), และวิธีแก้ทาง
+5. **short_bias**: ฟันธง Bias (BUY/SELL/WAIT — ห้ามใช้คำว่า Long/Short เด็ดขาด), แผนเทรดฝั่ง BUY และฝั่ง SELL แยกกัน (Entry, SL, TP1-TP4, Trigger, Invalidation) ตามรูปแบบใน schema, และวิธีแก้ทาง
 
 เขียนรายงานเป็นภาษาไทย มืออาชีพ กระชับ ห้ามสมมติตัวเลขเอง ใช้ข้อมูลจริงเท่านั้น. ถ้า technical_context มี bias ไม่ตรงกัน, ไม่มีข้อมูลเพียงพอ, หรือ RR ไม่ผ่าน ให้ลดความมั่นใจและใช้ WAIT แทนการฟันธง. ใช้ระดับ CFD เมื่อพูดถึง Entry, Target, Stop และโซนสำคัญ เพราะผู้รับดูราคาสปอต/CFD. Indicator จาก technical_context ใช้คัดกรองภายในและไม่ต้องเพิ่มหัวข้อใหม่ในรูปแบบรายงานเดิม
 """
@@ -53,7 +53,22 @@ RESPONSE_SCHEMA = {
         "sideway_case": {"type": "string", "description": "3) Sideway Case: มุมมองหลักเมื่อ IV สูงและการแกว่งตัว"},
         "short_bias": {
             "type": "string",
-            "description": "🎯 Bias ฟันธง & แผนเทรด จัดรูปแบบ:\n🎯 Bias: [Long/Short/Wait พร้อมเหตุผล]\n\n📌 แผนเทรด\nEntry: [...] Target: [...] Stop Loss: [...]\n\n🛠️ วิธีแก้\n[แนวทางจัดการเมื่อผิดทาง]"
+            "description": (
+                "🎯 Bias ฟันธง & แผนเทรด (CFD) — ใช้คำว่า BUY/SELL/WAIT เท่านั้น ห้ามใช้คำว่า Long/Short เด็ดขาด. "
+                "จัดรูปแบบตามนี้เป๊ะ ๆ (แทนที่ข้อความในวงเล็บเหลี่ยมด้วยข้อมูลจริง เว้นบรรทัดว่างตามที่กำหนด):\n\n"
+                "🎯 Bias: [BUY/SELL/WAIT พร้อมเหตุผลสั้น ๆ 1 บรรทัด]\n\n"
+                "📌 TRADE PLAN (CFD)\n\n"
+                "🟢 BUY\n"
+                "[ถ้าทิศทางหลักคือ BUY ให้ใส่ Entry, SL, TP1, TP2, TP3, TP4, Trigger, Invalidation ให้ครบโดยอ้างอิงระดับ "
+                "strike/OI wall จริง ห้ามสมมติตัวเลข — ถ้าไม่ใช่ทิศทางหลักหรือยังเป็น WAIT ให้เขียนบรรทัดเดียวว่า "
+                "\"รอ Trigger ฝั่งซื้อจากระบบ\" เท่านั้น ห้ามใส่ Entry/SL/TP ที่ยังไม่มีข้อมูลจริงรองรับ]\n\n"
+                "🔴 SELL\n"
+                "[กลับกันกับฝั่ง BUY — ถ้าทิศทางหลักคือ SELL ให้ใส่ Entry, SL, TP1, TP2, TP3, TP4, Trigger, Invalidation ให้ครบ. "
+                "ถ้าไม่ใช่ทิศทางหลักหรือยังเป็น WAIT ให้เขียนบรรทัดเดียวว่า \"รอ Trigger ฝั่งขายจากระบบ\" เท่านั้น]\n\n"
+                "🛠️ วิธีแก้\n"
+                "[สรุปสั้น ๆ ไม่เกิน 3 บรรทัด: ทำอย่างไรถ้า BUY หลุด SL, ทำอย่างไรถ้า SELL ผิดเงื่อนไข Trigger, "
+                "และทำอย่างไรถ้ายังไม่เกิด Trigger เลย]"
+            ),
         },
     },
     "required": [
