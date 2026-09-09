@@ -36,6 +36,12 @@ Pipeline ดึงข้อมูล Options Flow (Vol2Vol Expected Range) จ�
 
 ระบบส่งรายงาน LINE สองทางในรอบเดียวกัน: Broadcast ไปยังผู้ติดตาม/ผู้ที่แชทกับ OA ตามสิทธิ์ของ LINE และ Push Message ซ้ำไปยัง `LINE_GROUP_ID` หากตั้งค่าไว้. Group ID ไม่ถูกใช้แทนรายชื่อผู้ติดตาม และไม่ต้องเก็บ user ID รายคนสำหรับ Broadcast. ใน GitHub Actions ให้ตั้ง `LINE_CHANNEL_ACCESS_TOKEN`, `LINE_GROUP_ID` และ `TWELVEDATA_API_KEY` เป็น Secrets.
 
+## Open Interest View และข้อจำกัด Free QuikStrike
+
+ระบบปัจจุบันไม่คลิกหรืออ้างอิง Intraday tab แล้ว เพราะ QuikStrike free tier แจ้งว่า Intraday volume, Expected Range, volatility change และ intraday totals ไม่พร้อมใช้งาน. Parser ใช้ชื่อโหมด `open_interest` และรายงาน Put/Call จาก Open Interest เป็น `Open Interest View`. OI snapshot ไม่สามารถคำนวณ Intraday Volume จริงจาก snapshot เดียวได้; หากมี snapshot ก่อนหน้า ระบบจึงควรตีความส่วนต่างเป็น `ΔOI` เท่านั้น ไม่ใช่ volume. หากหน้า QuikStrike ไม่ส่ง OI image-map หรือ chart/API กลับมา ระบบจะหยุดด้วย error แทนการสร้างตัวเลข Intraday หรือ OI ปลอม. การเปิดข้อมูล OI/Expected Range ผ่าน paid subscription หรือ API ของ QuikStrike เป็นสิ่งจำเป็นหากหน้า free ไม่ส่งข้อมูลดังกล่าว.
+
+หน้า URL ที่เป็น Open Interest และส่ง Highcharts กลับมายังรองรับได้แล้ว โดย parser แปลง series `Put` และ `Call` เป็น strike rows, รวม OI และสร้างภาพ `OI Positioning` ด้วยกราฟแท่ง Put/Call. ภาพนี้ติดป้ายว่าเป็น positioning ไม่ใช่ traded volume. `ΔOI` และ `Churn` จะแสดงเฉพาะเมื่อ source ส่งค่า change หรือมี snapshot ก่อนหน้าให้เปรียบเทียบอย่างถูกต้อง.
+
 ## User 8622081180 micro-scalp
 
 ผู้รับ `8622081180` ใช้การ์ดสั้นแยกจากรายงานทั่วไป โดยเลือกแผนเดียว (`LONG`, `SHORT` หรือ `WAIT`) และแสดง Entry/Limit, SL ไม่เกิน 10 ดอลลาร์ และ TP1–TP4 ระยะสั้น 5/10/15/20 ดอลลาร์. OI, IV, Flow, CFD conversion และ technical context ยังใช้คัดกรองภายในเหมือนเดิม แต่ไม่แสดง indicator ยาวในข้อความ.
