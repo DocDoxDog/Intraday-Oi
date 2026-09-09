@@ -105,29 +105,23 @@ class UrlManager:
                 )
                 has_image_map = page.locator("map area[fields]").count() > 0
                 page_text = (page.evaluate("() => document.body.innerText") or "").lower()
-                has_intraday_control = (
-                    "intraday" in page_text
-                    or page.locator("a").filter(has_text="Intraday").count() > 0
-                )
                 browser.close()
 
             has_error_text = any(
                 kw in page_text
                 for kw in ("session expired", "session has expired", "not found", "an error occurred")
             )
-            # EOD Volume pages also contain an image-map, but cannot satisfy
-            # the Intraday Vol2Vol Expected Range scraper. Do not let an old
-            # EOD URL in Supabase shadow the correct env URL.
-            is_expected_range = (
-                "expected range" in page_text
-                and "vol2vol" in page_text
-            )
-            return (
-                bool(has_chart or has_image_map)
-                and is_expected_range
-                and has_intraday_control
-                and not has_error_text
-            )
+            # NOTE: scraper.py no longer clicks the Intraday tab and no longer requires
+            # genuine Vol2Vol "Expected Range" content — CME's free QuikStrike tier stopped
+            # serving that data, so scraper.py already pivoted to reading whatever
+            # image-map the default Open Interest/EOD view returns (mode: 'open_interest',
+            # see scraper.py's module docstring). Requiring "expected range"/"vol2vol"/
+            # "intraday" text here is a stale check from before that pivot — it can never
+            # pass anymore, which is why get_url() was raising UrlManagerError even though
+            # discover() was finding perfectly usable qsid/insid pairs. Match scraper.py's
+            # actual requirement instead: a chart or image-map is present, and the page
+            # isn't showing a session/lookup error.
+            return bool(has_chart or has_image_map) and not has_error_text
         except Exception as e:
             print(f"⚠️  validate() เปิด URL ไม่สำเร็จ: {e}")
             return False
