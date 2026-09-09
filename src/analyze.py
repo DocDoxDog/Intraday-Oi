@@ -19,14 +19,14 @@ Your edge is based on Market Microstructure, Vol2Vol, Volatility Smile/Skew, Opt
 
 ข้อมูลที่คุณได้รับมาจาก CME QuikStrike Vol2Vol Expected Range chart ประกอบด้วย:
 1. "current" — snapshot ล่าสุด (Put/Call Open Interest, delta strike levels, future price, vol chg, dte)
-2. "hour_ago" — snapshot จาก 1 ชั่วโมงก่อน ใช้คำนวณ ΔOI ได้เมื่อมี snapshot เปรียบเทียบ
+2. "hour_ago" — snapshot จาก 1 ชั่วโมงก่อน ใช้เป็นบริบทประกอบเท่านั้น; ค่า ΔOI หลักมาจาก EOD baseline
 3. "today_summary" — สรุป range ทั้งวัน
 4. "raw_series_summary" — สรุปการกระจายตัวของ Gamma ตาม strike, Volatility Settle shape, และ Expected Ranges
 5. "spot_price", "basis_diff", และระดับที่ลงท้ายด้วย `_cfd` — ราคาสปอตจาก Twelve Data และระดับ OI/Expected Range ที่แปลงจาก CME Futures เป็น CFD ด้วย CFD = Futures level - (Futures price - Spot price)
 6. "technical_context" — ข้อมูลภายในจาก Twelve Data หลาย timeframe (H4/H1/M15/M5/M1) สำหรับ EMA50/EMA200, trend, sweep, BOS, FVG และ Fibonacci; ใช้เป็น confirmation เท่านั้น ไม่ต้องแสดงชื่อ indicator เหล่านี้ในรายงานหลัก เว้นแต่จำเป็นต่อเหตุผล
 
 **โครงสร้างการวิเคราะห์และรายงานผล (บังคับตาม Schema):**
-1. **market_overview**: วิเคราะห์ภาพรวม Positioning จาก Put vs Call Open Interest, การเคลื่อนไหวของราคา, และระดับ IV ว่าสะท้อนความผันผวนระดับใด. ห้ามเรียก OI ว่า Intraday Volume และห้ามสร้าง Intraday Volume จาก OI
+1. **market_overview**: วิเคราะห์ภาพรวม Positioning จาก Put vs Call Open Interest, ΔOI และ Churn, การเคลื่อนไหวของราคา, และระดับ IV ว่าสะท้อนความผันผวนระดับใด. ห้ามเรียก OI/ΔOI/Churn ว่า Intraday Volume และห้ามสร้าง Intraday Volume จาก OI
 2. **resistance_far**, **resistance_main**, **resistance_current**: แนวต้านไกล, หลัก, และปัจจุบัน (พร้อมอ้างอิงระดับ strike)
 3. **support_current**, **support_main**, **support_deep**: แนวรับปัจจุบัน, หลัก, และลึก (พร้อมอ้างอิงระดับ strike)
 4. **bull_case**, **bear_case**, **sideway_case**: แยก 3 กรณีชัดเจน (Bull Case, Bear Case, Sideway Case)
@@ -40,7 +40,7 @@ RESPONSE_SCHEMA = {
     "properties": {
         "market_overview": {
             "type": "string",
-            "description": "ภาพรวมตลาด: สรุป Call/Put volume, ราคาปัจจุบัน, และสภาวะ IV",
+            "description": "ภาพรวมตลาด: สรุป Call/Put OI, ΔOI/Churn, ราคาปัจจุบัน, และสภาวะ IV",
         },
         "resistance_far": {"type": "string", "description": "แนวต้านไกล พร้อมรายละเอียด strike"},
         "resistance_main": {"type": "string", "description": "แนวต้านหลัก พร้อมรายละเอียด strike"},
@@ -91,17 +91,19 @@ def summarize_raw_series(raw_series) -> dict:
             totals = raw_series.get("totals", {})
             summary["mode"] = raw_series.get("mode")
             summary["totals"] = totals
-            summary["top_intraday_volume_strikes"] = [
+            summary["top_oi_positioning_strikes"] = [
                 {
                     "strike": row.get("strike"),
-                    "put": row.get("ivolumePut"),
-                    "call": row.get("ivolumeCall"),
-                    "total": row.get("ivolumeTotal"),
+                    "put_oi": row.get("oiPut"),
+                    "call_oi": row.get("oiCall"),
+                    "delta_put": row.get("oi_delta_put"),
+                    "delta_call": row.get("oi_delta_call"),
+                    "churn": row.get("churn"),
                     "iv": row.get("vol"),
                 }
                 for row in sorted(
                     rows,
-                    key=lambda row: row.get("ivolumeTotal") or 0,
+                    key=lambda row: row.get("churn") or row.get("oiTotal") or 0,
                     reverse=True,
                 )[:10]
             ]

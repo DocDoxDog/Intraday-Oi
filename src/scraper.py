@@ -1,7 +1,7 @@
 """
 scraper.py
 ==========
-ดึงข้อมูล QuikStrike Vol2Vol Expected Range แบบ Intraday
+ดึงข้อมูล QuikStrike Open Interest View
 
 โครงหน้าใหม่ของ CME ไม่ได้สร้าง Highcharts object ใน DOM แล้ว แต่สร้างภาพ
 PNG พร้อม HTML image-map โดยเก็บค่าราย strike ทั้งหมดไว้ใน attribute `fields`.
@@ -19,9 +19,12 @@ from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
 from playwright.sync_api import sync_playwright
 
 
-INTRADAY_SELECTOR = "map area[fields]"
+OI_SELECTOR = "map area[fields]"
 INTRADAY_LINK_ID = "MainContent_ucViewControl_IntegratedV2VExpectedRange_1_lbIntraday"
+OI_LINK_ID = "MainContent_ucViewControl_IntegratedV2VExpectedRange_lbOI"
 EXPIRATION_LINK_SELECTOR = "a[id*='ucExpirationGroup'][id$='lbExpiration']"
+QUIKSTRIKE_REFERER = "https://www.cmegroup.com/tools-information/quikstrike/vol2vol-expected-range.html"
+QUIKSTRIKE_SESSION_STATE = os.environ.get("QUIKSTRIKE_SESSION_STATE", "/tmp/quikstrike_storage_state.json")
 
 
 EXTRACT_INTRADAY_JS = r"""
@@ -217,13 +220,20 @@ def _select_preferred_expiration(page) -> dict:
     return {"selected": selected, "policy": policy, "dte_hint": chosen["dte"]}
 
 
-def _load_intraday_chart(page) -> None:
-    """โหลด chart ฟรีปัจจุบัน (Open Interest/EOD) โดยไม่คลิก Intraday."""
+def _load_oi_chart(page) -> None:
+    """คลิก OI tab ที่ยังเปิดให้ใช้ฟรี แล้วรอ chart โหลด."""
+    oi_link = page.locator(f"#{OI_LINK_ID}")
+    if oi_link.count():
+        try:
+            oi_link.click(force=True, timeout=15_000)
+            page.wait_for_timeout(2_000)
+        except Exception:
+            pass
     try:
         # ResizerPanel loads Chart.aspx asynchronously; GitHub Actions runners
         # are often slower than local Chromium, so give the first chart up to
         # 35 seconds to appear before deciding that a postback is necessary.
-        page.wait_for_selector(INTRADAY_SELECTOR, state="attached", timeout=35_000)
+        page.wait_for_selector(OI_SELECTOR, state="attached", timeout=35_000)
         return
     except PlaywrightTimeoutError:
         pass
@@ -232,6 +242,32 @@ def _load_intraday_chart(page) -> None:
     # image-map. Let scrape() use its Highcharts fallback instead of trying to
     # click the unavailable Intraday tab.
     return
+
+
+def _read_highcharts(page) -> dict:
+    return page.evaluate(EXTRACT_HIGHCHARTS_JS)
+
+
+def _read_secondary_oi_views(page) -> dict:
+    """อ่าน OI Change และ Churn ที่ยังมีใน free view โดยไม่เรียกเป็น volume."""
+    views = {
+        "oi_change": "MainContent_ucViewControl_IntegratedV2VExpectedRange_lbOIChg",
+        "churn": "MainContent_ucViewControl_IntegratedV2VExpectedRange_lbChurn",
+    }
+    out = {}
+    for name, element_id in views.items():
+        link = page.locator(f"#{element_id}")
+        if not link.count():
+            continue
+        try:
+            link.click(force=True, timeout=15_000)
+            page.wait_for_timeout(2_000)
+            data = _read_highcharts(page)
+            if data.get("charts"):
+                out[name] = data
+        except Exception:
+            continue
+    return out
 
 
 def scrape(url: str | None = None) -> dict:
@@ -244,13 +280,19 @@ def scrape(url: str | None = None) -> dict:
             headless=True,
             args=["--no-sandbox", "--disable-dev-shm-usage"],
         )
-        context = browser.new_context(viewport={"width": 1600, "height": 1000})
+        context_options = {
+            "viewport": {"width": 1600, "height": 1000},
+            "extra_http_headers": {"Referer": QUIKSTRIKE_REFERER},
+        }
+        if os.path.exists(QUIKSTRIKE_SESSION_STATE):
+            context_options["storage_state"] = QUIKSTRIKE_SESSION_STATE
+        context = browser.new_context(**context_options)
         page = context.new_page()
         try:
             page.goto(url, wait_until="domcontentloaded", timeout=60_000)
             page.wait_for_timeout(500)
             expiration_selection = _select_preferred_expiration(page)
-            _load_intraday_chart(page)
+            _load_oi_chart(page)
             page.wait_for_timeout(500)
 
             page_text = page.locator("body").inner_text()
@@ -269,6 +311,16 @@ def scrape(url: str | None = None) -> dict:
                         or "ไม่พบข้อมูล strike ใน QuikStrike chart"
                     )
 
+            secondary_views = _read_secondary_oi_views(page)
+            # Return to the primary OI view before capturing the image sent to Telegram.
+            oi_link = page.locator(f"#{OI_LINK_ID}")
+            if oi_link.count():
+                try:
+                    oi_link.click(force=True, timeout=15_000)
+                    page.wait_for_timeout(2_000)
+                except Exception:
+                    pass
+
             screenshot = None
             try:
                 chart_image = page.locator("img.chart")
@@ -281,10 +333,11 @@ def scrape(url: str | None = None) -> dict:
                 screenshot = None
 
             result = {
-                "source": "quikstrike_intraday_image_map"
+                "source": "quikstrike_open_interest_image_map"
                 if chart_data.get("strike_rows")
                 else "quikstrike_highcharts_fallback",
                 "chart_data": chart_data,
+                "secondary_views": secondary_views,
                 "expiration_selection": expiration_selection,
                 "page_heading": page_heading,
                 "page_text": page_text,

@@ -18,6 +18,7 @@ Retry ladder (เรียงตามลำดับที่ get_url() ลอ�
 
 import os
 import re
+from pathlib import Path
 from playwright.sync_api import sync_playwright
 
 from supabase_client import get_client
@@ -44,6 +45,7 @@ FINAL_URL_TEMPLATE = (
 )
 
 REFERER = "https://www.cmegroup.com/tools-information/quikstrike/vol2vol-expected-range.html"
+SESSION_STATE_PATH = os.environ.get("QUIKSTRIKE_SESSION_STATE", "/tmp/quikstrike_storage_state.json")
 
 
 class UrlManagerError(Exception):
@@ -82,20 +84,32 @@ class UrlManager:
     # ---------- validate ----------
 
     def validate(self, url: str) -> bool:
-        """ตรวจว่า URL โหลด chart รุ่นเก่าหรือ image-map รุ่นใหม่ได้จริง."""
+        """ตรวจว่า URL เปิดหน้า OI และมี chart/data surface ที่ scraper อ่านได้จริง."""
         try:
             with sync_playwright() as p:
                 browser = p.chromium.launch(
                     headless=True,
                     args=["--no-sandbox", "--disable-dev-shm-usage"],
                 )
-                page = browser.new_page(viewport={"width": 1600, "height": 1000})
+                context_options = {
+                    "viewport": {"width": 1600, "height": 1000},
+                    "extra_http_headers": {"Referer": REFERER},
+                }
+                if Path(SESSION_STATE_PATH).exists():
+                    context_options["storage_state"] = SESSION_STATE_PATH
+                context = browser.new_context(**context_options)
+                page = context.new_page()
                 page.goto(url, wait_until="domcontentloaded", timeout=60000)
 
                 # QuikStrike loads Chart.aspx asynchronously; waiting for
                 # networkidle is unreliable because the page keeps timers/XHRs.
                 try:
-                    page.wait_for_selector("map area[fields]", state="attached", timeout=35000)
+                    page.wait_for_function(
+                        """() => document.querySelectorAll('map area[fields]').length > 0 ||
+                        (typeof Highcharts !== 'undefined' && Highcharts.charts && Highcharts.charts.some(c => c)) ||
+                        !!document.querySelector('img.chart, [dataobjectid]')""",
+                        timeout=35000,
+                    )
                 except Exception:
                     page.wait_for_timeout(3000)
 
@@ -104,6 +118,7 @@ class UrlManager:
                     "&& Highcharts.charts && Highcharts.charts.some(c => c)"
                 )
                 has_image_map = page.locator("map area[fields]").count() > 0
+                has_oi_surface = page.locator("img.chart, [dataobjectid]").count() > 0
                 page_text = (page.evaluate("() => document.body.innerText") or "").lower()
                 browser.close()
 
@@ -121,7 +136,7 @@ class UrlManager:
             # discover() was finding perfectly usable qsid/insid pairs. Match scraper.py's
             # actual requirement instead: a chart or image-map is present, and the page
             # isn't showing a session/lookup error.
-            return bool(has_chart or has_image_map) and not has_error_text
+            return bool(has_chart or has_image_map or has_oi_surface) and not has_error_text
         except Exception as e:
             print(f"⚠️  validate() เปิด URL ไม่สำเร็จ: {e}")
             return False
@@ -263,6 +278,11 @@ class UrlManager:
                     qsid = qsid or n_qsid
                     insid = insid or n_insid
 
+                try:
+                    context.storage_state(path=SESSION_STATE_PATH)
+                    print(f"    [discover] บันทึก QuikStrike session state: {SESSION_STATE_PATH}")
+                except Exception as e:
+                    print(f"⚠️  [discover] บันทึก session state ไม่สำเร็จ: {e}")
                 browser.close()
         except Exception as e:
             print(f"⚠️  [discover] เปิดหน้าไม่สำเร็จ: {e}")
