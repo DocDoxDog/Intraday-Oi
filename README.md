@@ -7,7 +7,7 @@ Pipeline ดึงข้อมูล Options Flow (Vol2Vol Expected Range) จ�
 หน้า QuikStrike รุ่นปัจจุบันไม่ได้สร้าง Highcharts object สำหรับแท็บ Intraday แบบเดิมเสมอไป แต่ส่ง chart เป็น PNG ที่มี HTML image-map กำกับอยู่ ค่าใน tooltip ราย strike ถูกเก็บใน attribute `fields` ของ `<area>`. `src/scraper.py` จึงทำงานดังนี้:
 
 1. เปิดหน้า QuikStrike ด้วย Playwright
-2. สั่ง postback ที่แท็บ `MainContent_ucViewControl_IntegratedV2VExpectedRange_1_lbIntraday`
+2. ใช้หน้า Open Interest View ค่าเริ่มต้น โดยไม่คลิกหรือพึ่งแท็บ Intraday
 3. อ่าน `map area[fields]` โดยตรง แทนการ parse รูปภาพหรือ OCR
 4. เก็บข้อมูลทุก strike, expected range, delta marker, DataObjectId, chart URL และ screenshot
 5. `src/parser.py` แปลงค่า numeric และรักษาข้อมูลราย strike ไว้ใน `raw_series` พร้อมคีย์เดิมที่ pipeline ใช้อยู่
@@ -16,11 +16,11 @@ Pipeline ดึงข้อมูล Options Flow (Vol2Vol Expected Range) จ�
 
 ## ฟิลด์ที่ดึงได้จาก Intraday
 
-ใน `raw_series.strike_rows` มีข้อมูลต่อ strike ได้แก่ strike, call/put/straddle premium, settle, change, implied volatility, call/put delta, gamma, vega, theta, call/put/total open interest และการเปลี่ยนแปลง, call/put/total volume และการเปลี่ยนแปลง, intraday volume แยก call/put/total รวมถึง class flags ที่หน้าเว็บใช้บอกทิศทางขึ้น/ลง
+ใน `raw_series.strike_rows` มีข้อมูลต่อ strike ได้แก่ strike, call/put/straddle premium, settle, change, implied volatility, call/put delta, gamma, vega, theta และ call/put/total open interest. หากหน้า source ส่งค่า OI change ระบบจะเก็บไว้ตามจริง; ระบบไม่สร้าง Intraday Volume จาก OI
 
 ใน `raw_series.expected_ranges` มีช่วง One, Two และ Three Standard Deviations พร้อม lower/upper, เปอร์เซ็นต์ความน่าจะเป็น และเปอร์เซ็นต์การเบี่ยงเบนจากราคาอนาคต ส่วน `raw_series.delta_markers` มีระดับ 5/15/25/35/45 delta ฝั่ง Call/Put ตามที่หน้าแสดง
 
-`put_volume` และ `call_volume` ใน schema เดิมหมายถึง **Intraday Volume** ตามตัวชี้วัดของแท็บ Intraday ส่วน regular Volume, OI และยอดรวมทุกประเภทเก็บเพิ่มเติมไว้ใน `raw_series.totals` และใน `strike_rows`
+`put_volume` และ `call_volume` ถูกตั้งเป็นศูนย์เพื่อความเข้ากันได้กับ schema เดิม และไม่ควรนำไปแสดงเป็น volume. รายงานใช้ `open_interest_view_put`, `open_interest_view_call`, `oi_delta_put`, `oi_delta_call` และ `churn` แทน
 
 ## Expiration policy
 
@@ -35,6 +35,10 @@ Pipeline ดึงข้อมูล Options Flow (Vol2Vol Expected Range) จ�
 ## LINE delivery
 
 ระบบส่งรายงาน LINE สองทางในรอบเดียวกัน: Broadcast ไปยังผู้ติดตาม/ผู้ที่แชทกับ OA ตามสิทธิ์ของ LINE และ Push Message ซ้ำไปยัง `LINE_GROUP_ID` หากตั้งค่าไว้. Group ID ไม่ถูกใช้แทนรายชื่อผู้ติดตาม และไม่ต้องเก็บ user ID รายคนสำหรับ Broadcast. ใน GitHub Actions ให้ตั้ง `LINE_CHANNEL_ACCESS_TOKEN`, `LINE_GROUP_ID` และ `TWELVEDATA_API_KEY` เป็น Secrets.
+
+## Telegram delivery
+
+ในแต่ละรอบ Telegram ส่งแยกเป็นสามข้อความตามลำดับ. ข้อความที่หนึ่งเป็นรูป OI View ซึ่งถูกอัปโหลดและบันทึก path ไว้ใน Supabase Storage. ข้อความที่สองเป็นรายงาน Volatility & Options Flow ที่มี CFD, Futures, Diff, IV, ภาพรวม OI, Key Levels และ Bull/Bear/Sideway Scenario. ข้อความที่สามเป็น Bias และ Trade Plan. ผู้รับ `8622081180` ใช้การ์ด Micro-Scalp ในข้อความที่สาม ส่วนผู้รับทั่วไปใช้แผนภาพใหญ่จาก Gemini.
 
 ## Open Interest View และข้อจำกัด Free QuikStrike
 
