@@ -90,6 +90,16 @@ def _secondary_maps(raw):
         }
     return maps
 
+def _attach_gex(parsed: dict) -> dict:
+    """คำนวณ GEX จาก gamma/OI จริงที่ QuikStrike ส่งมา โดยไม่สร้าง Greeks เอง."""
+    try:
+        from gex import enrich_raw_series
+        parsed["raw_series"] = enrich_raw_series(parsed.get("raw_series") or {}, parsed.get("future_price"))
+    except Exception as exc:
+        parsed.setdefault("raw_series", {})["gex"] = {"status": "error", "reason": str(exc)}
+    return parsed
+
+
 def _parse_image_map(raw):
     chart = raw.get("chart_data") or {}; rows = _deduplicate_rows([_normalise_row(x) for x in chart.get("strike_rows",[])])
     if not rows: raise ParseError("ไม่พบ OI strike rows")
@@ -108,7 +118,8 @@ def _parse_image_map(raw):
         from oi_chart import render_oi_positioning
         chart_png=render_oi_positioning(rows,title=heading or "Gold")
     except Exception: pass
-    return {"contract":heading,"dte":dte,"dte_low_confidence":low,"future_price":future,"future_chg":None,"put_volume":0,"call_volume":0,"vol":sum(vols)/len(vols) if vols else None,"vol_chg":None,"delta_levels":{},"raw_series":raw_series,"screenshot":chart_png or raw.get("screenshot")}
+    parsed = {"contract":heading,"dte":dte,"dte_low_confidence":low,"future_price":future,"future_chg":None,"put_volume":0,"call_volume":0,"vol":sum(vols)/len(vols) if vols else None,"vol_chg":None,"delta_levels":{},"raw_series":raw_series,"screenshot":chart_png or raw.get("screenshot")}
+    return _attach_gex(parsed)
 
 def _parse_legacy(raw):
     chart=(raw.get("chart_data") or {}).get("charts",[])
