@@ -9,7 +9,7 @@ It is a positioning convention, not a claim about actual dealer inventory.
 """
 from __future__ import annotations
 
-from typing import Any
+from typing import Any\nimport math
 
 
 GC_CONTRACT_MULTIPLIER = 100.0
@@ -44,7 +44,20 @@ def _crossing_level(rows: list[dict], key: str) -> float | None:
     return None
 
 
-def calculate_gex(rows: list[dict], future_price: float | None, multiplier: float = GC_CONTRACT_MULTIPLIER) -> dict:
+def black76_gamma(futures_price: float, strike: float, iv_percent: float, dte_days: float) -> float | None:
+    """Black-76 gamma per $1 move when QuikStrike does not expose gamma."""
+    if futures_price <= 0 or strike <= 0 or iv_percent is None or dte_days <= 0:
+        return None
+    sigma = iv_percent / 100.0
+    T = dte_days / 365.0
+    if sigma <= 0 or T <= 0:
+        return None
+    d1 = (math.log(futures_price / strike) + 0.5 * sigma * sigma * T) / (sigma * math.sqrt(T))
+    pdf = math.exp(-0.5 * d1 * d1) / math.sqrt(2.0 * math.pi)
+    return pdf / (futures_price * sigma * math.sqrt(T))
+
+
+def calculate_gex(rows: list[dict], future_price: float | None, dte_days: float | None = None, multiplier: float = GC_CONTRACT_MULTIPLIER) -> dict:
     """Return per-strike GEX plus aggregate walls/flip.
 
     Requires QuikStrike's gamma, oiCall and oiPut. Missing/zero gamma rows
@@ -71,7 +84,7 @@ def calculate_gex(rows: list[dict], future_price: float | None, multiplier: floa
             "put_gex": put_gex,
             "net_gex": call_gex + put_gex,
             "gamma": gamma,
-            "gex_multiplier": multiplier,
+            "gex_multiplier": multiplier,\n            "gamma_source": gamma_source,
         })
         out.append(row)
 
@@ -110,7 +123,7 @@ def calculate_gex(rows: list[dict], future_price: float | None, multiplier: floa
 
 
 def enrich_raw_series(raw_series: dict, future_price: float | None) -> dict:
-    result = calculate_gex(raw_series.get("strike_rows") or [], future_price)
+    result = calculate_gex(raw_series.get("strike_rows") or [], future_price, raw_series.get("dte"))
     raw_series["gex"] = result
     if result.get("status") == "ok":
         for row in raw_series.get("strike_rows") or []:
