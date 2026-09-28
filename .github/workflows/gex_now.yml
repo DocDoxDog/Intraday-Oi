@@ -1,0 +1,66 @@
+name: One-shot GC GEX
+
+on:
+  push:
+    paths:
+      - ".github/workflows/gex_now.yml"
+      - "src/gex.py"
+      - "src/parser.py"
+      - "src/scraper.py"
+  workflow_dispatch:
+
+jobs:
+  gex:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install dependencies
+        run: |
+          pip install -r requirements.txt
+          playwright install --with-deps chromium
+      - name: Calculate current GC GEX
+        env:
+          QUIKSTRIKE_URL: ${{ secrets.QUIKSTRIKE_URL }}
+        run: |
+          python - <<'PY'
+          import os, sys, json
+          sys.path.insert(0, "src")
+          from url_manager import UrlManager
+          from scraper import scrape
+          from parser import parse
+
+          url = UrlManager().get_url()
+          parsed = parse(scrape(url))
+          g = (parsed.get("raw_series") or {}).get("gex") or {}
+          print(json.dumps({
+              "captured_at_utc": __import__("datetime").datetime.now(__import__("datetime").timezone.utc).isoformat(),
+              "contract": parsed.get("contract"),
+              "future_price": parsed.get("future_price"),
+              "dte": parsed.get("dte"),
+              "gex": {
+                  k: v for k, v in g.items() if k != "rows"
+              },
+              "top_strikes": sorted(
+                  [
+                      {
+                          "strike": r.get("strike"),
+                          "call_oi": r.get("oiCall"),
+                          "put_oi": r.get("oiPut"),
+                          "iv": r.get("vol"),
+                          "gamma": r.get("gamma"),
+                          "gamma_source": r.get("gamma_source"),
+                          "call_gex": r.get("call_gex"),
+                          "put_gex": r.get("put_gex"),
+                          "net_gex": r.get("net_gex"),
+                      }
+                      for r in g.get("rows", [])
+                  ],
+                  key=lambda r: abs(r.get("net_gex") or 0),
+                  reverse=True,
+              )[:20],
+          }, ensure_ascii=False, indent=2))
+          PY
