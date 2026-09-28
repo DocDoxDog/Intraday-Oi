@@ -154,7 +154,8 @@ def _parse_legacy(raw):
         chart_png=render_oi_positioning(rows,title=heading or "Gold")
     except Exception: pass
     iv_values = [r.get("vol") for r in rows if isinstance(r.get("vol"), (int, float))]
-    return {"contract":heading,"dte":dte,"dte_low_confidence":low,"future_price":future,"future_chg":None,"put_volume":0,"call_volume":0,"vol":sum(iv_values) / len(iv_values) if iv_values else None,"vol_chg":None,"delta_levels":{},"raw_series":raw_series,"screenshot":chart_png or raw.get("screenshot")}
+    parsed = {"contract":heading,"dte":dte,"dte_low_confidence":low,"future_price":future,"future_chg":None,"put_volume":0,"call_volume":0,"vol":sum(iv_values) / len(iv_values) if iv_values else None,"vol_chg":None,"delta_levels":{},"raw_series":raw_series,"screenshot":chart_png or raw.get("screenshot")}
+    return _attach_gex(parsed)
 
 def parse(raw):
     if (raw.get("chart_data") or {}).get("strike_rows"): return _parse_image_map(raw)
