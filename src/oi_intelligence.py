@@ -1,0 +1,50 @@
+"""Deterministic OI exposure, flow hypotheses and migration analysis."""
+from __future__ import annotations
+from typing import Any
+def _f(v:Any,d=0.0)->float:
+    try:return float(v)
+    except(TypeError,ValueError):return d
+def classify_flow(row,price_change=None,iv_change=None):
+    dc=_f(row.get("oi_delta_call")); dp=_f(row.get("oi_delta_put")); evidence=[]
+    if dc>0:evidence.append("call_oi_increase")
+    elif dc<0:evidence.append("call_oi_decrease")
+    if dp>0:evidence.append("put_oi_increase")
+    elif dp<0:evidence.append("put_oi_decrease")
+    if price_change is not None:evidence.append("underlying_price_change")
+    if iv_change is not None:evidence.append("iv_change")
+    label="UNKNOWN"; confidence=0.0
+    if price_change is not None and dc>0 and price_change>0: label,confidence="NEW_LONG",0.35
+    elif price_change is not None and dc<0 and price_change>0: label,confidence="SHORT_COVER",0.35
+    elif price_change is not None and dp>0 and price_change<0: label,confidence="NEW_LONG",0.30
+    elif price_change is not None and dp<0 and price_change<0: label,confidence="LONG_LIQUIDATION",0.30
+    return {"label":label,"confidence":confidence,"evidence":evidence,"limitations":["OI change alone does not identify aggressor side","volume/bid-ask/option price are required for stronger flow classification"]}
+def delta_adjusted_exposure(rows,multiplier=100.0):
+    out=[]; net=0.0; gross=0.0
+    for r in rows:
+        co=_f(r.get("oiCall")); po=_f(r.get("oiPut")); cd=_f(r.get("callDelta")); pd=_f(r.get("putDelta"))
+        ce=co*cd*multiplier; pe=po*pd*multiplier; ne=ce+pe
+        net+=ne; gross+=abs(ce)+abs(pe); x=dict(r)
+        x.update({"call_delta_exposure":ce,"put_delta_exposure":pe,"net_delta_exposure":ne,"gross_delta_exposure":abs(ce)+abs(pe)}); out.append(x)
+    return {"contract_multiplier":multiplier,"net_delta_exposure":net,"gross_delta_exposure":gross,"rows":out}
+def build_flow_hypotheses(rows,future_change=None):
+    events=[]
+    for r in rows:
+        f=classify_flow(r,future_change)
+        if f["label"]!="UNKNOWN" or r.get("oi_delta_call") or r.get("oi_delta_put"):
+            events.append({"strike":r.get("strike"),"call_oi":r.get("oiCall"),"put_oi":r.get("oiPut"),"delta_oi_call":r.get("oi_delta_call"),"delta_oi_put":r.get("oi_delta_put"),**f})
+    return {"events":events,"unknown_rate":sum(e["label"]=="UNKNOWN" for e in events)/len(events) if events else 1.0}
+def oi_migration(previous_rows,current_rows):
+    prev={float(r["strike"]):r for r in (previous_rows or []) if r.get("strike") is not None}; cur={float(r["strike"]):r for r in current_rows if r.get("strike") is not None}; shifts=[]
+    for side,field in (("call","oiCall"),("put","oiPut")):
+        dec=sorted([(k,_f(v.get(field))-_f(cur.get(k,{}).get(field))) for k,v in prev.items() if _f(v.get(field))>_f(cur.get(k,{}).get(field))],key=lambda x:x[1],reverse=True)
+        inc=sorted([(k,_f(cur.get(k,{}).get(field))-_f(v.get(field))) for k,v in prev.items() if _f(cur.get(k,{}).get(field))>_f(v.get(field))],key=lambda x:x[1],reverse=True)
+        for fs,amt in dec[:10]:
+            if inc:
+                ts,target=min(inc,key=lambda x:abs(x[0]-fs)); qty=min(amt,target)
+                if qty>0:shifts.append({"side":side,"from_strike":fs,"to_strike":ts,"estimated_oi":qty})
+    return {"shifts":shifts,"method":"nearest-strike OI redistribution hypothesis","confidence":"low_without_trade_volume"}
+def enrich(current,previous=None):
+    raw=current.setdefault("raw_series",{}); rows=raw.get("oi_positioning_rows") or raw.get("strike_rows") or []
+    raw["delta_exposure"]=delta_adjusted_exposure(rows); raw["flow_hypotheses"]=build_flow_hypotheses(rows,current.get("future_chg"))
+    pr=((previous or {}).get("raw_series") or {}).get("oi_positioning_rows") or ((previous or {}).get("raw_series") or {}).get("strike_rows") or []
+    raw["oi_migration"]=oi_migration(pr,rows); raw["intelligence_version"]="oi-intelligence-v1"; return current
