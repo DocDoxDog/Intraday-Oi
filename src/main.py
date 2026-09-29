@@ -110,6 +110,22 @@ def run():
         f"ΔOI put={oi_totals.get('oi_delta_put', 0)} call={oi_totals.get('oi_delta_call', 0)}"
     )
 
+    print("[5.5/8] Building deterministic OI intelligence...")
+    try:
+        from oi_intelligence import enrich as enrich_oi_intelligence
+        previous = hist_context.get("hour_ago")
+        parsed = enrich_oi_intelligence(parsed, previous)
+        intel = (parsed.get("raw_series") or {})
+        dex = intel.get("delta_exposure") or {}
+        flow = intel.get("flow_hypotheses") or {}
+        migration = intel.get("oi_migration") or {}
+        print(f"    net_delta={dex.get('net_delta_exposure', 0):,.0f} "
+              f"gross_delta={dex.get('gross_delta_exposure', 0):,.0f} "
+              f"flow_unknown={flow.get('unknown_rate', 1):.0%} "
+              f"migrations={len(migration.get('shifts', []))}")
+    except Exception as e:
+        print(f"⚠️  OI intelligence failed (raw OI remains available): {e}", file=sys.stderr)
+
     print("[6/8] Analyzing with Gemini...")
     try:
         ai_result = analyze(parsed, history=hist_context)
