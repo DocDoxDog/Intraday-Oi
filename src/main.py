@@ -17,7 +17,7 @@ from analyze import analyze
 from twelve_data import fetch_spot, enrich_with_basis, TwelveDataError
 from technical_analysis import build_context
 from oi_positioning import enrich as enrich_oi_positioning
-from supabase_client import insert_snapshot, upload_screenshot, get_active_chat_ids
+from supabase_client import insert_snapshot, insert_oi_intelligence, upload_screenshot, get_active_chat_ids
 from url_manager import UrlManager, UrlManagerError
 import history
 import telegram
@@ -154,6 +154,11 @@ def run():
         screenshot_url=screenshot_url,
     )
     print(f"✅ Done. Row id={row.get('id')}")
+    try:
+        insert_oi_intelligence(parsed, snapshot_id=row.get("id"))
+        print("    ✅ Structured OI intelligence persisted")
+    except Exception as e:
+        print(f"⚠️  Structured OI persistence failed (snapshot remains saved): {e}", file=sys.stderr)
 
     print("[8/8] Sending to Telegram...")
     if ai_failed:
