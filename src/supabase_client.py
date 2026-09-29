@@ -104,3 +104,41 @@ def get_active_chat_ids() -> list[str]:
     except Exception as e:
         print(f"⚠️  ดึงรายชื่อ customers จาก Supabase ไม่สำเร็จ: {e}")
         return []
+
+def insert_oi_intelligence(parsed: dict, snapshot_id: int | None = None) -> None:
+    """Persist structured OI intelligence; service-role only."""
+    raw = parsed.get("raw_series") or {}
+    client = get_client()
+    exposure = raw.get("delta_exposure") or {}
+    gex = raw.get("gex") or {}
+    base = {
+        "snapshot_id": snapshot_id,
+        "contract": parsed.get("contract"),
+        "dte": parsed.get("dte"),
+        "future_price": parsed.get("future_price"),
+        "net_delta_exposure": exposure.get("net_delta_exposure"),
+        "gross_delta_exposure": exposure.get("gross_delta_exposure"),
+        "net_gex": gex.get("net_gex"),
+        "call_gex_total": gex.get("call_gex_total"),
+        "put_gex_total": gex.get("put_gex_total"),
+        "gamma_flip": gex.get("gamma_flip"),
+        "call_wall": gex.get("call_wall"),
+        "put_wall": gex.get("put_wall"),
+        "payload": {"version": raw.get("intelligence_version"), "gex": gex},
+    }
+    client.table("oi_exposure_snapshots").insert(base).execute()
+    events = raw.get("flow_hypotheses", {}).get("events") or []
+    if events:
+        client.table("oi_flow_events").insert([{
+            "snapshot_id": snapshot_id, "contract": parsed.get("contract"), "strike": e.get("strike"),
+            "label": e.get("label"), "confidence": e.get("confidence", 0),
+            "delta_oi_call": e.get("delta_oi_call"), "delta_oi_put": e.get("delta_oi_put"),
+            "evidence": e.get("evidence", []), "limitations": e.get("limitations", []),
+        } for e in events]).execute()
+    shifts = raw.get("oi_migration", {}).get("shifts") or []
+    if shifts:
+        client.table("oi_migration_events").insert([{
+            "snapshot_id": snapshot_id, "contract": parsed.get("contract"), "side": e.get("side"),
+            "from_strike": e.get("from_strike"), "to_strike": e.get("to_strike"),
+            "estimated_oi": e.get("estimated_oi"), "confidence": "low",
+        } for e in shifts]).execute()
