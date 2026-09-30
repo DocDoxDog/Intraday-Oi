@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import hashlib
 from datetime import datetime, timezone
 from typing import Protocol
 
@@ -43,7 +44,7 @@ def authorize_customer_api(
 ) -> CustomerApiDecision:
     if not plaintext_api_key:
         return CustomerApiDecision(False, None, "API_KEY_REQUIRED")
-    record = store.get_by_hash(__import__("hashlib").sha256(plaintext_api_key.encode()).hexdigest())
+    record = store.get_by_hash(hashlib.sha256(plaintext_api_key.encode()).hexdigest())
     if record is None:
         return CustomerApiDecision(False, None, "API_KEY_INVALID")
     if not verify_api_key(
