@@ -18,7 +18,7 @@ def test_polling_worker_processes_authorized_command():
     transport = FakeTransport()
     worker = TelegramPollingWorker(control, transport)
     assert worker.process_update({"update_id": 1, "message": {"from": {"id": 10}, "chat": {"id": 20}, "text": "/help"}})
-    assert "OI POSITIONING INTELLIGENCE" in transport.sent[0][1].text
+    assert "AI MARKET INTELLIGENCE" in transport.sent[0][1].text
 
 def test_callback_is_acknowledged():
     principal = TelegramPrincipal("10", "20", TelegramRole.ADMIN)
