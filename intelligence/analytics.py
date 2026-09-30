@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Mapping
 
@@ -12,7 +12,7 @@ class ProductEvent:
     occurred_at: datetime
     organization_id: str | None = None
     user_id: str | None = None
-    metadata: Mapping[str, object] = ()
+    metadata: Mapping[str, object] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         if self.occurred_at.tzinfo is None:
