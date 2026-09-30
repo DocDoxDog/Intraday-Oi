@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import os
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any
 
 from supabase import Client, create_client
@@ -62,7 +62,7 @@ class SupabaseCustomerAccessStore:
         if not bool(ent.get("enabled")):
             return False, row["organization_id"], "ENTITLEMENT_DISABLED"
 
-        current = now or datetime.now(datetime.fromisoformat(str(row.get("expires_at") or "2099-01-01T00:00:00+00:00").replace("Z", "+00:00")).tzinfo)
+        current = now or datetime.now(timezone.utc)
         if ent.get("effective_from") and current < datetime.fromisoformat(str(ent["effective_from"]).replace("Z", "+00:00")):
             return False, row["organization_id"], "ENTITLEMENT_NOT_YET_ACTIVE"
         if ent.get("effective_to") and current >= datetime.fromisoformat(str(ent["effective_to"]).replace("Z", "+00:00")):
