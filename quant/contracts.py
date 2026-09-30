@@ -2,12 +2,10 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import date, datetime
-from enum import Enum
 import hashlib
-from typing import Optional
 
 
-class OptionType(str, Enum):
+class OptionType(str):
     CALL = "CALL"
     PUT = "PUT"
 
@@ -15,8 +13,6 @@ class OptionType(str, Enum):
 def normalize_option_type(value: str | OptionType | None) -> OptionType | None:
     if value is None:
         return None
-    if isinstance(value, OptionType):
-        return value
     normalized = str(value).strip().upper()
     if normalized in {"C", "CALL"}:
         return OptionType.CALL
@@ -58,12 +54,7 @@ class Future:
 
     @property
     def future_id(self) -> str:
-        return canonical_id(
-            "future",
-            self.exchange,
-            self.contract_code,
-            self.expiration,
-        )
+        return canonical_id("future", self.exchange, self.contract_code, self.expiration)
 
 
 @dataclass(frozen=True)
@@ -77,17 +68,7 @@ class Expiration:
 
     @property
     def expiration_id(self) -> str:
-        return canonical_id(
-            "expiration",
-            self.underlying,
-            self.expiry.isoformat(),
-            self.timezone,
-        )
-
-    @property
-    def dte_days(self) -> float:
-        now = datetime.now(self.expiry.tzinfo) if self.expiry.tzinfo else datetime.utcnow()
-        return max(0.0, (self.expiry - now).total_seconds() / 86400.0)
+        return canonical_id("expiration", self.underlying, self.expiry.isoformat(), self.timezone)
 
 
 @dataclass(frozen=True)
@@ -127,13 +108,54 @@ class OptionContract:
     def canonical_key(self) -> str:
         expiry = self.expiration.isoformat() if self.expiration else "UNKNOWN_EXPIRY"
         strike = f"{self.strike:g}" if self.strike is not None else "UNKNOWN_STRIKE"
-        side = self.option_type.value if self.option_type else "FUTURE"
+        side = self.option_type if self.option_type else "FUTURE"
         return f"{self.exchange}:{self.root}:{self.underlying}:{expiry}:{strike}:{side}"
 
     @property
     def canonical_id(self) -> str:
         return canonical_id("option", self.canonical_key)
 
+    @property
+    def resolution_status(self) -> str:
+        required = (
+            self.instrument_id,
+            self.future_id,
+            self.expiration_id,
+            self.strike_id,
+            self.source_contract_code,
+            self.option_type,
+            self.expiration,
+            self.strike,
+            self.multiplier,
+        )
+        return "RESOLVED" if all(value is not None for value in required) else "UNRESOLVED"
 
-# Backward-compatible name. New code should use OptionContract.
+
+def build_option_contract(metadata: dict) -> OptionContract:
+    """Build a canonical contract only from explicit provider metadata.
+
+    Missing fields remain unresolved; the function never guesses expiry,
+    multiplier, exchange, or option side.
+    """
+    option_type = normalize_option_type(metadata.get("option_type"))
+    return OptionContract(
+        symbol=str(metadata.get("symbol") or metadata.get("root") or ""),
+        root=str(metadata.get("root") or ""),
+        exchange=str(metadata.get("exchange") or ""),
+        underlying=str(metadata.get("underlying") or ""),
+        option_type=option_type,
+        expiration=metadata.get("expiration"),
+        strike=metadata.get("strike"),
+        multiplier=metadata.get("multiplier"),
+        currency=metadata.get("currency"),
+        settlement_type=metadata.get("settlement_type"),
+        source=str(metadata.get("source") or ""),
+        source_contract_code=metadata.get("source_contract_code"),
+        instrument_id=metadata.get("instrument_id"),
+        future_id=metadata.get("future_id"),
+        expiration_id=metadata.get("expiration_id"),
+        strike_id=metadata.get("strike_id"),
+    )
+
+
 Contract = OptionContract
