@@ -4,6 +4,7 @@ import os
 
 from fastapi import FastAPI, Header, HTTPException
 
+from intelligence.customer.supabase_access import SupabaseCustomerAccessStore
 from quant.state_store import (
     InMemoryMarketStateRepository,
     MarketStateRecord,
@@ -88,6 +89,49 @@ def create_app(
             "gex_by_expiration": (record.positioning.get("gex") or {}).get("gex_by_expiration"),
             "dex_by_expiration": (record.positioning.get("dex") or {}).get("dex_by_expiration"),
         }
+        return payload
+
+
+    def get_customer_record(symbol: str, api_key: str | None, feature: str) -> MarketStateRecord:
+        if os.environ.get("CUSTOMER_API_ENABLED", "").lower() != "true":
+            raise HTTPException(status_code=404, detail="CUSTOMER_API_DISABLED")
+        if not api_key:
+            raise HTTPException(status_code=401, detail="API_KEY_REQUIRED")
+        try:
+            allowed, organization_id, reason = SupabaseCustomerAccessStore().authorize(
+                api_key, feature=feature, symbol=symbol.upper()
+            )
+        except Exception as exc:
+            raise HTTPException(status_code=503, detail="CUSTOMER_AUTH_UNAVAILABLE") from exc
+        if not allowed:
+            code = 403 if reason not in {"API_KEY_INVALID"} else 401
+            raise HTTPException(status_code=code, detail=reason)
+        return get_record(symbol, None)
+
+    @app.get("/api/v1/market/{symbol}")
+    def customer_market(symbol: str, x_api_key: str | None = Header(default=None)):
+        record = get_customer_record(symbol, x_api_key, "market_overview")
+        return record_to_response(record)
+
+    @app.get("/api/v1/gex/{symbol}")
+    def customer_gex(symbol: str, x_api_key: str | None = Header(default=None)):
+        record = get_customer_record(symbol, x_api_key, "gex")
+        payload = record_to_response(record)
+        payload["data"] = record.positioning.get("gex") or {}
+        return payload
+
+    @app.get("/api/v1/oi/{symbol}")
+    def customer_oi(symbol: str, x_api_key: str | None = Header(default=None)):
+        record = get_customer_record(symbol, x_api_key, "oi")
+        payload = record_to_response(record)
+        payload["data"] = record.positioning.get("oi") or {}
+        return payload
+
+    @app.get("/api/v1/positioning/{symbol}")
+    def customer_positioning(symbol: str, x_api_key: str | None = Header(default=None)):
+        record = get_customer_record(symbol, x_api_key, "positioning")
+        payload = record_to_response(record)
+        payload["data"] = payload["data"]["positioning"]
         return payload
 
     return app
