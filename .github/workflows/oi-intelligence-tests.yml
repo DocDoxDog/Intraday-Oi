@@ -11,6 +11,7 @@ on:
       - 'quant/**'
       - 'tests/**'
       - 'requirements.txt'
+      - 'intelligence/**'
       - '.github/workflows/oi-intelligence-tests.yml'
   workflow_dispatch:
 
@@ -37,6 +38,11 @@ jobs:
           - tests/test_oi_adapter.py
           - tests/test_api.py
           - tests/test_supabase_writer.py
+          - tests/test_news_intelligence.py
+          - tests/test_scenario_and_entitlements.py
+          - tests/test_ai_output_verifier.py
+          - tests/test_customer_gateway.py
+          - tests/test_customer_supabase_access.py
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
