@@ -44,9 +44,9 @@ def make_record():
         put_wall=3800.0,
         positioning_regime="UNKNOWN",
         volatility_regime="UNKNOWN",
-        data_quality=0.0,
-        data_age_seconds=None,
-        data_status=DataStatus.INCOMPLETE,
+        data_quality=1.0,
+        data_age_seconds=0.0,
+        data_status=DataStatus.VALID,
         dataset_version="fixture:v1",
         calculation_version="canonical-gex-v1",
         sign_convention="DEALER_SHORT_PUBLIC",
@@ -57,12 +57,21 @@ def make_record():
     return MarketStateRecord(state=state, positioning={"gex": {"net_gex": 1000.0}})
 
 
+def test_writer_rejects_incomplete_state():
+    import pytest
+    record = make_record()
+    state = MarketState(**{**record.state.__dict__, "data_status": DataStatus.INCOMPLETE})
+    incomplete = MarketStateRecord(state=state, positioning=record.positioning)
+    with pytest.raises(RuntimeError, match="CANONICAL_STATE_NOT_ELIGIBLE"):
+        SupabaseMarketStateWriter(client=FakeClient()).put(incomplete)
+
+
 def test_writer_inserts_canonical_state():
     client = FakeClient()
     SupabaseMarketStateWriter(client=client).put(make_record())
     row = client.table_obj.inserted
     assert row["symbol"] == "GC"
-    assert row["data_status"] == "INCOMPLETE"
+    assert row["data_status"] == "VALID"
     assert row["dataset_version"] == "fixture:v1"
     assert row["positioning"]["gex"]["net_gex"] == 1000.0
 
