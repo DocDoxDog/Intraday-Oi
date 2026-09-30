@@ -54,6 +54,30 @@ def create_app(
             )
         return record
 
+
+    @app.get("/health")
+    def health():
+        return {"status": "ok", "service": "oi-market-intelligence"}
+
+    @app.get("/ready")
+    def ready():
+        if os.environ.get("CANONICAL_DB_READS", "").lower() != "true":
+            return {"status": "ready", "canonical_store": "disabled"}
+        try:
+            record = repo.get(os.environ.get("CANONICAL_MARKET_STATE_SYMBOL", "GC").upper())
+        except Exception as exc:
+            raise HTTPException(status_code=503, detail="CANONICAL_STORE_UNAVAILABLE") from exc
+        if record is None or record.state.data_status.value != "VALID":
+            raise HTTPException(status_code=503, detail="CANONICAL_DATA_NOT_READY")
+        return {"status": "ready", "canonical_store": "valid", "symbol": record.state.symbol}
+
+    @app.get("/metrics")
+    def metrics():
+        return {
+            "service": "oi-market-intelligence",
+            "canonical_db_reads": os.environ.get("CANONICAL_DB_READS", "false").lower() == "true",
+        }
+
     @app.get("/market/{symbol}")
     def market(symbol: str, authorization: str | None = Header(default=None)):
         return record_to_response(get_record(symbol, authorization))
