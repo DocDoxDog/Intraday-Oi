@@ -1,10 +1,10 @@
 import { TerminalLayout, EmptyTerminalState } from "../components/TerminalLayout";
-import { getInternal } from "../lib/terminal";
+import { getTerminalAnalysis } from "../lib/terminal";
 
 export const dynamic = "force-dynamic";
 
 export default async function AnalysisPage() {
-  const payload = await getInternal<unknown>("/api/v1/analysis/GC");
+  const payload = await getTerminalAnalysis("GC");
   return (
     <TerminalLayout title="Analysis">
       {!payload ? <EmptyTerminalState /> : (
