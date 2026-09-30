@@ -10,6 +10,48 @@ from quant.serialization import to_jsonable
 from quant.state_store import MarketStateRecord
 
 
+class SupabaseRawMarketDataWriter:
+    """Server-side writer for canonical raw market payloads."""
+
+    RAW_TABLE = "oi_core_raw_market_data"
+    DATASET_TABLE = "oi_core_dataset_versions"
+
+    def __init__(
+        self,
+        *,
+        url: str | None = None,
+        service_role_key: str | None = None,
+        client: Client | None = None,
+    ) -> None:
+        if client is not None:
+            self.client = client
+            return
+        db_url = url or os.environ.get("SUPABASE_URL")
+        key = service_role_key or os.environ.get("SUPABASE_SERVICE_ROLE_KEY")
+        if not db_url or not key:
+            raise RuntimeError("SUPABASE_SERVER_CREDENTIALS_MISSING")
+        self.client = create_client(db_url, key)
+
+    def put(self, raw_market_data) -> None:
+        dataset_row = {
+            "version": raw_market_data.dataset_version,
+            "source": raw_market_data.source,
+            "source_file": raw_market_data.source_file,
+            "source_version": raw_market_data.source_version,
+            "checksum": raw_market_data.checksum,
+        }
+        self.client.table(self.DATASET_TABLE).upsert(dataset_row, on_conflict="version").execute()
+        self.client.table(self.RAW_TABLE).insert({
+            "source": raw_market_data.source,
+            "source_file": raw_market_data.source_file,
+            "source_version": raw_market_data.source_version,
+            "fetched_at": raw_market_data.fetched_at.isoformat(),
+            "payload": raw_market_data.payload,
+            "checksum": raw_market_data.checksum,
+            "dataset_version": raw_market_data.dataset_version,
+        }).execute()
+
+
 class SupabaseMarketStateWriter:
     """Server-side writer for the canonical MarketState store."""
 
