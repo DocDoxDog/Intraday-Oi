@@ -63,6 +63,9 @@ def test_customer_store_authorizes_feature_and_market():
     }
     store = SupabaseCustomerAccessStore(client=Client(rows))
     assert store.authorize(material.plaintext, feature="gex", symbol="GC")[0] is True
+    future = (datetime.now(timezone.utc) + timedelta(hours=1)).isoformat()
+    rows["entitlements"][0]["effective_from"] = future
+    assert store.authorize(material.plaintext, feature="gex", symbol="GC")[2] == "ENTITLEMENT_NOT_YET_ACTIVE"
 
 
 def test_customer_store_rejects_missing_key():
