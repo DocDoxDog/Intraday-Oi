@@ -127,14 +127,16 @@ def calculate_gex_result(
 
         gamma = _num(raw.get("gamma"))
         gamma_source = "quikstrike" if gamma is not None else "missing"
-        if gamma is None and dte_days is not None:
+        row_dte = _num(raw.get("dte_days"))
+        effective_dte = row_dte if row_dte is not None else dte_days
+        if gamma is None and effective_dte is not None:
             iv = _num(raw.get("vol"))
             if iv is not None:
                 gamma = black76_gamma(
                     F,
                     strike,
                     iv,
-                    dte_days,
+                    effective_dte,
                     risk_free_rate=risk_free_rate,
                 )
                 if gamma is not None:
