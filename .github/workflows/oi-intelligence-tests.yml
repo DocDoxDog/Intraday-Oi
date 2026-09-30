@@ -55,6 +55,12 @@ jobs:
           - tests/test_ai_output_verifier.py
           - tests/test_customer_gateway.py
           - tests/test_customer_supabase_access.py
+          - tests/test_scenario_update.py
+          - tests/test_analysis_context.py
+          - tests/test_cfd_mapping.py
+          - tests/test_analytics.py
+          - tests/test_compliance.py
+          - tests/test_alert_service.py
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
