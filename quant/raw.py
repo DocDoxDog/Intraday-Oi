@@ -65,3 +65,16 @@ class RawMarketData:
             source_version=self.source_version,
             checksum=self.checksum,
         )
+
+
+def sanitize_payload(value: Any) -> Any:
+    """Return deterministic JSON-safe raw payload without fabricating source fields."""
+    if isinstance(value, bytes):
+        return {"__binary__": True, "length": len(value)}
+    if isinstance(value, dict):
+        return {str(k): sanitize_payload(v) for k, v in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [sanitize_payload(v) for v in value]
+    if isinstance(value, (str, int, float, bool)) or value is None:
+        return value
+    return str(value)
