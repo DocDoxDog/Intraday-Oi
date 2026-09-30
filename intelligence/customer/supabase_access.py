@@ -31,7 +31,7 @@ class SupabaseCustomerAccessStore:
     ) -> tuple[bool, str | None, str]:
         digest = hashlib.sha256(api_key.encode("utf-8")).hexdigest()
         key_result = (
-            self.client.table("commercial.api_keys")
+            self.client.schema("commercial").table("api_keys")
             .select("id,organization_id,key_hash,revoked_at,expires_at")
             .eq("key_hash", digest)
             .limit(1)
@@ -49,7 +49,7 @@ class SupabaseCustomerAccessStore:
                 return False, row.get("organization_id"), "API_KEY_EXPIRED"
 
         entitlement = (
-            self.client.table("commercial.entitlements")
+            self.client.schema("commercial").table("entitlements")
             .select("enabled,effective_from,effective_to")
             .eq("organization_id", row["organization_id"])
             .eq("feature", feature)
@@ -70,7 +70,7 @@ class SupabaseCustomerAccessStore:
 
         if symbol:
             access = (
-                self.client.table("commercial.market_access")
+                self.client.schema("commercial").table("market_access")
                 .select("enabled,effective_from,effective_to")
                 .eq("organization_id", row["organization_id"])
                 .eq("symbol", symbol.upper())
