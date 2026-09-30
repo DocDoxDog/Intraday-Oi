@@ -34,7 +34,13 @@ def create_app(
     customer_rate_limiter = CustomerApiRateLimiter(
         limit=int(os.environ.get("CUSTOMER_API_RATE_LIMIT", "120"))
     )
-    intelligence_reader = SupabaseIntelligenceReader()
+    intelligence_reader = None
+
+    def get_intelligence_reader() -> SupabaseIntelligenceReader:
+        nonlocal intelligence_reader
+        if intelligence_reader is None:
+            intelligence_reader = SupabaseIntelligenceReader()
+        return intelligence_reader
 
     def authorize(authorization: str | None) -> None:
         if not expected_token:
@@ -177,7 +183,7 @@ def create_app(
     def customer_news(symbol: str, x_api_key: str | None = Header(default=None)):
         get_customer_record(symbol, x_api_key, "news")
         try:
-            data = intelligence_reader.news(symbol)
+            data = get_intelligence_reader().news(symbol)
         except Exception as exc:
             raise HTTPException(status_code=503, detail="INTELLIGENCE_DATA_UNAVAILABLE") from exc
         return {
@@ -193,7 +199,7 @@ def create_app(
     def customer_analysis(symbol: str, x_api_key: str | None = Header(default=None)):
         get_customer_record(symbol, x_api_key, "analysis")
         try:
-            data = intelligence_reader.analyses(symbol)
+            data = get_intelligence_reader().analyses(symbol)
         except Exception as exc:
             raise HTTPException(status_code=503, detail="INTELLIGENCE_DATA_UNAVAILABLE") from exc
         return {
@@ -211,7 +217,7 @@ def create_app(
     def customer_plan(symbol: str, x_api_key: str | None = Header(default=None)):
         get_customer_record(symbol, x_api_key, "plan")
         try:
-            data = intelligence_reader.plans(symbol)
+            data = get_intelligence_reader().plans(symbol)
         except Exception as exc:
             raise HTTPException(status_code=503, detail="INTELLIGENCE_DATA_UNAVAILABLE") from exc
         return {
