@@ -19,6 +19,7 @@ def calculate_dex(
     out = []
     net = 0.0
     gross = 0.0
+    dex_by_expiration: dict[str, dict[str, float]] = {}
 
     for raw in rows:
         call_oi = _num(raw.get("oiCall")) or 0.0
@@ -38,6 +39,11 @@ def calculate_dex(
         out.append(row)
         net += call_dex + put_dex
         gross += abs(call_dex) + abs(put_dex)
+        expiry = str(raw.get("expiration_id") or "UNSPECIFIED")
+        bucket = dex_by_expiration.setdefault(expiry, {"net_dex": 0.0, "call_dex": 0.0, "put_dex": 0.0})
+        bucket["net_dex"] += call_dex + put_dex
+        bucket["call_dex"] += call_dex
+        bucket["put_dex"] += put_dex
 
     return {
         "status": "ok" if out else "unavailable",
@@ -46,5 +52,7 @@ def calculate_dex(
         "unit": "delta-equivalent contracts",
         "net_dex": net,
         "gross_dex": gross,
+        "dex_by_expiration": dex_by_expiration,
+        "expiry_count": len(dex_by_expiration),
         "rows": out,
     }
