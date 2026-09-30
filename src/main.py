@@ -134,6 +134,16 @@ def run():
     except Exception as e:
         print(f"⚠️  MarketState adapter failed (legacy flow continues): {e}", file=sys.stderr)
 
+
+    if os.environ.get("CANONICAL_DB_WRITES", "").lower() == "true" and parsed.get("market_state"):
+        try:
+            from quant.state_store import record_from_payload
+            from quant.supabase_writer import SupabaseMarketStateWriter
+            record = record_from_payload(parsed["market_state"], (parsed.get("raw_series") or {}))
+            SupabaseMarketStateWriter().put(record)
+            print("    ✅ Canonical MarketState persisted to oi_core_market_states")
+        except Exception as e:
+            print(f"⚠️  Canonical MarketState persistence failed (legacy flow continues): {e}", file=sys.stderr)
     print("[6/8] Analyzing with Gemini...")
     try:
         ai_result = analyze(parsed, history=hist_context)
