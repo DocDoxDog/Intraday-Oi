@@ -5,6 +5,7 @@ from typing import Any
 
 from supabase import Client, create_client
 
+from quant.models import DataStatus
 from quant.serialization import to_jsonable
 from quant.state_store import MarketStateRecord
 
@@ -32,7 +33,7 @@ class SupabaseMarketStateWriter:
 
     def put(self, record: MarketStateRecord) -> None:
         state = record.state
-        if state.data_status != __import__("quant.models", fromlist=["DataStatus"]).DataStatus.VALID:
+        if state.data_status != DataStatus.VALID:
             raise RuntimeError(f"CANONICAL_STATE_NOT_ELIGIBLE:{state.data_status.value}")
         if state.dataset_version == "unknown" or state.calculation_version == "unknown":
             raise RuntimeError("CANONICAL_STATE_VERSION_METADATA_MISSING")
