@@ -15,7 +15,7 @@ export default async function OverviewPage(){
     </aside>
     <section className="canvas">
       <header className="topbar"><div><div className="eyebrow">COMMAND CENTER</div><h1>GC Overview</h1></div>
-        <div className="status-cluster"><span className={state?.data_status==="VALID"?"status":"status unknown"}>{state?.data_status ?? "DATA UNAVAILABLE"}</span><span className="timestamp">{state?.as_of ?? "—"}</span></div>
+        <div className="status-cluster"><span className={state?.data_status==="VALID"?"status":"status unknown"}>{state?.data_status ?? "DATA UNAVAILABLE"}</span><span className="timestamp">{payload?.as_of ?? "—"}</span></div>
       </header>
       {!state ? <section className="empty-state"><div className="empty-title">MarketState unavailable</div><p>Connect CANONICAL_MARKET_STATE_URL on the server runtime. The browser never receives the service token.</p></section> :
       <>
