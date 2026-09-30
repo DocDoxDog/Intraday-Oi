@@ -23,26 +23,36 @@ def attach_market_state(parsed: dict[str, Any], *, dataset_version: str = "legac
 
     # Legacy snapshots do not yet expose authoritative observation/publication
     # timestamps or a fully resolved contract ID. Do not manufacture them.
+    positioning_payload = {
+        "oi": {
+            "count": len(raw.get("strike_rows") or []),
+            "total_oi": totals.get("open_interest_total"),
+            "oi_change_total": (
+                totals.get("oi_delta_put", 0) + totals.get("oi_delta_call", 0)
+                if totals.get("oi_delta_put") is not None
+                and totals.get("oi_delta_call") is not None
+                else None
+            ),
+        },
+        "gex": gex,
+        "dex": {
+            "status": "ok" if delta else "unavailable",
+            "net_dex": delta.get("net_delta_exposure"),
+            "gross_dex": delta.get("gross_delta_exposure"),
+        },
+        "iv": parsed.get("vol"),
+        "evidence": (
+            "LEGACY_QUIKSTRIKE_SNAPSHOT",
+            "PUBLIC_DEALER_SIGN_ASSUMPTION_NOT_OBSERVED",
+        ),
+    }
+
     state = build_market_state(
         symbol="GC",
         price=parsed.get("future_price"),
         as_of=datetime.now(timezone.utc),
         positioning={
-            "oi": {
-                "count": len(raw.get("strike_rows") or []),
-                "total_oi": totals.get("open_interest_total"),
-                "oi_change_total": (
-                    totals.get("oi_delta_put", 0) + totals.get("oi_delta_call", 0)
-                    if totals.get("oi_delta_put") is not None
-                    and totals.get("oi_delta_call") is not None
-                    else None
-                ),
-            },
-            "gex": gex,
-            "dex": {
-                "status": "ok" if delta else "unavailable",
-                "net_dex": delta.get("net_delta_exposure"),
-            },
+            **positioning_payload,
             "assumptions": (
                 "legacy_quikstrike_snapshot_adapter",
                 "publication_time_unknown",
@@ -61,5 +71,7 @@ def attach_market_state(parsed: dict[str, Any], *, dataset_version: str = "legac
 
     serialized = to_jsonable(state)
     raw["market_state"] = serialized
+    raw["market_state_positioning"] = to_jsonable(positioning_payload)
     parsed["market_state"] = serialized
+    parsed["market_state_positioning"] = to_jsonable(positioning_payload)
     return parsed
