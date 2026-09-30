@@ -44,3 +44,13 @@ GEMINI_API_KEY
 MT5_PASSWORD
 
 Use server-side secrets and least privilege.
+
+
+## Phase 4 security verification — 2026-10-01
+
+- Verified target Supabase project: mwqmxxipgdhbcmwoqueg (cph dashboard), ACTIVE_HEALTHY.
+- Canonical options store consists of 14 oi_core_* tables.
+- RLS is enabled on all 14 canonical tables.
+- SQL privilege verification after canonical_store_server_only shows only service_role remains for the canonical tables; anon/authenticated are not granted table privileges.
+- Canonical MarketState writer is server-side and fail-closed for INCOMPLETE/UNAVAILABLE states or missing version metadata.
+- Security status remains FAIL for the whole system because the database still has existing advisor findings and full production authorization/E2E verification is incomplete.
