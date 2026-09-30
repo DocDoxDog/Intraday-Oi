@@ -20,7 +20,7 @@ def test_gex_default_convention_is_explicit():
     assert result["call_wall"] == 4300
     assert result["put_wall"] == 4300
     assert result["dealer_position_observed"] is False
-    assert result["gex_sign_convention"] if "gex_sign_convention" in result else result["convention"] == "DEALER_SHORT_PUBLIC"
+    assert result["gex_sign_convention"] == "DEALER_SHORT_PUBLIC"
 
 
 def test_gex_alternative_sign_convention():

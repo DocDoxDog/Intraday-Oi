@@ -126,13 +126,19 @@ def calculate_gex_result(
             continue
 
         gamma = _num(raw.get("gamma"))
-        gamma_source = "SOURCE_GAMMA" if gamma is not None else "MISSING"
+        gamma_source = "quikstrike" if gamma is not None else "missing"
         if gamma is None and dte_days is not None:
             iv = _num(raw.get("vol"))
             if iv is not None:
-                gamma = black76_gamma(F, strike, iv, dte_days, risk_free_rate)
+                gamma = black76_gamma(
+                    F,
+                    strike,
+                    iv,
+                    dte_days,
+                    risk_free_rate=risk_free_rate,
+                )
                 if gamma is not None:
-                    gamma_source = "BLACK76_FROM_IV"
+                    gamma_source = "black76_from_iv"
 
         if gamma is None:
             continue
@@ -144,16 +150,18 @@ def calculate_gex_result(
 
         row = dict(raw)
         row.update(
-            gamma=gamma,
-            call_gex=call_gex,
-            put_gex=put_gex,
-            net_gex=call_gex + put_gex,
-            gex_multiplier=multiplier,
-            gamma_source=gamma_source,
-            gex_sign_convention=convention,
-            gex_calculation_version=GEX_CALCULATION_VERSION,
-            gex_unit="USD per 1% underlying move",
-            expiry_scope=expiry_scope,
+            {
+                "gamma": gamma,
+                "call_gex": call_gex,
+                "put_gex": put_gex,
+                "net_gex": call_gex + put_gex,
+                "gex_multiplier": multiplier,
+                "gamma_source": gamma_source,
+                "gex_sign_convention": convention,
+                "gex_calculation_version": GEX_CALCULATION_VERSION,
+                "gex_unit": "USD per 1% underlying move",
+                "expiry_scope": expiry_scope,
+            }
         )
         result_rows.append(row)
 
@@ -195,12 +203,13 @@ def calculate_gex_result(
         ),
         "max_abs_gex_strike": (
             max(result_rows, key=lambda row: abs(row["net_gex"]))["strike"]
-            if result_rows else None
+            if result_rows
+            else None
         ),
         "gamma_flip": _crossing_level(result_rows, "cumulative_gex"),
         "positive_gamma": net > 0 if convention != "GROSS_ABS" else None,
-        "source_gamma_count": sum(row["gamma_source"] == "SOURCE_GAMMA" for row in result_rows),
-        "derived_gamma_count": sum(row["gamma_source"] == "BLACK76_FROM_IV" for row in result_rows),
+        "source_gamma_count": sum(row["gamma_source"] == "quikstrike" for row in result_rows),
+        "derived_gamma_count": sum(row["gamma_source"] == "black76_from_iv" for row in result_rows),
         "calculation_version": GEX_CALCULATION_VERSION,
         "rows": result_rows,
     }
