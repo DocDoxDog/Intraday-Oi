@@ -43,7 +43,12 @@ def verify_output(
         "calculation_version",
         "assumptions",
     }
-    missing = sorted(k for k in required_keys if not required_metadata.get(k))
+    missing = sorted(
+        k for k in required_keys
+        if required_metadata.get(k) is None
+        or required_metadata.get(k) == ""
+        or required_metadata.get(k) == ()
+    )
     violations.extend(f"MISSING_METADATA:{key}" for key in missing)
 
     forbidden = (
