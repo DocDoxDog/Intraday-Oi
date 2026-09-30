@@ -57,6 +57,8 @@ jobs:
           - tests/test_customer_supabase_access.py
           - tests/test_scenario_update.py
           - tests/test_change_report_quality.py
+          - tests/test_subscription_webhook.py
+          - tests/test_source_registry.py
           - tests/test_analysis_context.py
           - tests/test_cfd_mapping.py
           - tests/test_analytics.py
