@@ -31,6 +31,10 @@ jobs:
           - tests/test_black76.py
           - tests/test_dex.py
           - tests/test_market_state.py
+          - tests/test_raw.py
+          - tests/test_telegram_control.py
+          - tests/test_telegram_bot.py
+          - tests/test_black76.py
           - tests/test_oi_adapter.py
           - tests/test_api.py
     steps:
