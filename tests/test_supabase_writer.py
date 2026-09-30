@@ -4,7 +4,8 @@ from datetime import datetime, timezone
 
 from quant.models import DataStatus, MarketState
 from quant.state_store import MarketStateRecord, record_from_payload
-from quant.supabase_writer import SupabaseMarketStateWriter
+from quant.raw import RawMarketData, sanitize_payload
+from quant.supabase_writer import SupabaseMarketStateWriter, SupabaseRawMarketDataWriter
 
 
 class FakeTable:
@@ -106,3 +107,37 @@ def test_record_payload_rehydration_does_not_change_values():
     restored = record_from_payload(payload, original.positioning)
     assert restored.state == original.state
     assert restored.positioning == original.positioning
+
+
+def test_raw_writer_persists_dataset_version_and_payload():
+    class FakeUpsert:
+        def __init__(self, table):
+            self.table = table
+            self.row = None
+        def upsert(self, row, on_conflict=None):
+            self.row = row
+            assert on_conflict == "version"
+            return self
+        def insert(self, row):
+            self.row = row
+            return self
+        def execute(self):
+            return type("Result", (), {"data": [self.row]})()
+
+    class RawClient:
+        def __init__(self):
+            self.tables = {}
+        def table(self, name):
+            self.tables.setdefault(name, FakeUpsert(name))
+            return self.tables[name]
+
+    payload = sanitize_payload({"strike": 3800, "screenshot": b"abc"})
+    raw = RawMarketData.create(
+        source="quikstrike", payload=payload, source_version="legacy-v1",
+        fetched_at=datetime(2026, 10, 1, tzinfo=timezone.utc),
+    )
+    client = RawClient()
+    SupabaseRawMarketDataWriter(client=client).put(raw)
+    assert client.tables["oi_core_dataset_versions"].row["version"] == raw.dataset_version
+    assert client.tables["oi_core_raw_market_data"].row["checksum"] == raw.checksum
+    assert client.tables["oi_core_raw_market_data"].row["payload"]["screenshot"]["__binary__"] is True
