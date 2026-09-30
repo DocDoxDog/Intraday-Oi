@@ -32,6 +32,10 @@ class SupabaseMarketStateWriter:
 
     def put(self, record: MarketStateRecord) -> None:
         state = record.state
+        if state.data_status != __import__("quant.models", fromlist=["DataStatus"]).DataStatus.VALID:
+            raise RuntimeError(f"CANONICAL_STATE_NOT_ELIGIBLE:{state.data_status.value}")
+        if state.dataset_version == "unknown" or state.calculation_version == "unknown":
+            raise RuntimeError("CANONICAL_STATE_VERSION_METADATA_MISSING")
         row: dict[str, Any] = {
             "symbol": state.symbol,
             "as_of": state.as_of.isoformat(),
