@@ -46,8 +46,11 @@ class CustomerAlertService:
         severity: str,
         text: str,
         alert_id: str,
+        source_rights_approved: bool = True,
     ) -> tuple[bool, str]:
         now = datetime.now(timezone.utc)
+        if not source_rights_approved:
+            return False, "SOURCE_RIGHTS_NOT_APPROVED"
         existing = self.repository.find_story(organization_id, story_cluster_id)
 
         if existing and existing.provider_message_id:
