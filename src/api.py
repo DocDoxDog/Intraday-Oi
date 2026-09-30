@@ -5,6 +5,8 @@ import os
 from fastapi import FastAPI, Header, HTTPException
 
 from intelligence.customer.gateway import CustomerApiRateLimiter
+from intelligence.customer.postgres_access import PostgresCustomerAccessStore
+from intelligence.customer.usage_writer import PostgresUsageWriter
 from intelligence.supabase_reader import SupabaseIntelligenceReader
 from intelligence.customer.supabase_access import SupabaseCustomerAccessStore
 from quant.state_store import (
@@ -35,6 +37,38 @@ def create_app(
         limit=int(os.environ.get("CUSTOMER_API_RATE_LIMIT", "120"))
     )
     intelligence_reader = None
+    usage_writer = None
+    customer_access_store = None
+
+    def get_customer_access_store():
+        nonlocal customer_access_store
+        if customer_access_store is None:
+            backend = os.environ.get("CUSTOMER_AUTH_BACKEND", "postgres").lower()
+            customer_access_store = PostgresCustomerAccessStore() if backend == "postgres" else SupabaseCustomerAccessStore()
+        return customer_access_store
+
+    def get_usage_writer():
+        nonlocal usage_writer
+        if usage_writer is None and os.environ.get("CUSTOMER_USAGE_METERING", "true").lower() == "true":
+            try:
+                usage_writer = PostgresUsageWriter()
+            except Exception:
+                usage_writer = False
+        return usage_writer
+
+    def meter_customer_request(organization_id: str, endpoint: str, started_at: float, status_code: int = 200):
+        writer = get_usage_writer()
+        if writer:
+            try:
+                import time
+                writer.record(
+                    organization_id=organization_id,
+                    endpoint=endpoint,
+                    status_code=status_code,
+                    latency_ms=int((time.perf_counter() - started_at) * 1000),
+                )
+            except Exception:
+                pass
 
     def get_intelligence_reader() -> SupabaseIntelligenceReader:
         nonlocal intelligence_reader
@@ -106,6 +140,7 @@ def create_app(
         record = get_record(symbol, authorization)
         payload = record_to_response(record)
         payload["data"] = record.positioning.get("oi") or {}
+        meter_customer_request(organization_id, f"/api/v1/oi/{symbol.upper()}", started)
         return payload
 
     @app.get("/market/{symbol}/gex")
@@ -113,6 +148,7 @@ def create_app(
         record = get_record(symbol, authorization)
         payload = record_to_response(record)
         payload["data"] = record.positioning.get("gex") or {}
+        meter_customer_request(organization_id, f"/api/v1/gex/{symbol.upper()}", started)
         return payload
 
     @app.get("/market/{symbol}/expiry")
@@ -128,13 +164,13 @@ def create_app(
         return payload
 
 
-    def get_customer_record(symbol: str, api_key: str | None, feature: str) -> MarketStateRecord:
+    def get_customer_record(symbol: str, api_key: str | None, feature: str) -> tuple[MarketStateRecord, str]:
         if os.environ.get("CUSTOMER_API_ENABLED", "").lower() != "true":
             raise HTTPException(status_code=404, detail="CUSTOMER_API_DISABLED")
         if not api_key:
             raise HTTPException(status_code=401, detail="API_KEY_REQUIRED")
         try:
-            allowed, organization_id, reason = SupabaseCustomerAccessStore().authorize(
+            allowed, organization_id, reason = get_customer_access_store().authorize(
                 api_key, feature=feature, symbol=symbol.upper()
             )
         except Exception as exc:
@@ -150,38 +186,51 @@ def create_app(
             raise HTTPException(status_code=503, detail="DATA_STORE_UNAVAILABLE") from exc
         if record is None:
             raise HTTPException(status_code=503, detail="DATA_UNAVAILABLE")
-        return record
+        return record, str(organization_id)
 
     @app.get("/api/v1/market/{symbol}")
     def customer_market(symbol: str, x_api_key: str | None = Header(default=None)):
-        record = get_customer_record(symbol, x_api_key, "market_overview")
-        return record_to_response(record)
+        import time
+        started = time.perf_counter()
+        record, organization_id = get_customer_record(symbol, x_api_key, "market_overview")
+        response = record_to_response(record)
+        meter_customer_request(organization_id, f"/api/v1/market/{symbol.upper()}", started)
+        return response
 
     @app.get("/api/v1/gex/{symbol}")
     def customer_gex(symbol: str, x_api_key: str | None = Header(default=None)):
-        record = get_customer_record(symbol, x_api_key, "gex")
+        import time
+        started = time.perf_counter()
+        record, organization_id = get_customer_record(symbol, x_api_key, "gex")
         payload = record_to_response(record)
         payload["data"] = record.positioning.get("gex") or {}
         return payload
 
     @app.get("/api/v1/oi/{symbol}")
     def customer_oi(symbol: str, x_api_key: str | None = Header(default=None)):
-        record = get_customer_record(symbol, x_api_key, "oi")
+        import time
+        started = time.perf_counter()
+        record, organization_id = get_customer_record(symbol, x_api_key, "oi")
         payload = record_to_response(record)
         payload["data"] = record.positioning.get("oi") or {}
         return payload
 
     @app.get("/api/v1/positioning/{symbol}")
     def customer_positioning(symbol: str, x_api_key: str | None = Header(default=None)):
-        record = get_customer_record(symbol, x_api_key, "positioning")
+        import time
+        started = time.perf_counter()
+        record, organization_id = get_customer_record(symbol, x_api_key, "positioning")
         payload = record_to_response(record)
         payload["data"] = payload["data"]["positioning"]
+        meter_customer_request(organization_id, f"/api/v1/positioning/{symbol.upper()}", started)
         return payload
 
 
     @app.get("/api/v1/news/{symbol}")
     def customer_news(symbol: str, x_api_key: str | None = Header(default=None)):
-        get_customer_record(symbol, x_api_key, "news")
+        import time
+        started = time.perf_counter()
+        _record, organization_id = get_customer_record(symbol, x_api_key, "news")
         try:
             data = get_intelligence_reader().news(symbol)
         except Exception as exc:
@@ -195,9 +244,14 @@ def create_app(
             "data": data,
         }
 
+        meter_customer_request(organization_id, f"/api/v1/news/{symbol.upper()}", started)
+        return response
+
     @app.get("/api/v1/analysis/{symbol}")
     def customer_analysis(symbol: str, x_api_key: str | None = Header(default=None)):
-        get_customer_record(symbol, x_api_key, "analysis")
+        import time
+        started = time.perf_counter()
+        _record, organization_id = get_customer_record(symbol, x_api_key, "analysis")
         try:
             data = get_intelligence_reader().analyses(symbol)
         except Exception as exc:
@@ -213,9 +267,14 @@ def create_app(
             "data": data,
         }
 
+        meter_customer_request(organization_id, f"/api/v1/analysis/{symbol.upper()}", started)
+        return response
+
     @app.get("/api/v1/plan/{symbol}")
     def customer_plan(symbol: str, x_api_key: str | None = Header(default=None)):
-        get_customer_record(symbol, x_api_key, "plan")
+        import time
+        started = time.perf_counter()
+        _record, organization_id = get_customer_record(symbol, x_api_key, "plan")
         try:
             data = get_intelligence_reader().plans(symbol)
         except Exception as exc:
@@ -229,6 +288,9 @@ def create_app(
             "dataset_version": "mixed", "calculation_version": "mixed",
             "data": data,
         }
+
+        meter_customer_request(organization_id, f"/api/v1/plan/{symbol.upper()}", started)
+        return response
 
     return app
 
