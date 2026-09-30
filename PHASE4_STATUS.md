@@ -83,3 +83,13 @@ QuikStrike/publication/availability timestamps are not yet authoritative. Curren
 LIVE TRADING: DISABLED.
 
 No live trading promotion is permitted until GEX parity PASS + PIT PASS + OOS PASS + risk PASS + paper trading PASS + E2E PASS.
+
+
+## Latest implementation amendment — 2026-10-01
+
+- Canonical raw ingestion writer added: SupabaseRawMarketDataWriter persists checksum/versioned QuikStrike payloads into oi_core_raw_market_data and oi_core_dataset_versions when CANONICAL_RAW_WRITES=true.
+- Raw binary fields are represented only as metadata markers; no source values are invented.
+- Canonical MarketState writer is now explicitly fail-closed for non-VALID states and unknown version metadata.
+- Main pipeline can persist canonical raw data and MarketState through separate opt-in gates. Legacy persistence remains intact.
+- Canonical positioning stored with MarketState is bounded to semantic OI/GEX/DEX/IV evidence rather than the entire raw_series payload.
+- Latest verified Intraday-Oi branch commit: f04508e24dad4078646590dbc44eba97bd0c260c.
