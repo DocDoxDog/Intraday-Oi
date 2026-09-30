@@ -18,6 +18,9 @@ class RightsStatus(str, Enum):
     LEGAL_REVIEW_REQUIRED = "LEGAL_REVIEW_REQUIRED"
     DENIED = "DENIED"
 
+def _enum_value(value: Enum | str) -> str:
+    return value.value if isinstance(value, Enum) else str(value)
+
 @dataclass(frozen=True)
 class CommercialMarketStateEnvelope:
     symbol: str
@@ -61,8 +64,8 @@ class CommercialMarketStateEnvelope:
                 errors.append("PUBLICATION_AFTER_AS_OF")
             if self.availability_time > self.as_of:
                 errors.append("AVAILABILITY_AFTER_AS_OF")
-        if str(self.data_status) not in {MarketDataStatus.VALID.value, MarketDataStatus.OFFICIAL.value}:
-            errors.append(f"DATA_STATUS_NOT_CUSTOMER_VALID:{self.data_status}")
+        if _enum_value(self.data_status) not in {MarketDataStatus.VALID.value, MarketDataStatus.OFFICIAL.value}:
+            errors.append(f"DATA_STATUS_NOT_CUSTOMER_VALID:{_enum_value(self.data_status)}")
         if not isfinite(self.data_quality) or not 0.0 <= self.data_quality <= 1.0:
             errors.append("DATA_QUALITY_OUT_OF_RANGE")
         if self.data_age_seconds is None:
@@ -71,8 +74,8 @@ class CommercialMarketStateEnvelope:
             errors.append("DATA_AGE_INVALID")
         elif self.data_age_seconds > max_age_seconds:
             errors.append("DATA_TOO_OLD")
-        if str(self.rights_status) != RightsStatus.APPROVED.value:
-            errors.append(f"DATA_RIGHTS_NOT_APPROVED:{self.rights_status}")
+        if _enum_value(self.rights_status) != RightsStatus.APPROVED.value:
+            errors.append(f"DATA_RIGHTS_NOT_APPROVED:{_enum_value(self.rights_status)}")
         if not self.symbol.strip():
             errors.append("SYMBOL_REQUIRED")
         if not self.dataset_version.strip():
