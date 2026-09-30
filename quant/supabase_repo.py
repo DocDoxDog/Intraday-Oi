@@ -33,7 +33,7 @@ class SupabaseMarketStateRepository:
 
     def get(self, symbol: str) -> MarketStateRecord | None:
         result = (
-            self.client.table("market_states")
+            self.client.table("oi_core_market_states")
             .select("*")
             .eq("symbol", symbol.upper())
             .order("as_of", desc=True)
