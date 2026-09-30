@@ -126,6 +126,14 @@ def run():
     except Exception as e:
         print(f"⚠️  OI intelligence failed (raw OI remains available): {e}", file=sys.stderr)
 
+    # Transitional canonical MarketState: additive only, no legacy consumer cutover yet.
+    try:
+        from market_state import attach_market_state
+        parsed = attach_market_state(parsed)
+        print("    ✅ Canonical MarketState attached (INCOMPLETE while PIT/contract provenance is unresolved)")
+    except Exception as e:
+        print(f"⚠️  MarketState adapter failed (legacy flow continues): {e}", file=sys.stderr)
+
     print("[6/8] Analyzing with Gemini...")
     try:
         ai_result = analyze(parsed, history=hist_context)
