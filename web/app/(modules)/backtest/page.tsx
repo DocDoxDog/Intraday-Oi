@@ -1,0 +1,1 @@
+export default function Page(){return <section className="module-page"><div className="eyebrow">BACKTEST</div><h1>Backtest</h1><p>Canonical read model integration is staged after the persistent MarketState store is verified. This page does not calculate market metrics in the browser.</p></section>;}

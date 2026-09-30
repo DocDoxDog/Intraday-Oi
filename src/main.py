@@ -126,6 +126,40 @@ def run():
     except Exception as e:
         print(f"⚠️  OI intelligence failed (raw OI remains available): {e}", file=sys.stderr)
 
+    # Transitional canonical MarketState: additive only, no legacy consumer cutover yet.
+    canonical_dataset_version = None
+    if os.environ.get("CANONICAL_RAW_WRITES", "").lower() == "true":
+        try:
+            from quant.raw import RawMarketData, sanitize_payload
+            from quant.supabase_writer import SupabaseRawMarketDataWriter
+            raw_record = RawMarketData.create(
+                source="quikstrike",
+                payload=sanitize_payload(raw),
+                source_version=os.environ.get("QUIKSTRIKE_SOURCE_VERSION", "legacy-snapshot-v1"),
+            )
+            SupabaseRawMarketDataWriter().put(raw_record)
+            canonical_dataset_version = raw_record.dataset_version
+            print(f"    ✅ Canonical raw data persisted dataset_version={canonical_dataset_version}")
+        except Exception as e:
+            print(f"⚠️  Canonical raw persistence failed (legacy flow continues): {e}", file=sys.stderr)
+
+    try:
+        from market_state import attach_market_state
+        parsed = attach_market_state(parsed, dataset_version=canonical_dataset_version or "legacy-quikstrike-adapter-v1")
+        print("    ✅ Canonical MarketState attached (INCOMPLETE while PIT/contract provenance is unresolved)")
+    except Exception as e:
+        print(f"⚠️  MarketState adapter failed (legacy flow continues): {e}", file=sys.stderr)
+
+
+    if os.environ.get("CANONICAL_DB_WRITES", "").lower() == "true" and parsed.get("market_state"):
+        try:
+            from quant.state_store import record_from_payload
+            from quant.supabase_writer import SupabaseMarketStateWriter
+            record = record_from_payload(parsed["market_state"], parsed.get("market_state_positioning") or {})
+            SupabaseMarketStateWriter().put(record)
+            print("    ✅ Canonical MarketState persisted to oi_core_market_states")
+        except Exception as e:
+            print(f"⚠️  Canonical MarketState persistence failed (legacy flow continues): {e}", file=sys.stderr)
     print("[6/8] Analyzing with Gemini...")
     try:
         ai_result = analyze(parsed, history=hist_context)

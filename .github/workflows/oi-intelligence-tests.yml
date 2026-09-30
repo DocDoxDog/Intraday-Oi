@@ -1,4 +1,5 @@
 name: oi-intelligence-tests
+
 on:
   push:
     paths:
@@ -6,16 +7,92 @@ on:
       - 'src/oi_intelligence.py'
       - 'src/parser.py'
       - 'src/oi_positioning.py'
+      - 'src/contracts.py'
+      - 'quant/**'
       - 'tests/**'
+      - 'requirements.txt'
+      - 'intelligence/**'
+      - '.github/workflows/oi-intelligence-tests.yml'
   workflow_dispatch:
+  pull_request:
+    paths:
+      - 'src/gex.py'
+      - 'src/oi_intelligence.py'
+      - 'src/parser.py'
+      - 'src/oi_positioning.py'
+      - 'src/contracts.py'
+      - 'quant/**'
+      - 'intelligence/**'
+      - 'tests/**'
+      - 'requirements.txt'
+      - '.github/workflows/oi-intelligence-tests.yml'
+
 jobs:
   test:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        test_file:
+          - tests/test_contracts.py
+          - tests/test_canonical_contracts.py
+          - tests/test_gex.py
+          - tests/test_canonical_gex.py
+          - tests/test_gex_parity.py
+          - tests/test_oi_intelligence.py
+          - tests/test_oi_pit.py
+          - tests/test_dex.py
+          - tests/test_market_state.py
+          - tests/test_raw.py
+          - tests/test_telegram_control.py
+          - tests/test_telegram_bot.py
+          - tests/test_black76.py
+          - tests/test_oi_adapter.py
+          - tests/test_api.py
+          - tests/test_supabase_writer.py
+          - tests/test_news_intelligence.py
+          - tests/test_scenario_and_entitlements.py
+          - tests/test_ai_output_verifier.py
+          - tests/test_customer_gateway.py
+          - tests/test_customer_supabase_access.py
+          - tests/test_scenario_update.py
+          - tests/test_change_report_quality.py
+          - tests/test_subscription_webhook.py
+          - tests/test_source_registry.py
+          - tests/test_analysis_service.py
+          - tests/test_rss_notifications.py
+          - tests/test_analysis_context.py
+          - tests/test_cfd_mapping.py
+          - tests/test_analytics.py
+          - tests/test_compliance.py
+          - tests/test_alert_service.py
+          - tests/test_metrics_aggregation.py
+          - tests/test_commercial_metrics.py
+          - tests/test_governed_news_ingestion.py
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install dependencies
+        run: |
+          python -m pip install -r requirements.txt
+          python -m pip install pytest
+      - name: Run ${{ matrix.test_file }}
+        env:
+          PYTHONPATH: ${{ github.workspace }}
+        run: python -m pytest -q ${{ matrix.test_file }}
+# Phase 5 validation
+
+  compile:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-      - run: python -m pip install -r requirements.txt
-      - run: python -m pip install pytest
-      - run: python -m pytest -q tests/test_oi_intelligence.py tests/test_gex.py
+      - name: Install dependencies
+        run: |
+          python -m pip install -r requirements.txt
+      - name: Compile Python sources
+        run: python -m compileall -q src quant services workers intelligence
