@@ -19,3 +19,5 @@ class CfdMapping:
         return self.effective_from <= when and (
             self.effective_to is None or when < self.effective_to
         )
+
+
