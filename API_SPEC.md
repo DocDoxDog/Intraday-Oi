@@ -25,4 +25,6 @@ No endpoint recalculates GEX/OI. Endpoints expose canonical MarketState/read-mod
 
 Missing canonical database rows return DATA_UNAVAILABLE rather than synthetic values.
 
-Production adapter to Supabase is intentionally blocked until the correct target project identity is verified.
+Production target identity is now verified as Supabase project `mwqmxxipgdhbcmwoqueg` (`cph dashboard`). The API read adapter uses `oi_core_market_states` when `CANONICAL_DB_READS=true`. Canonical tables are server-role-only; no browser `service_role` credential is exposed.
+
+Current runtime state remains unavailable until a valid canonical MarketState is ingested.
