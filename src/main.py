@@ -127,9 +127,25 @@ def run():
         print(f"⚠️  OI intelligence failed (raw OI remains available): {e}", file=sys.stderr)
 
     # Transitional canonical MarketState: additive only, no legacy consumer cutover yet.
+    canonical_dataset_version = None
+    if os.environ.get("CANONICAL_RAW_WRITES", "").lower() == "true":
+        try:
+            from quant.raw import RawMarketData, sanitize_payload
+            from quant.supabase_writer import SupabaseRawMarketDataWriter
+            raw_record = RawMarketData.create(
+                source="quikstrike",
+                payload=sanitize_payload(raw),
+                source_version=os.environ.get("QUIKSTRIKE_SOURCE_VERSION", "legacy-snapshot-v1"),
+            )
+            SupabaseRawMarketDataWriter().put(raw_record)
+            canonical_dataset_version = raw_record.dataset_version
+            print(f"    ✅ Canonical raw data persisted dataset_version={canonical_dataset_version}")
+        except Exception as e:
+            print(f"⚠️  Canonical raw persistence failed (legacy flow continues): {e}", file=sys.stderr)
+
     try:
         from market_state import attach_market_state
-        parsed = attach_market_state(parsed)
+        parsed = attach_market_state(parsed, dataset_version=canonical_dataset_version or "legacy-quikstrike-adapter-v1")
         print("    ✅ Canonical MarketState attached (INCOMPLETE while PIT/contract provenance is unresolved)")
     except Exception as e:
         print(f"⚠️  MarketState adapter failed (legacy flow continues): {e}", file=sys.stderr)
