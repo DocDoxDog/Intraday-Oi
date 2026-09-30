@@ -62,3 +62,31 @@ def authorize_customer_api(
     if not entitlement.allowed:
         return CustomerApiDecision(False, record.organization_id, entitlement.reason)
     return CustomerApiDecision(True, record.organization_id, "AUTHORIZED")
+
+
+from collections import defaultdict, deque
+
+
+class CustomerApiRateLimiter:
+    """Per-organization fixed-window limiter.
+
+    This is a single-process guard. Multi-instance deployment must use a shared
+    limiter/store rather than relying on this in-memory state.
+    """
+
+    def __init__(self, limit: int = 120, window_seconds: int = 60):
+        self.limit = limit
+        self.window_seconds = window_seconds
+        self._events = defaultdict(deque)
+
+    def allow(self, organization_id: str, *, now: float | None = None) -> bool:
+        import time
+        current = time.time() if now is None else now
+        events = self._events[organization_id]
+        cutoff = current - self.window_seconds
+        while events and events[0] <= cutoff:
+            events.popleft()
+        if len(events) >= self.limit:
+            return False
+        events.append(current)
+        return True
