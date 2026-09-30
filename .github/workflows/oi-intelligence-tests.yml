@@ -37,6 +37,7 @@ jobs:
           - tests/test_black76.py
           - tests/test_oi_adapter.py
           - tests/test_api.py
+          - tests/test_supabase_writer.py
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
