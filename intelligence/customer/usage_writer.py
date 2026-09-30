@@ -5,8 +5,10 @@ from datetime import datetime, timezone
 
 try:
     import psycopg
+    from psycopg.types.json import Jsonb
 except ImportError:  # pragma: no cover
     psycopg = None
+    Jsonb = None
 
 
 class PostgresUsageWriter:
@@ -46,6 +48,6 @@ class PostgresUsageWriter:
                         status_code,
                         max(0, int(latency_ms)),
                         max(0, int(units)),
-                        {"meter_version": "usage-v1"},
+                        Jsonb({"meter_version": "usage-v1"}) if Jsonb else '{"meter_version":"usage-v1"}',
                     ),
                 )
