@@ -102,6 +102,11 @@ class TelegramControlPlane:
         "/regime",
         "/alerts",
         "/report",
+        "/news",
+        "/analysis",
+        "/plan",
+        "/settings",
+        "/subscription",
     }
 
     def __init__(
@@ -131,13 +136,20 @@ class TelegramControlPlane:
     def _buttons():
         return (
             (
-                ("GEX", "gex"),
-                ("OI", "oi"),
-                ("LEVELS", "levels"),
+                ("NEWS", "news"),
+                ("MARKET", "gc"),
             ),
             (
-                ("EXPIRY", "expiry"),
+                ("OI/GEX", "gex"),
+                ("ANALYSIS", "analysis"),
+            ),
+            (
+                ("PLAN", "plan"),
                 ("CHART", "chart"),
+            ),
+            (
+                ("ALERTS", "alerts"),
+                ("SETTINGS", "settings"),
             ),
         )
 
@@ -165,7 +177,7 @@ class TelegramControlPlane:
 
         if command in {"/start", "/help"}:
             response = TelegramResponse(
-                "OI POSITIONING INTELLIGENCE\n\nCommands: /status /gc /oi /gex /levels /expiry /regime /alerts /report",
+                "AI MARKET INTELLIGENCE\n\nCommands: /status /gc /oi /gex /levels /expiry /regime /news /analysis /plan /report /settings /subscription",
                 self._buttons(),
             )
         elif command == "/status":
@@ -201,8 +213,18 @@ class TelegramControlPlane:
                 f"REGIME\nPositioning: {market_state.positioning_regime}\n"
                 f"Volatility: {market_state.volatility_regime}"
             )
+        elif command == "/news":
+            response = TelegramResponse("NEWS\nNo verified customer news payload is attached to this request.")
+        elif command == "/analysis":
+            response = TelegramResponse("ANALYSIS\nNo verified MarketAnalysis payload is attached to this request.")
+        elif command == "/plan":
+            response = TelegramResponse("PLAN\nNo active verified ScenarioPlan is attached to this request.")
+        elif command == "/settings":
+            response = TelegramResponse("SETTINGS\nUse the customer dashboard to configure markets and notification preferences.")
+        elif command == "/subscription":
+            response = TelegramResponse("SUBSCRIPTION\nSubscription status is available from the customer account service.")
         else:
-            response = TelegramResponse("ALERTS\nAlert control is available to operators after alert configuration.")
+            response = TelegramResponse("ALERTS\nAlert control is available to authorized customers after alert configuration.")
         self._audit(principal, command, "OK")
         return response
 
