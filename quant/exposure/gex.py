@@ -1,8 +1,7 @@
 from __future__ import annotations
 
-import math
 from dataclasses import dataclass
-from typing import Any, Literal
+from typing import Any
 
 from quant.greeks.black76 import calculate_black76_greeks
 
@@ -131,9 +130,7 @@ def calculate_gex_result(
         if gamma is None and dte_days is not None:
             iv = _num(raw.get("vol"))
             if iv is not None:
-                gamma = black76_gamma(
-                    F, strike, iv, dte_days, risk_free_rate=risk_free_rate
-                )
+                gamma = black76_gamma(F, strike, iv, dte_days, risk_free_rate)
                 if gamma is not None:
                     gamma_source = "BLACK76_FROM_IV"
 
@@ -147,18 +144,16 @@ def calculate_gex_result(
 
         row = dict(raw)
         row.update(
-            {
-                "gamma": gamma,
-                "call_gex": call_gex,
-                "put_gex": put_gex,
-                "net_gex": call_gex + put_gex,
-                "gex_multiplier": multiplier,
-                "gamma_source": gamma_source,
-                "gex_sign_convention": convention,
-                "gex_calculation_version": GEX_CALCULATION_VERSION,
-                "gex_unit": "USD per 1% underlying move",
-                "expiry_scope": expiry_scope,
-            }
+            gamma=gamma,
+            call_gex=call_gex,
+            put_gex=put_gex,
+            net_gex=call_gex + put_gex,
+            gex_multiplier=multiplier,
+            gamma_source=gamma_source,
+            gex_sign_convention=convention,
+            gex_calculation_version=GEX_CALCULATION_VERSION,
+            gex_unit="USD per 1% underlying move",
+            expiry_scope=expiry_scope,
         )
         result_rows.append(row)
 
@@ -169,6 +164,7 @@ def calculate_gex_result(
         row["cumulative_gex"] = cumulative
 
     net = sum(row["net_gex"] for row in result_rows)
+    gross = sum(abs(row["call_gex"]) + abs(row["put_gex"]) for row in result_rows)
     call_rows = [row for row in result_rows if row["call_gex"] != 0]
     put_rows = [row for row in result_rows if row["put_gex"] != 0]
 
@@ -184,12 +180,23 @@ def calculate_gex_result(
         "dealer_position_observed": False,
         "expiry_scope": expiry_scope,
         "net_gex": net,
-        "gross_gex": sum(abs(row["net_gex"]) for row in result_rows),
+        "gross_gex": gross,
         "call_gex_total": sum(row["call_gex"] for row in result_rows),
         "put_gex_total": sum(row["put_gex"] for row in result_rows),
-        "call_wall": max(call_rows, key=lambda row: row["call_gex"])["strike"] if call_rows else None,
-        "put_wall": min(put_rows, key=lambda row: row["put_gex"])["strike"] if put_rows else None,
-        "max_abs_gex_strike": max(result_rows, key=lambda row: abs(row["net_gex"]))["strike"] if result_rows else None,
+        "call_wall": (
+            max(call_rows, key=lambda row: row["call_gex"])["strike"]
+            if call_rows and convention != "GROSS_ABS"
+            else None
+        ),
+        "put_wall": (
+            min(put_rows, key=lambda row: row["put_gex"])["strike"]
+            if put_rows and convention != "GROSS_ABS"
+            else None
+        ),
+        "max_abs_gex_strike": (
+            max(result_rows, key=lambda row: abs(row["net_gex"]))["strike"]
+            if result_rows else None
+        ),
         "gamma_flip": _crossing_level(result_rows, "cumulative_gex"),
         "positive_gamma": net > 0 if convention != "GROSS_ABS" else None,
         "source_gamma_count": sum(row["gamma_source"] == "SOURCE_GAMMA" for row in result_rows),
