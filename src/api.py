@@ -106,7 +106,13 @@ def create_app(
         if not allowed:
             code = 403 if reason not in {"API_KEY_INVALID"} else 401
             raise HTTPException(status_code=code, detail=reason)
-        return get_record(symbol, None)
+        try:
+            record = repo.get(symbol.upper())
+        except Exception as exc:
+            raise HTTPException(status_code=503, detail="DATA_STORE_UNAVAILABLE") from exc
+        if record is None:
+            raise HTTPException(status_code=503, detail="DATA_UNAVAILABLE")
+        return record
 
     @app.get("/api/v1/market/{symbol}")
     def customer_market(symbol: str, x_api_key: str | None = Header(default=None)):
