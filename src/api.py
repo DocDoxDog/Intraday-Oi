@@ -101,8 +101,10 @@ def create_app(
             # Usage metering must not change product-data correctness or availability.
             pass
 
-    def authorize(authorization: str | None) -> None:
+    def authorize(authorization: str | None, *, required: bool = False) -> None:
         if not expected_token:
+            if required:
+                raise HTTPException(status_code=503, detail="CANONICAL_API_TOKEN_NOT_CONFIGURED")
             return
         if not authorization or not authorization.startswith("Bearer "):
             raise HTTPException(status_code=401, detail="UNAUTHORIZED")
@@ -112,8 +114,10 @@ def create_app(
     def get_record(
         symbol: str,
         authorization: str | None,
+        *,
+        require_token: bool = False,
     ) -> MarketStateRecord:
-        authorize(authorization)
+        authorize(authorization, required=require_token)
         try:
             record = repo.get(symbol.upper())
         except Exception as exc:
@@ -226,14 +230,14 @@ def create_app(
         symbol: str,
         authorization: str | None = Header(default=None),
     ):
-        return record_to_response(get_record(symbol, authorization))
+        return record_to_response(get_record(symbol, authorization, require_token=True))
 
     @app.get("/market/{symbol}/positioning")
     def positioning(
         symbol: str,
         authorization: str | None = Header(default=None),
     ):
-        record = get_record(symbol, authorization)
+        record = get_record(symbol, authorization, require_token=True)
         payload = record_to_response(record)
         payload["data"] = payload["data"]["positioning"]
         return payload
