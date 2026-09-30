@@ -1,4 +1,5 @@
 import { getMarketState } from "../lib/api";
+import { TerminalLayout, EmptyTerminalState, terminalNav } from "../components/TerminalLayout";
 export const dynamic = "force-dynamic";
 
 const nav = [["Overview","/overview"],["Positioning","/positioning"],["Options","/options"],["Research","/research"],["Backtest","/backtest"],["Signals","/signals"],["AI Trader","/ai-trader"],["Alerts","/alerts"],["System","/system"]];
