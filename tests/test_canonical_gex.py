@@ -49,3 +49,20 @@ def test_gross_mode_has_no_directional_walls():
     assert result["positive_gamma"] is None
     assert result["call_wall"] is None
     assert result["put_wall"] is None
+
+
+def test_gex_aggregates_multiple_expirations():
+    result = calculate_gex(
+        [
+            {"strike": 4300, "gamma": 0.001, "oiCall": 100, "oiPut": 50, "expiration_id": "near"},
+            {"strike": 4300, "gamma": 0.0008, "oiCall": 80, "oiPut": 40, "expiration_id": "far"},
+        ],
+        4300,
+        multiplier=100,
+    )
+    assert result["expiry_count"] == 2
+    assert set(result["gex_by_expiration"]) == {"near", "far"}
+    assert result["net_gex"] == (
+        result["gex_by_expiration"]["near"]["net_gex"]
+        + result["gex_by_expiration"]["far"]["net_gex"]
+    )

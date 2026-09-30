@@ -151,6 +151,8 @@ def calculate_gex_result(
         row = dict(raw)
         row.update(
             {
+                "dte_days": effective_dte,
+                "expiration_id": raw.get("expiration_id"),
                 "gamma": gamma,
                 "call_gex": call_gex,
                 "put_gex": put_gex,
@@ -176,6 +178,14 @@ def calculate_gex_result(
     call_rows = [row for row in result_rows if row["call_gex"] != 0]
     put_rows = [row for row in result_rows if row["put_gex"] != 0]
 
+    gex_by_expiration: dict[str, dict[str, float]] = {}
+    for row in result_rows:
+        expiry = str(row.get("expiration_id") or "UNSPECIFIED")
+        bucket = gex_by_expiration.setdefault(expiry, {"net_gex": 0.0, "call_gex": 0.0, "put_gex": 0.0})
+        bucket["net_gex"] += row["net_gex"]
+        bucket["call_gex"] += row["call_gex"]
+        bucket["put_gex"] += row["put_gex"]
+
     return {
         "status": "ok" if result_rows else "unavailable",
         "underlying": underlying,
@@ -189,6 +199,8 @@ def calculate_gex_result(
         "expiry_scope": expiry_scope,
         "net_gex": net,
         "gross_gex": gross,
+        "gex_by_expiration": gex_by_expiration,
+        "expiry_count": len(gex_by_expiration),
         "call_gex_total": sum(row["call_gex"] for row in result_rows),
         "put_gex_total": sum(row["put_gex"] for row in result_rows),
         "call_wall": (
