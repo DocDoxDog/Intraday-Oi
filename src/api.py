@@ -10,6 +10,13 @@ from quant.state_store import (
     MarketStateRepository,
     record_to_response,
 )
+from quant.supabase_repo import SupabaseMarketStateRepository
+
+
+def _default_repository() -> MarketStateRepository:
+    if os.environ.get("CANONICAL_DB_READS", "").lower() == "true":
+        return SupabaseMarketStateRepository()
+    return InMemoryMarketStateRepository()
 
 
 def create_app(
@@ -17,12 +24,9 @@ def create_app(
     *,
     api_token: str | None = None,
 ) -> FastAPI:
-    repo = repository or InMemoryMarketStateRepository()
+    repo = repository or _default_repository()
     expected_token = api_token if api_token is not None else os.environ.get("CANONICAL_API_TOKEN")
-    app = FastAPI(
-        title="OI Positioning Intelligence API",
-        version="canonical-api-v1",
-    )
+    app = FastAPI(title="OI Positioning Intelligence API", version="canonical-api-v1")
     app.state.market_state_repository = repo
 
     def authorize(authorization: str | None) -> None:
@@ -30,13 +34,18 @@ def create_app(
             return
         if not authorization or not authorization.startswith("Bearer "):
             raise HTTPException(status_code=401, detail="UNAUTHORIZED")
-        supplied = authorization[7:].strip()
-        if supplied != expected_token:
+        if authorization[7:].strip() != expected_token:
             raise HTTPException(status_code=403, detail="FORBIDDEN")
 
     def get_record(symbol: str, authorization: str | None) -> MarketStateRecord:
         authorize(authorization)
-        record = repo.get(symbol.upper())
+        try:
+            record = repo.get(symbol.upper())
+        except Exception as exc:
+            raise HTTPException(
+                status_code=503,
+                detail={"code": "DATA_STORE_UNAVAILABLE", "symbol": symbol.upper()},
+            ) from exc
         if record is None:
             raise HTTPException(
                 status_code=503,
@@ -76,6 +85,8 @@ def create_app(
         payload["data"] = {
             "expiry_scope": (record.positioning.get("gex") or {}).get("expiry_scope"),
             "oi_by_expiration": (record.positioning.get("oi") or {}).get("oi_by_expiration"),
+            "gex_by_expiration": (record.positioning.get("gex") or {}).get("gex_by_expiration"),
+            "dex_by_expiration": (record.positioning.get("dex") or {}).get("dex_by_expiration"),
         }
         return payload
 

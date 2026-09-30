@@ -27,8 +27,9 @@ def make_repo():
                 "gex_sign_convention": "DEALER_SHORT_PUBLIC",
                 "source_gamma_count": 2,
                 "derived_gamma_count": 0,
+                "gex_by_expiration": {"exp-1": {"net_gex": 12.5}},
             },
-            "dex": {"status": "ok", "net_dex": 40},
+            "dex": {"status": "ok", "net_dex": 40, "dex_by_expiration": {"exp-1": {"net_dex": 40}}},
             "assumptions": ("dealer_positioning_not_observed",),
         },
         iv=22,
@@ -40,8 +41,8 @@ def make_repo():
     )
     repo.put(MarketStateRecord(state, {
         "oi": {"count": 2, "total_oi": 1000, "oi_change_total": 10, "oi_by_expiration": {"exp-1": 1000}},
-        "gex": {"status": "ok", "net_gex": 12.5, "gamma_flip": 4280, "call_wall": 4350, "put_wall": 4250, "expiry_scope": "ALL_ACTIVE"},
-        "dex": {"status": "ok", "net_dex": 40},
+        "gex": {"status": "ok", "net_gex": 12.5, "gamma_flip": 4280, "call_wall": 4350, "put_wall": 4250, "expiry_scope": "ALL_ACTIVE", "gex_by_expiration": {"exp-1": {"net_gex": 12.5}}},
+        "dex": {"status": "ok", "net_dex": 40, "dex_by_expiration": {"exp-1": {"net_dex": 40}}},
     }))
     return repo
 
@@ -62,14 +63,16 @@ def test_subresources_use_canonical_values():
     client = TestClient(create_app(make_repo()))
     assert client.get("/market/GC/gex").json()["data"]["net_gex"] == 12.5
     assert client.get("/market/GC/oi").json()["data"]["total_oi"] == 1000
+    expiry = client.get("/market/GC/expiry").json()["data"]
+    assert expiry["gex_by_expiration"]["exp-1"]["net_gex"] == 12.5
+    assert expiry["dex_by_expiration"]["exp-1"]["net_dex"] == 40
 
 
 def test_auth_blocks_when_configured():
     client = TestClient(create_app(make_repo(), api_token="secret"))
     assert client.get("/market/GC").status_code == 401
     assert client.get("/market/GC", headers={"Authorization": "Bearer wrong"}).status_code == 403
-    response = client.get("/market/GC", headers={"Authorization": "Bearer secret"})
-    assert response.status_code == 200
+    assert client.get("/market/GC", headers={"Authorization": "Bearer secret"}).status_code == 200
 
 
 def test_missing_symbol_is_data_unavailable():
