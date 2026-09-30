@@ -2,10 +2,11 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import date, datetime
+from enum import Enum
 import hashlib
 
 
-class OptionType(str):
+class OptionType(str, Enum):
     CALL = "CALL"
     PUT = "PUT"
 
@@ -13,6 +14,8 @@ class OptionType(str):
 def normalize_option_type(value: str | OptionType | None) -> OptionType | None:
     if value is None:
         return None
+    if isinstance(value, OptionType):
+        return value
     normalized = str(value).strip().upper()
     if normalized in {"C", "CALL"}:
         return OptionType.CALL
@@ -108,7 +111,7 @@ class OptionContract:
     def canonical_key(self) -> str:
         expiry = self.expiration.isoformat() if self.expiration else "UNKNOWN_EXPIRY"
         strike = f"{self.strike:g}" if self.strike is not None else "UNKNOWN_STRIKE"
-        side = self.option_type if self.option_type else "FUTURE"
+        side = self.option_type.value if self.option_type else "FUTURE"
         return f"{self.exchange}:{self.root}:{self.underlying}:{expiry}:{strike}:{side}"
 
     @property
@@ -132,11 +135,7 @@ class OptionContract:
 
 
 def build_option_contract(metadata: dict) -> OptionContract:
-    """Build a canonical contract only from explicit provider metadata.
-
-    Missing fields remain unresolved; the function never guesses expiry,
-    multiplier, exchange, or option side.
-    """
+    """Build a canonical contract only from explicit provider metadata."""
     option_type = normalize_option_type(metadata.get("option_type"))
     return OptionContract(
         symbol=str(metadata.get("symbol") or metadata.get("root") or ""),
