@@ -86,3 +86,15 @@ export async function getTerminalExpiry(symbol = "GC") {
     "/market/" + encodeURIComponent(symbol) + "/expiry"
   );
 }
+
+export async function getTerminalNews(symbol = "GC") {
+  return getInternal<unknown>("/market/" + encodeURIComponent(symbol) + "/news");
+}
+
+export async function getTerminalAnalysis(symbol = "GC") {
+  return getInternal<unknown>("/market/" + encodeURIComponent(symbol) + "/analysis");
+}
+
+export async function getTerminalPlan(symbol = "GC") {
+  return getInternal<unknown>("/market/" + encodeURIComponent(symbol) + "/plan");
+}
