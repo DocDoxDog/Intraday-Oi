@@ -36,6 +36,27 @@ class TelegramTransport:
         if not data.get("ok"):
             raise RuntimeError("TELEGRAM_SEND_FAILED")
 
+
+    def edit(self, chat_id: str, message_id: str, response: TelegramResponse) -> None:
+        payload: dict[str, Any] = {
+            "chat_id": str(chat_id),
+            "message_id": int(message_id),
+            "text": response.text,
+            "disable_web_page_preview": True,
+        }
+        if response.buttons:
+            payload["reply_markup"] = {"inline_keyboard": [
+                [{"text": text, "callback_data": data} for text, data in row]
+                for row in response.buttons
+            ]}
+        result = requests.post(
+            self.base + "/editMessageText", json=payload, timeout=self.timeout_seconds
+        )
+        result.raise_for_status()
+        data = result.json()
+        if not data.get("ok"):
+            raise RuntimeError("TELEGRAM_EDIT_FAILED")
+
     def answer_callback(self, callback_id: str) -> None:
         result = requests.post(
             self.base + "/answerCallbackQuery",
