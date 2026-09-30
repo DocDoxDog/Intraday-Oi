@@ -27,6 +27,9 @@ REQUIRED_GATES: tuple[str, ...] = (
     "load_test",
 )
 
+def _state_value(state: GateState | str) -> str:
+    return state.value if isinstance(state, GateState) else str(state)
+
 @dataclass(frozen=True)
 class GateEvidence:
     name: str
@@ -40,7 +43,7 @@ class GateEvidence:
 
     @property
     def is_pass(self) -> bool:
-        return str(self.state) == GateState.PASS.value
+        return _state_value(self.state) == GateState.PASS.value
 
 @dataclass(frozen=True)
 class ReleaseDecision:
@@ -64,7 +67,7 @@ def evaluate_release(gates: Iterable[GateEvidence], *, live_trading_enabled: boo
             continue
         if not gate.is_pass:
             failed.append(name)
-            reasons.append(f"GATE_NOT_PASS:{name}:{gate.state}")
+            reasons.append(f"GATE_NOT_PASS:{name}:{_state_value(gate.state)}")
     if failed:
         return ReleaseDecision(False, "BLOCKED", tuple(dict.fromkeys(failed)), tuple(dict.fromkeys(reasons)))
     return ReleaseDecision(True, "READY_FOR_CONTROLLED_PRODUCTION_REVIEW", (), ())
