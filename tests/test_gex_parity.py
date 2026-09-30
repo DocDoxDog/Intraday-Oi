@@ -71,6 +71,7 @@ def test_canonical_matches_intraday_legacy_path():
                 c["futures"],
                 dte_days=c["dte_days"],
                 multiplier=c["multiplier"],
+                underlying=symbol,
             )
             assert new == old
 
@@ -108,6 +109,7 @@ def test_canonical_matches_ai_trader_legacy():
                     c["futures"],
                     dte_days=c["dte_days"],
                     multiplier=c["multiplier"],
+                    underlying=symbol,
                 )
                 expected = (
                     canonical["rows"][0]["call_gex"]
@@ -120,9 +122,17 @@ def test_canonical_matches_ai_trader_legacy():
 def test_missing_data_and_zero_oi_are_explicit():
     from quant.exposure.gex import calculate_gex
 
-    missing = calculate_gex([{"strike": 4300, "oiCall": 100, "oiPut": 100}], 4300, dte_days=3)
+    missing = calculate_gex(
+        [{"strike": 4300, "oiCall": 100, "oiPut": 100}],
+        4300,
+        dte_days=3,
+    )
     assert missing["status"] == "unavailable"
 
-    zero = calculate_gex([{"strike": 4300, "gamma": 0.001, "oiCall": 0, "oiPut": 0}], 4300, dte_days=3)
+    zero = calculate_gex(
+        [{"strike": 4300, "gamma": 0.001, "oiCall": 0, "oiPut": 0}],
+        4300,
+        dte_days=3,
+    )
     assert zero["status"] == "ok"
     assert zero["rows"][0]["net_gex"] == 0

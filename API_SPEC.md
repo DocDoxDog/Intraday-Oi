@@ -1,42 +1,28 @@
 # API SPEC
 
-Status: ARCHITECTURE READY
+Status: IMPLEMENTATION IN PROGRESS
 
-## Response envelope
+## Canonical market endpoints
 
-    {
-      "symbol": "GC",
-      "as_of": "ISO-8601",
-      "data_age_seconds": 0,
-      "source": "cme_quikstrike",
-      "data_status": "VALID",
-      "model_version": "gex-vX",
-      "dataset_version": "dataset-X",
-      "data": {}
-    }
+GET /market/:symbol
+GET /market/:symbol/positioning
+GET /market/:symbol/oi
+GET /market/:symbol/gex
+GET /market/:symbol/expiry
 
-## Endpoints
+Common response envelope:
+- symbol
+- as_of
+- data_age_seconds
+- data_quality
+- data_status
+- source
+- dataset_version
+- calculation_version
+- data
 
-GET /api/market/:symbol
-GET /api/options/:symbol
-GET /api/options/:symbol/chain
-GET /api/oi/:symbol
-GET /api/gex/:symbol
-GET /api/exposure/:symbol
-GET /api/regime/:symbol
-GET /api/levels/:symbol
-GET /api/flow/:symbol
-GET /api/history/:symbol
-GET /api/signals/:symbol
-GET /api/research/:symbol
-GET /api/alerts
-GET /api/system/status
+No endpoint recalculates GEX/OI. Endpoints expose canonical MarketState/read-model values.
 
-## Rules
+Missing canonical database rows return DATA_UNAVAILABLE rather than synthetic values.
 
-- filtering server-side
-- no full-chain payload unless requested
-- heavy calculations precomputed
-- PIT-safe as_of queries
-- version metadata on every analytic response
-- no frontend secrets
+Production adapter to Supabase is intentionally blocked until the correct target project identity is verified.
