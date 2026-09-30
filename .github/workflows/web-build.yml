@@ -1,17 +1,28 @@
 name: web-build
+
 on:
   push:
-    paths: ["web/**",".github/workflows/web-build.yml"]
+    paths:
+      - "web/**"
+      - ".github/workflows/web-build.yml"
   pull_request:
-    paths: ["web/**",".github/workflows/web-build.yml"]
+    paths:
+      - "web/**"
+      - ".github/workflows/web-build.yml"
   workflow_dispatch:
+
 jobs:
   build:
     runs-on: ubuntu-latest
-    defaults: {run: {working-directory: web}}
+    defaults:
+      run:
+        working-directory: web
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
-        with: {node-version: 22, cache: npm}
-      - run: npm install
-      - run: npm run build
+        with:
+          node-version: 22
+      - name: Install
+        run: npm install --no-audit --no-fund
+      - name: Build
+        run: npm run build
