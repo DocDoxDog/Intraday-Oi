@@ -9,6 +9,9 @@ class RightsState(str, Enum):
     LEGAL_REVIEW_REQUIRED = "LEGAL_REVIEW_REQUIRED"
     DENIED = "DENIED"
 
+def _enum_value(value: RightsState | str) -> str:
+    return value.value if isinstance(value, RightsState) else str(value)
+
 @dataclass(frozen=True)
 class SourceRights:
     source_id: str
@@ -32,7 +35,7 @@ class SourceRights:
         return True
 
 def can_distribute(rights: SourceRights, *, surface: str, now: datetime | None = None) -> bool:
-    if not rights.active(now) or str(rights.state) != RightsState.APPROVED.value:
+    if not rights.active(now) or _enum_value(rights.state) != RightsState.APPROVED.value:
         return False
     if surface == "CUSTOMER_DISPLAY":
         return rights.customer_display
