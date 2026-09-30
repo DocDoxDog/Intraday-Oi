@@ -78,7 +78,8 @@ class AlertGate:
                 return False, "COOLDOWN"
 
         stamp = current
-        self._hour.append(stamp)
-        self._day.append(stamp)
+        timestamp = stamp.timestamp()
+        self._hour.append(timestamp)
+        self._day.append(timestamp)
         self._story_last_sent[story_cluster_id] = stamp
         return True, "ALLOWED"
