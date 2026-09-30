@@ -66,6 +66,9 @@ jobs:
           - tests/test_analytics.py
           - tests/test_compliance.py
           - tests/test_alert_service.py
+          - tests/test_metrics_aggregation.py
+          - tests/test_commercial_metrics.py
+          - tests/test_governed_news_ingestion.py
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
