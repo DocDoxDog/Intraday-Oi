@@ -14,6 +14,18 @@ on:
       - 'intelligence/**'
       - '.github/workflows/oi-intelligence-tests.yml'
   workflow_dispatch:
+  pull_request:
+    paths:
+      - 'src/gex.py'
+      - 'src/oi_intelligence.py'
+      - 'src/parser.py'
+      - 'src/oi_positioning.py'
+      - 'src/contracts.py'
+      - 'quant/**'
+      - 'intelligence/**'
+      - 'tests/**'
+      - 'requirements.txt'
+      - '.github/workflows/oi-intelligence-tests.yml'
 
 jobs:
   test:
