@@ -281,6 +281,54 @@ def create_app(
         }
         return payload
 
+
+    @app.get("/market/{symbol}/news")
+    def intelligence_news(symbol: str, authorization: str | None = Header(default=None)):
+        authorize(authorization)
+        try:
+            data = get_intelligence_reader().news(symbol)
+        except Exception as exc:
+            raise HTTPException(status_code=503, detail="INTELLIGENCE_DATA_UNAVAILABLE") from exc
+        latest = max(data, key=lambda row: str(row.get("published_at") or "")) if data else {}
+        return {
+            "symbol": symbol.upper(), "as_of": latest.get("published_at") if latest else None,
+            "data_age_seconds": None, "data_age": None, "data_quality": 1.0 if data else 0.0,
+            "data_status": "VALID" if data else "UNAVAILABLE", "source": "canonical_intelligence",
+            "dataset_version": "mixed", "calculation_version": "mixed", "data": data,
+        }
+
+    @app.get("/market/{symbol}/analysis")
+    def intelligence_analysis(symbol: str, authorization: str | None = Header(default=None)):
+        authorize(authorization)
+        try:
+            data = get_intelligence_reader().analyses(symbol)
+        except Exception as exc:
+            raise HTTPException(status_code=503, detail="INTELLIGENCE_DATA_UNAVAILABLE") from exc
+        latest = data[0] if data else {}
+        return {
+            "symbol": symbol.upper(), "as_of": latest.get("as_of") if latest else None,
+            "data_age_seconds": None, "data_age": None, "data_quality": 1.0 if data else 0.0,
+            "data_status": "VALID" if data else "UNAVAILABLE", "source": "canonical_intelligence",
+            "dataset_version": latest.get("dataset_version", "unknown") if latest else "unknown",
+            "calculation_version": latest.get("calculation_version", "unknown") if latest else "unknown",
+            "data": data,
+        }
+
+    @app.get("/market/{symbol}/plan")
+    def intelligence_plan(symbol: str, authorization: str | None = Header(default=None)):
+        authorize(authorization)
+        try:
+            data = get_intelligence_reader().plans(symbol)
+        except Exception as exc:
+            raise HTTPException(status_code=503, detail="INTELLIGENCE_DATA_UNAVAILABLE") from exc
+        latest = data[0] if data else {}
+        return {
+            "symbol": symbol.upper(), "as_of": latest.get("created_at") if latest else None,
+            "data_age_seconds": None, "data_age": None, "data_quality": 1.0 if data else 0.0,
+            "data_status": "VALID" if data else "UNAVAILABLE", "source": "canonical_intelligence",
+            "dataset_version": "mixed", "calculation_version": "mixed", "data": data,
+        }
+
     @app.get("/api/v1/market/{symbol}")
     def customer_market(
         symbol: str,
