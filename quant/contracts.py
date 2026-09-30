@@ -120,12 +120,13 @@ class OptionContract:
 
     @property
     def resolution_status(self) -> str:
+        # Provider contract code is provenance and may be absent. Canonical
+        # resolution depends on the identity dimensions required downstream.
         required = (
             self.instrument_id,
             self.future_id,
             self.expiration_id,
             self.strike_id,
-            self.source_contract_code,
             self.option_type,
             self.expiration,
             self.strike,
