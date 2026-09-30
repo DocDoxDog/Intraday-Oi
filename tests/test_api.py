@@ -48,7 +48,7 @@ def make_repo():
 
 
 def test_market_envelope_contains_versions_and_quality():
-    client = TestClient(create_app(make_repo()))
+    client = TestClient(create_app(make_repo(), api_token="test-secret"))
     response = client.get("/market/GC")
     assert response.status_code == 200
     body = response.json()
@@ -76,7 +76,7 @@ def test_auth_blocks_when_configured():
 
 
 def test_missing_symbol_is_data_unavailable():
-    client = TestClient(create_app())
+    client = TestClient(create_app(make_repo(), api_token="test-secret"))
     response = client.get("/market/SI")
     assert response.status_code == 503
     assert response.json()["detail"]["code"] == "DATA_UNAVAILABLE"
