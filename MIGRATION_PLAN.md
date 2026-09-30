@@ -1,6 +1,8 @@
 # MIGRATION PLAN
 
-Status: ARCHITECTURE READY
+Status: IMPLEMENTATION IN PROGRESS
+
+Phase 4 update: canonical schema migration `canonical_options_core` is applied to the verified CPH target using the isolated `oi_core_*` namespace. `canonical_store_server_only` revokes `anon`/`authenticated` table privileges. Canonical writes remain fail-closed until source observations have valid provenance/PIT metadata.
 
 1. BASELINE
 Capture current GEX/OI/DEX/levels/message outputs and versions.
