@@ -155,7 +155,7 @@ def run():
         try:
             from quant.state_store import record_from_payload
             from quant.supabase_writer import SupabaseMarketStateWriter
-            record = record_from_payload(parsed["market_state"], (parsed.get("raw_series") or {}))
+            record = record_from_payload(parsed["market_state"], parsed.get("market_state_positioning") or {})
             SupabaseMarketStateWriter().put(record)
             print("    ✅ Canonical MarketState persisted to oi_core_market_states")
         except Exception as e:
