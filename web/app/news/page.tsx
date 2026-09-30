@@ -1,10 +1,10 @@
 import { TerminalLayout, EmptyTerminalState } from "../components/TerminalLayout";
-import { getInternal } from "../lib/terminal"; 
+import { getTerminalNews } from "../lib/terminal"; 
 
 export const dynamic = "force-dynamic";
 
 export default async function NewsPage() {
-  const payload = await getInternal<unknown>("/api/v1/news/GC");
+  const payload = await getTerminalNews("GC");
   return (
     <TerminalLayout title="News">
       {!payload ? <EmptyTerminalState /> : (
