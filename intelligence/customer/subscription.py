@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timezone
 
 ACTIVE_STATUSES = {"TRIALING", "ACTIVE"}
 
@@ -25,7 +25,7 @@ PLAN_FEATURES = {
     "API": {"market_overview", "news", "oi", "gex", "positioning", "api"},
 }
 
-def features_for_subscription(state: SubscriptionState) -> frozenset[str]:
-    if not state.active:
+def features_for_subscription(state: SubscriptionState, now: datetime | None = None) -> frozenset[str]:
+    if not state.active_at(now):
         return frozenset()
     return frozenset(PLAN_FEATURES.get(state.plan_id, set()))
