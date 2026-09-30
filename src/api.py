@@ -4,6 +4,7 @@ import os
 
 from fastapi import FastAPI, Header, HTTPException
 
+from intelligence.customer.gateway import CustomerApiRateLimiter
 from intelligence.customer.supabase_access import SupabaseCustomerAccessStore
 from quant.state_store import (
     InMemoryMarketStateRepository,
@@ -29,6 +30,9 @@ def create_app(
     expected_token = api_token if api_token is not None else os.environ.get("CANONICAL_API_TOKEN")
     app = FastAPI(title="OI Positioning Intelligence API", version="canonical-api-v1")
     app.state.market_state_repository = repo
+    customer_rate_limiter = CustomerApiRateLimiter(
+        limit=int(os.environ.get("CUSTOMER_API_RATE_LIMIT", "120"))
+    )
 
     def authorize(authorization: str | None) -> None:
         if not expected_token:
@@ -130,6 +134,8 @@ def create_app(
         if not allowed:
             code = 403 if reason not in {"API_KEY_INVALID"} else 401
             raise HTTPException(status_code=code, detail=reason)
+        if not organization_id or not customer_rate_limiter.allow(organization_id):
+            raise HTTPException(status_code=429, detail="API_RATE_LIMITED")
         try:
             record = repo.get(symbol.upper())
         except Exception as exc:
