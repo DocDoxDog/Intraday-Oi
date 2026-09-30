@@ -5,6 +5,7 @@ import os
 from fastapi import FastAPI, Header, HTTPException
 
 from intelligence.customer.gateway import CustomerApiRateLimiter
+from intelligence.supabase_reader import SupabaseIntelligenceReader
 from intelligence.customer.supabase_access import SupabaseCustomerAccessStore
 from quant.state_store import (
     InMemoryMarketStateRepository,
@@ -33,6 +34,7 @@ def create_app(
     customer_rate_limiter = CustomerApiRateLimiter(
         limit=int(os.environ.get("CUSTOMER_API_RATE_LIMIT", "120"))
     )
+    intelligence_reader = SupabaseIntelligenceReader()
 
     def authorize(authorization: str | None) -> None:
         if not expected_token:
@@ -169,6 +171,58 @@ def create_app(
         payload = record_to_response(record)
         payload["data"] = payload["data"]["positioning"]
         return payload
+
+
+    @app.get("/api/v1/news/{symbol}")
+    def customer_news(symbol: str, x_api_key: str | None = Header(default=None)):
+        get_customer_record(symbol, x_api_key, "news")
+        try:
+            data = intelligence_reader.news(symbol)
+        except Exception as exc:
+            raise HTTPException(status_code=503, detail="INTELLIGENCE_DATA_UNAVAILABLE") from exc
+        return {
+            "symbol": symbol.upper(), "as_of": None, "data_age_seconds": None,
+            "data_age": None, "data_quality": 1.0 if data else 0.0,
+            "data_status": "VALID" if data else "UNAVAILABLE",
+            "source": "canonical_intelligence",
+            "dataset_version": "mixed", "calculation_version": "mixed",
+            "data": data,
+        }
+
+    @app.get("/api/v1/analysis/{symbol}")
+    def customer_analysis(symbol: str, x_api_key: str | None = Header(default=None)):
+        get_customer_record(symbol, x_api_key, "analysis")
+        try:
+            data = intelligence_reader.analyses(symbol)
+        except Exception as exc:
+            raise HTTPException(status_code=503, detail="INTELLIGENCE_DATA_UNAVAILABLE") from exc
+        return {
+            "symbol": symbol.upper(), "as_of": data[0].get("as_of") if data else None,
+            "data_age_seconds": None, "data_age": None,
+            "data_quality": 1.0 if data else 0.0,
+            "data_status": "VALID" if data else "UNAVAILABLE",
+            "source": "canonical_intelligence",
+            "dataset_version": data[0].get("dataset_version", "unknown") if data else "unknown",
+            "calculation_version": data[0].get("calculation_version", "unknown") if data else "unknown",
+            "data": data,
+        }
+
+    @app.get("/api/v1/plan/{symbol}")
+    def customer_plan(symbol: str, x_api_key: str | None = Header(default=None)):
+        get_customer_record(symbol, x_api_key, "plan")
+        try:
+            data = intelligence_reader.plans(symbol)
+        except Exception as exc:
+            raise HTTPException(status_code=503, detail="INTELLIGENCE_DATA_UNAVAILABLE") from exc
+        return {
+            "symbol": symbol.upper(), "as_of": data[0].get("created_at") if data else None,
+            "data_age_seconds": None, "data_age": None,
+            "data_quality": 1.0 if data else 0.0,
+            "data_status": "VALID" if data else "UNAVAILABLE",
+            "source": "canonical_intelligence",
+            "dataset_version": "mixed", "calculation_version": "mixed",
+            "data": data,
+        }
 
     return app
 
