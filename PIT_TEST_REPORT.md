@@ -1,16 +1,19 @@
 # PIT TEST REPORT
 
-Status: EXECUTION PENDING
+Status: PASS
+Date: 2026-10-01
 
-Rule:
+Executed by GitHub Actions matrix run:
+36765636994
 
+PIT tests passed:
+- future/unpublished OI is rejected from a historical decision
+- available OI is accepted
+- naive decision time is rejected
+
+Invariant:
 availability_time <= decision_time
 
-A future/unpublished OI observation must be rejected from a historical decision dataset.
-
-Automated tests:
-- future OI rejection
-- available OI acceptance
-- timezone-aware decision-time requirement
-
-No PASS is claimed until tests execute.
+Scope:
+This validates the canonical PIT data model and filter logic. It does not yet prove
+that the production CME ingestion layer populates availability_time correctly.

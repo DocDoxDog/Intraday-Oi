@@ -15,12 +15,7 @@ def make_repo():
         price=4300.0,
         as_of=datetime(2026, 10, 1, 12, tzinfo=timezone.utc),
         positioning={
-            "oi": {
-                "count": 2,
-                "total_oi": 1000,
-                "oi_change_total": 10,
-                "oi_by_expiration": {"exp-1": 1000},
-            },
+            "oi": {"count": 2, "total_oi": 1000, "oi_change_total": 10, "oi_by_expiration": {"exp-1": 1000}},
             "gex": {
                 "status": "ok",
                 "net_gex": 12.5,
@@ -67,6 +62,14 @@ def test_subresources_use_canonical_values():
     client = TestClient(create_app(make_repo()))
     assert client.get("/market/GC/gex").json()["data"]["net_gex"] == 12.5
     assert client.get("/market/GC/oi").json()["data"]["total_oi"] == 1000
+
+
+def test_auth_blocks_when_configured():
+    client = TestClient(create_app(make_repo(), api_token="secret"))
+    assert client.get("/market/GC").status_code == 401
+    assert client.get("/market/GC", headers={"Authorization": "Bearer wrong"}).status_code == 403
+    response = client.get("/market/GC", headers={"Authorization": "Bearer secret"})
+    assert response.status_code == 200
 
 
 def test_missing_symbol_is_data_unavailable():
