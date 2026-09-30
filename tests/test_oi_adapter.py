@@ -71,3 +71,5 @@ def test_unresolved_contract_is_rejected():
             dataset_version="fixture-v1",
             source="test",
         )
+
+# Phase 4 CI trigger: canonical OI adapter regression.
