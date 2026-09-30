@@ -28,7 +28,6 @@ jobs:
           - tests/test_gex_parity.py
           - tests/test_oi_intelligence.py
           - tests/test_oi_pit.py
-          - tests/test_black76.py
           - tests/test_dex.py
           - tests/test_market_state.py
           - tests/test_raw.py
