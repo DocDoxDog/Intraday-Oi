@@ -60,3 +60,20 @@ def test_alert_service_sends_once_then_edits_story():
     assert (ok, reason) == (True, "EDITED")
     assert transport.edited == [("chat1", "msg-1", "update")]
     assert repo.updated[-1].version == 2
+
+
+def test_alert_service_blocks_unlicensed_source():
+    repo = Repo()
+    transport = Transport()
+    service = CustomerAlertService(repo, transport, AlertGate(AlertPolicy()))
+    ok, reason = service.publish(
+        organization_id="org1",
+        story_cluster_id="story2",
+        destination="chat1",
+        severity="CRITICAL",
+        text="unlicensed",
+        alert_id="a2",
+        source_rights_approved=False,
+    )
+    assert (ok, reason) == (False, "SOURCE_RIGHTS_NOT_APPROVED")
+    assert transport.sent == []
