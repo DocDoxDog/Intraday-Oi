@@ -1,6 +1,8 @@
 # ARCHITECTURE
 
-Status: ARCHITECTURE READY
+Status: IMPLEMENTATION IN PROGRESS
+
+Phase 4 physical storage amendment: the target Supabase database already contains a shared `public.instruments` table with a different schema. Canonical Phase 4 storage therefore uses an isolated `public.oi_core_*` namespace. This preserves one logical canonical model while avoiding destructive collision with legacy/shared tables.
 
 ## Runtime boundaries
 
