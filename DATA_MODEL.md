@@ -1,6 +1,8 @@
 # DATA MODEL
 
-Status: ARCHITECTURE READY
+Status: IMPLEMENTATION IN PROGRESS
+
+Physical canonical namespace: `public.oi_core_*` in Supabase target `mwqmxxipgdhbcmwoqueg` (`cph dashboard`). The namespace is additive and isolated from pre-existing shared tables.
 
 ## Core
 
