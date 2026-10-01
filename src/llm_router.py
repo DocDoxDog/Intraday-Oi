@@ -190,10 +190,19 @@ class GeminiRouter:
                 }
             ],
             "generationConfig": {
-                "temperature": task.temperature,
                 "maxOutputTokens": task.max_output_tokens,
             },
         }
+
+        # Gemini 3.x removed legacy sampling controls such as temperature.
+        # Use the native thinking-level control instead. Gemini 2.5 fallback
+        # keeps the legacy task temperature path.
+        if route.model.startswith("gemini-3."):
+            body["generationConfig"]["thinkingConfig"] = {
+                "thinkingLevel": "medium"
+            }
+        else:
+            body["generationConfig"]["temperature"] = task.temperature
 
         if response_schema:
             # Use the canonical GenerateContent fields supported by the API
