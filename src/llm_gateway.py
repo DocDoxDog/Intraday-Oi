@@ -194,6 +194,32 @@ def validate_request(envelope: dict[str, Any]) -> None:
             )
 
 
+def _parse_json_output(text: str) -> Any:
+    """Parse Gemini JSON even when wrapped in markdown/code fences."""
+    if not isinstance(text, str):
+        raise ValueError("LLM output is not text")
+    cleaned = text.strip()
+    if cleaned.startswith("```"):
+        lines = cleaned.splitlines()
+        if lines and lines[0].strip().startswith("```"):
+            lines = lines[1:]
+        if lines and lines[-1].strip() == "```":
+            lines = lines[:-1]
+        cleaned = "\n".join(lines).strip()
+        if cleaned.lower().startswith("json\n"):
+            cleaned = cleaned[5:].lstrip()
+    try:
+        return json.loads(cleaned)
+    except json.JSONDecodeError:
+        starts = [p for p in (cleaned.find("{"), cleaned.find("[")) if p >= 0]
+        if not starts:
+            raise
+        start = min(starts)
+        end = max(cleaned.rfind("}"), cleaned.rfind("]"))
+        if end < start:
+            raise
+        return json.loads(cleaned[start:end + 1])
+
 def build_system_instruction(static_prefix: str) -> str:
     suffix = (
         "\n\nNEVER invent market numbers.\n"
@@ -303,8 +329,8 @@ class LLMGateway:
             raise LLMGatewayError(str(exc)) from exc
 
         try:
-            output = json.loads(result["text"])
-        except (TypeError, ValueError) as exc:
+            output = _parse_json_output(result["text"])
+        except (TypeError, ValueError, json.JSONDecodeError) as exc:
             raise LLMGatewayError("REJECTED_JSON_OUTPUT") from exc
 
         try:
