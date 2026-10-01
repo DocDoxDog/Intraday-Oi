@@ -1,3 +1,8 @@
+from __future__ import annotations
+
+from src import supabot_llm
+
+
 def _fake_generate(envelope, static_prefix, dynamic):
     return {
         "status": "SUCCESS",
@@ -14,12 +19,11 @@ def _fake_generate(envelope, static_prefix, dynamic):
         "fallback_used": False, "latency_ms": 12, "verification": {"verdict": "PASS"}
     }
 
+
 def test_builds_governed_envelope(monkeypatch):
     captured = {}
-    def fake_generate(envelope, static_prefix, dynamic):
-        captured["envelope"] = envelope
-        return _fake_generate(envelope, static_prefix, dynamic)
-    monkeypatch.setattr(supabot_llm, "generate_market_narrative", fake_generate)
+    monkeypatch.setattr(supabot_llm, "generate_market_narrative",
+                        lambda envelope, static_prefix, dynamic: (captured.update(envelope=envelope) or _fake_generate(envelope, static_prefix, dynamic)))
     parsed = {
         "product_symbol":"GC","contract":"GC","future_price":4300,"cfd_price":4297,
         "observed_at":"2026-10-01T06:00:00+00:00",
@@ -41,36 +45,10 @@ def test_builds_governed_envelope(monkeypatch):
 
 def test_no_model_selection_in_adapter(monkeypatch):
     captured = {}
-    def fake_generate(envelope, static_prefix, dynamic):
-        captured["envelope"] = envelope
-        return _fake_generate(envelope, static_prefix, dynamic)
-    monkeypatch.setattr(supabot_llm, "generate_market_narrative", fake_generate)
+    monkeypatch.setattr(supabot_llm, "generate_market_narrative",
+                        lambda envelope, static_prefix, dynamic: (captured.update(envelope=envelope) or _fake_generate(envelope, static_prefix, dynamic)))
     parsed={"product_symbol":"GC","contract":"GC","future_price":4300,"raw_series":{"strike_rows":[],"totals":{},"gex":{}}}
     supabot_llm.analyze_with_supabot(parsed)
     envelope=captured["envelope"]
     assert envelope["model_policy"]["selection"]=="supaBOT_task_router"
-    assert "model" not in envelope
-
-(monkeypatch):
-    captured = {}
-
-    def fake_post(url, **kwargs):
-        captured["kwargs"] = kwargs
-        return _Response()
-
-    monkeypatch.setenv("SUPABOT_LLM_GATEWAY_URL", "https://supabot.example")
-    monkeypatch.setenv("SUPABOT_LLM_GATEWAY_TOKEN", "token")
-    monkeypatch.setattr(supabot_llm.requests, "post", fake_post)
-
-    parsed = {
-        "product_symbol": "GC",
-        "contract": "GC",
-        "future_price": 4300,
-        "raw_series": {"strike_rows": [], "totals": {}, "gex": {}},
-    }
-
-    supabot_llm.analyze_with_supabot(parsed)
-
-    envelope = captured["kwargs"]["json"]["envelope"]
-    assert envelope["model_policy"]["selection"] == "supaBOT_task_router"
     assert "model" not in envelope
