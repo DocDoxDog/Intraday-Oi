@@ -76,3 +76,8 @@ CME market data มีเงื่อนไขการใช้งาน คว
 ## Supabase Schema
 
 ตารางเดิม `options_flow_snapshots` ยังรองรับฟิลด์หลักและ `raw_series` แบบ JSONB. migration ที่มีอยู่เพิ่ม `dte`, screenshot columns และ customer configuration ตามลำดับ
+
+## Shared AI / Gemini standard
+Canonical standard: https://github.com/DocDoxDog/skill/blob/main/LLM_MARKET_INTELLIGENCE_STANDARD.md
+Canonical downstream market-intelligence implementation: https://github.com/DocDoxDog/supaBOT
+LLM remains downstream of deterministic OI/Greeks/GEX/PIT evidence.
