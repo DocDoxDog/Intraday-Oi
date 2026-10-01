@@ -106,7 +106,7 @@ def format_message(parsed: dict, ai_result: dict) -> str:
         f"🔴 Bear — {_escape(_compact(ai_result.get('bear_case'), 520))}",
         f"🟡 Sideway — {_escape(_compact(ai_result.get('sideway_case'), 520))}",
         "",
-        f"<b>Bias: {bias}</b>{uncertainty_text}",
+        f"<b>Bias:</b> <b>{bias}</b>{uncertainty_text}",
     ]
 
     limitations = ai_result.get("data_limitations") or []
