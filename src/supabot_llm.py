@@ -1,9 +1,8 @@
 """Central LLM adapter for Intraday-Oi.
 
-CI/runtime path reuses the repository Gemini secret through a pinned supaBOT gateway.
+Intraday-Oi owns the complete supaBOT-compatible governed LLM path locally.
 
-The repository owns deterministic market calculations. supaBOT owns model
-routing, structured output, verification, and LLM telemetry.
+The repository owns deterministic calculations, routing, structured output, verification, and telemetry; no separate supaBOT checkout is required.
 """
 
 from __future__ import annotations
@@ -252,7 +251,7 @@ def analyze_with_supabot(parsed: dict[str, Any], history: dict[str, Any] | None 
         "evidence": evidence,
         "model_policy": {
             "provider": "gemini",
-            "selection": "supaBOT_task_router",
+            "selection": "local_supaBOT_task_router",
             "execution_authority": "deterministic_engine_only",
         },
         "output_schema_version": "market-narrative.v1",
