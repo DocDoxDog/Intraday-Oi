@@ -145,9 +145,12 @@ class GeminiRouter:
             body["generationConfig"]["temperature"] = task.temperature
 
         if response_schema:
-            body["generationConfig"]["responseFormat"] = {
-                "text": {"mimeType": "application/json", "schema": response_schema}
-            }
+            # generateContent structured output uses responseMimeType + responseSchema.
+            # Keep this compatible with Gemini 3.x while preserving the governed schema.
+            body["generationConfig"]["responseMimeType"] = "application/json"
+            body["generationConfig"]["responseSchema"] = response_schema
+        if route.model.startswith("gemini-3.8-"):
+            body["generationConfig"]["thinkingConfig"] = {"thinkingLevel": "medium"}
 
         started_at = datetime.now(timezone.utc).isoformat()
         timer = time.perf_counter()
