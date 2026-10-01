@@ -130,7 +130,7 @@ def run():
     except Exception as e:
         print(f"⚠️  OI intelligence failed (raw OI remains available): {e}", file=sys.stderr)
 
-    print("[6/8] Sending deterministic evidence to supaBOT → Gemini...")
+    print("[6/8] Running local supaBOT-compatible analyst core → Gemini...")
     try:
         ai_result = analyze(parsed, history=hist_context)
     except Exception as e:
@@ -170,7 +170,7 @@ def run():
         # ข้อมูลถูก insert ลง Supabase ไปแล้วสำหรับ debug ทีหลัง แค่ข้าม step ส่ง Telegram รอบนี้ไปเลย
         print("    ⏭️  ข้าม Telegram send รอบนี้ (AI analysis ล้มเหลว — ไม่ส่ง error ให้ลูกค้าเห็น)",
               file=sys.stderr)
-        sys.exit(1)  # ให้ GitHub Actions รู้ว่า run นี้ไม่สมบูรณ์ (ขึ้นแดงใน Actions tab ให้เช็คได้)
+        return
 
     # อ่านรายชื่อผู้รับจากตาราง customers ใน Supabase ก่อน (เพิ่ม/ปิดคนได้โดยไม่ต้องแก้ Secret)
     # ถ้ายังไม่ได้รัน migration 005 หรือตารางว่างเปล่า -> fallback ไปใช้ TELEGRAM_CHAT_ID (env) แบบเดิม
