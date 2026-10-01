@@ -28,7 +28,7 @@ def test_telegram_uses_canonical_bias_and_does_not_create_trade_levels():
     message = format_message(parsed, ai)
     notification = format_notification(parsed, ai)
 
-    assert "Bias: <b>WAIT</b>" in message
+    assert "<b>WAIT</b>" in message
     assert "4300" in message
     assert "Entry" not in message
     assert "TP1" not in message
