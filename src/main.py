@@ -12,27 +12,27 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-try:
-    from .scraper import scrape, ScrapeError
-    from .parser import parse, ParseError
-    from .analyze import analyze
-    from .twelve_data import fetch_spot, enrich_with_basis, TwelveDataError
-    from .technical_analysis import build_context
-    from .oi_positioning import enrich as enrich_oi_positioning
-    from .supabase_client import insert_snapshot, insert_oi_intelligence, upload_screenshot, get_active_chat_ids
-    from .url_manager import UrlManager, UrlManagerError
-    from . import history, telegram, line
-except ImportError:
-    # Backward-compatible local execution: python src/main.py
-    from scraper import scrape, ScrapeError
-    from parser import parse, ParseError
-    from analyze import analyze
-    from twelve_data import fetch_spot, enrich_with_basis, TwelveDataError
-    from technical_analysis import build_context
-    from oi_positioning import enrich as enrich_oi_positioning
-    from supabase_client import insert_snapshot, insert_oi_intelligence, upload_screenshot, get_active_chat_ids
-    from url_manager import UrlManager, UrlManagerError
-    import history, telegram, line
+import sys
+import os
+from datetime import datetime, timezone
+from dotenv import load_dotenv
+
+load_dotenv()
+
+# Always import Intraday-Oi as a package so the same code path works in
+# GitHub Actions (python -m src.main) and direct local execution (python src/main.py).
+if __package__ in {None, ""}:
+    sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+from src.scraper import scrape, ScrapeError
+from src.parser import parse, ParseError
+from src.analyze import analyze
+from src.twelve_data import fetch_spot, enrich_with_basis, TwelveDataError
+from src.technical_analysis import build_context
+from src.oi_positioning import enrich as enrich_oi_positioning
+from src.supabase_client import insert_snapshot, insert_oi_intelligence, upload_screenshot, get_active_chat_ids
+from src.url_manager import UrlManager, UrlManagerError
+from src import history, telegram, line
 
 
 def run():
