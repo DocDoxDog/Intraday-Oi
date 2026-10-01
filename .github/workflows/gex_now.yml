@@ -25,6 +25,8 @@ jobs:
       - name: Calculate current GC GEX
         env:
           QUIKSTRIKE_URL: ${{ secrets.QUIKSTRIKE_URL }}
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
         run: |
           python - <<'PY'
           import os, sys, json
