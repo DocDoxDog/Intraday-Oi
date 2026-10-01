@@ -112,7 +112,7 @@ def _parse_image_map(raw):
         if future is not None: break
     future = future or _extract_float(r"\bvs\s*(%s)"%_NUM,heading)
     vols=[_iv_percent(r["vol"]) for r in rows if isinstance(r.get("vol"),(int,float))]
-    raw_series={"mode":"open_interest","dte":dte,"expiration_selection":sel,"heading":heading,"strike_rows":rows,"oi_positioning_rows":rows,"expected_ranges":chart.get("expected_ranges") or [],"totals":{"open_interest_view_put":sum(r.get("oiPut") or 0 for r in rows),"open_interest_view_call":sum(r.get("oiCall") or 0 for r in rows),"open_interest_view_total":sum(r.get("oiTotal") or 0 for r in rows),"open_interest_put":sum(r.get("oiPut") or 0 for r in rows),"open_interest_call":sum(r.get("oiCall") or 0 for r in rows),"open_interest_total":sum(r.get("oiTotal") or 0 for r in rows)},"series":_build_series(rows,[])}
+    raw_series={"mode":"open_interest","dte":dte,"expiration_selection":sel,"heading":heading,"strike_rows":rows,"oi_positioning_rows":rows,"expected_ranges":c.get("expected_ranges") or [],"totals":{"open_interest_view_put":sum(r.get("oiPut") or 0 for r in rows),"open_interest_view_call":sum(r.get("oiCall") or 0 for r in rows),"open_interest_view_total":sum(r.get("oiTotal") or 0 for r in rows),"open_interest_put":sum(r.get("oiPut") or 0 for r in rows),"open_interest_call":sum(r.get("oiCall") or 0 for r in rows),"open_interest_total":sum(r.get("oiTotal") or 0 for r in rows)},"series":_build_series(rows,[])}
     chart_png=None
     try:
         from oi_chart import render_oi_positioning
