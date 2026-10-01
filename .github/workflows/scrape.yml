@@ -17,6 +17,7 @@ jobs:
         with:
           repository: DocDoxDog/supaBOT
           ref: 354a7299e6faa512495e2aec848318365692fb76
+          token: ${{ secrets.SUPABOT_READ_TOKEN || github.token }}
           path: supaBOT
 
       - uses: actions/setup-python@v5
