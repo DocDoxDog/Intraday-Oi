@@ -12,7 +12,10 @@ history.py
 
 import os
 from datetime import datetime, timezone, timedelta
-from supabase_client import get_client
+try:
+    from .supabase_client import get_client
+except ImportError:
+    from supabase_client import get_client
 
 BANGKOK_TZ = timezone(timedelta(hours=7))
 
