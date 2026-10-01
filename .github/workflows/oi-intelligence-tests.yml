@@ -2,10 +2,7 @@ name: oi-intelligence-tests
 on:
   push:
     paths:
-      - 'src/gex.py'
-      - 'src/oi_intelligence.py'
-      - 'src/parser.py'
-      - 'src/oi_positioning.py'
+      - 'src/**'
       - 'tests/**'
   workflow_dispatch:
 jobs:
@@ -18,4 +15,4 @@ jobs:
           python-version: '3.11'
       - run: python -m pip install -r requirements.txt
       - run: python -m pip install pytest
-      - run: python -m pytest -q tests/test_oi_intelligence.py tests/test_gex.py
+      - run: python -m pytest -q tests/test_oi_intelligence.py tests/test_gex.py tests/test_supabot_llm.py tests/test_telegram_analyst.py

@@ -7,6 +7,7 @@ Orchestrate: scrape -> parse -> analyze -> insert
 
 import sys
 import os
+from datetime import datetime, timezone
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -47,8 +48,11 @@ def run():
         print(f"❌ Parse failed: {e}", file=sys.stderr)
         sys.exit(1)
 
-    print(f"    contract={parsed['contract']} future={parsed['future_price']} "
-          f"P/C={parsed['put_volume']}/{parsed['call_volume']} dte={parsed.get('dte')}")
+    parsed.setdefault("product_symbol", "GC")
+    parsed["retrieved_at"] = datetime.now(timezone.utc).isoformat()
+    parsed["observed_at"] = parsed["retrieved_at"]
+    print(f"    product={parsed['product_symbol']} contract={parsed['contract']} future={parsed['future_price']} "
+          f"dte={parsed.get('dte')} retrieved_at={parsed['retrieved_at']}")
     if parsed.get("dte_low_confidence"):
         print("    ⚠️  DTE จับได้จาก fallback pattern เท่านั้น (ไม่เจอ 'vs <price>' ต่อท้าย) "
               "— ค่านี้อาจไม่แม่นยำ ควรเช็คหน้า QuikStrike ว่าโครง heading เปลี่ยนไปหรือไม่",
@@ -126,7 +130,7 @@ def run():
     except Exception as e:
         print(f"⚠️  OI intelligence failed (raw OI remains available): {e}", file=sys.stderr)
 
-    print("[6/8] Analyzing with Gemini...")
+    print("[6/8] Sending deterministic evidence to supaBOT → Gemini...")
     try:
         ai_result = analyze(parsed, history=hist_context)
     except Exception as e:
@@ -142,7 +146,7 @@ def run():
 
     ai_failed = "error" in ai_result
 
-    print("[7/8] Inserting into Supabase...")
+    print("[7/9] Inserting into Supabase...")
     import json
     
     # ⚠️ สกัดข้อมูล dte_low_confidence ทิ้งตรงนี้ เพื่อป้องกันบั๊กเวลาส่งลงฐานข้อมูล
@@ -160,7 +164,7 @@ def run():
     except Exception as e:
         print(f"⚠️  Structured OI persistence failed (snapshot remains saved): {e}", file=sys.stderr)
 
-    print("[8/8] Sending to Telegram...")
+    print("[8/9] Sending to Telegram...")
     if ai_failed:
         # ห้ามส่ง error message ไปให้ลูกค้าเด็ดขาด — retry ใน analyze.py ล้มเหลวครบทุกรอบแล้วจริงๆ
         # ข้อมูลถูก insert ลง Supabase ไปแล้วสำหรับ debug ทีหลัง แค่ข้าม step ส่ง Telegram รอบนี้ไปเลย
@@ -183,7 +187,7 @@ def run():
     except Exception as e:
         print(f"⚠️  Telegram send failed (data still saved to Supabase): {e}", file=sys.stderr)
 
-    print("[8/8] Sending to LINE (broadcast to all OA friends)...")
+    print("[9/9] Sending to LINE (broadcast to all OA friends)...")
     if os.environ.get("LINE_CHANNEL_ACCESS_TOKEN"):
         try:
             line.send(parsed, ai_result, screenshot_url=screenshot_url)
