@@ -34,4 +34,4 @@ jobs:
           TWELVEDATA_API_KEY: ${{ secrets.TWELVEDATA_API_KEY }}
           TWELVEDATA_SYMBOL: XAU/USD
           SUPABOT_LLM_TIMEOUT_SECONDS: "60"
-        run: python src/main.py
+        run: python -m src.main
