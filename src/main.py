@@ -126,7 +126,7 @@ def run():
 
     print("[5.5/8] Building deterministic OI intelligence...")
     try:
-        from oi_intelligence import enrich as enrich_oi_intelligence
+        from src.oi_intelligence import enrich as enrich_oi_intelligence
         previous = hist_context.get("hour_ago")
         parsed = enrich_oi_intelligence(parsed, previous)
         intel = (parsed.get("raw_series") or {})
