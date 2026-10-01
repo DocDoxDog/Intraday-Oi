@@ -1,10 +1,10 @@
 {
-  "version": 1,
+  "version": 2,
   "provider": "gemini",
-  "api": {"transport": "generateContent", "base_url": "https://generativelanguage.googleapis.com/v1beta", "structured_output": "responseFormat"},
+  "api": {"transport": "generateContent", "base_url": "https://generativelanguage.googleapis.com/v1beta", "structured_output": "responseJsonSchema"},
   "models": {
     "standard": {"model": "gemini-3.8-flash", "stable": true, "enabled": true},
-    "deep": {"model": "gemini-2.5-pro", "stable": true, "enabled": true}
+    "deep": {"model": "gemini-3.1-pro-preview", "stable": false, "enabled": true}
   },
   "tasks": {
     "market.narrative": {
