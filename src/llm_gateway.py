@@ -8,10 +8,7 @@ from typing import Any
 
 from jsonschema import Draft202012Validator
 
-try:
-    from .llm_router import GeminiRouter, LLMRouterError
-except ImportError:
-    from llm_router import GeminiRouter, LLMRouterError
+from src.llm_router import GeminiRouter
 
 
 class LLMGatewayError(RuntimeError):
@@ -51,23 +48,21 @@ def _normalize_schema(schema: dict[str, Any]) -> dict[str, Any]:
     return out
 
 
+def _schemas_equal(left: dict[str, Any], right: dict[str, Any]) -> bool:
+    return _normalize_schema(left) == _normalize_schema(right)
+
+
 def _utc_now() -> datetime:
     return datetime.now(timezone.utc)
 
 
 def _parse_ts(value: Any, field: str) -> datetime:
     try:
-        parsed = datetime.fromisoformat(
-            str(value).replace("Z", "+00:00")
-        )
+        parsed = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
     except (TypeError, ValueError) as exc:
-        raise LLMGatewayError(
-            f"INVALID_TIMESTAMP:{field}"
-        ) from exc
+        raise LLMGatewayError(f"INVALID_TIMESTAMP:{field}") from exc
     if parsed.tzinfo is None:
-        raise LLMGatewayError(
-            f"TIMESTAMP_TIMEZONE_REQUIRED:{field}"
-        )
+        raise LLMGatewayError(f"TIMESTAMP_TIMEZONE_REQUIRED:{field}")
     return parsed.astimezone(timezone.utc)
 
 
@@ -84,13 +79,47 @@ def _schema_for_task(task: str) -> dict[str, Any] | None:
     schema_path = raw.get("output_schema")
     if not schema_path:
         return None
-    return json.loads(
-        (ROOT / schema_path).read_text(encoding="utf-8")
-    )
+    return json.loads((ROOT / schema_path).read_text(encoding="utf-8"))
 
 
 def _schema_version_for_task(task: str) -> str | None:
     return _task_config(task).get("output_schema_version")
+
+
+def _validate_pit(envelope: dict[str, Any]) -> None:
+    now = _utc_now()
+    as_of = _parse_ts(envelope["as_of"], "as_of")
+    if as_of > now:
+        raise LLMGatewayError("FUTURE_AS_OF")
+
+    for ref, item in envelope["evidence"].items():
+        if not isinstance(item, dict):
+            continue
+
+        times: dict[str, datetime] = {}
+        for key in (
+            "publication_time",
+            "availability_time",
+            "ingestion_time",
+            "published_at",
+            "observed_at",
+        ):
+            if item.get(key) is None:
+                continue
+            times[key] = _parse_ts(item[key], f"evidence.{ref}.{key}")
+            if times[key] > now:
+                raise LLMGatewayError(f"FUTURE_EVIDENCE_TIME:{ref}:{key}")
+            if times[key] > as_of:
+                raise LLMGatewayError(f"EVIDENCE_AFTER_AS_OF:{ref}:{key}")
+
+        publication = times.get("publication_time") or times.get("published_at")
+        availability = times.get("availability_time")
+        ingestion = times.get("ingestion_time") or times.get("observed_at")
+
+        if publication and availability and publication > availability:
+            raise LLMGatewayError(f"INVALID_PIT_ORDER:{ref}:publication>availability")
+        if availability and ingestion and availability > ingestion:
+            raise LLMGatewayError(f"INVALID_PIT_ORDER:{ref}:availability>ingestion")
 
 
 def validate_request(envelope: dict[str, Any]) -> None:
@@ -113,9 +142,7 @@ def validate_request(envelope: dict[str, Any]) -> None:
     )
     missing = [key for key in required if key not in envelope]
     if missing:
-        raise LLMGatewayError(
-            "REQUEST_ENVELOPE_MISSING:" + ",".join(missing)
-        )
+        raise LLMGatewayError("REQUEST_ENVELOPE_MISSING:" + ",".join(missing))
 
     for key in (
         "request_id",
@@ -139,86 +166,10 @@ def validate_request(envelope: dict[str, Any]) -> None:
 
     data_status = str(envelope["data_status"]).upper()
     if data_status not in {"VALID", "OFFICIAL"}:
-        raise LLMGatewayError(
-            "REJECTED_DATA_STATUS:" + data_status
-        )
+        raise LLMGatewayError("REJECTED_DATA_STATUS:" + data_status)
 
-    now = _utc_now()
-    as_of = _parse_ts(envelope["as_of"], "as_of")
-    if as_of > now:
-        raise LLMGatewayError("FUTURE_AS_OF")
+    _validate_pit(envelope)
 
-    for ref, item in envelope["evidence"].items():
-        if not isinstance(item, dict):
-            continue
-
-        times: dict[str, datetime] = {}
-        for key in (
-            "publication_time",
-            "availability_time",
-            "ingestion_time",
-            "published_at",
-            "observed_at",
-        ):
-            if item.get(key) is None:
-                continue
-            times[key] = _parse_ts(
-                item[key],
-                f"evidence.{ref}.{key}",
-            )
-            if times[key] > now:
-                raise LLMGatewayError(
-                    f"FUTURE_EVIDENCE_TIME:{ref}:{key}"
-                )
-            if times[key] > as_of:
-                raise LLMGatewayError(
-                    f"EVIDENCE_AFTER_AS_OF:{ref}:{key}"
-                )
-
-        publication = (
-            times.get("publication_time")
-            or times.get("published_at")
-        )
-        availability = times.get("availability_time")
-        ingestion = (
-            times.get("ingestion_time")
-            or times.get("observed_at")
-        )
-        if publication and availability and publication > availability:
-            raise LLMGatewayError(
-                f"INVALID_PIT_ORDER:{ref}:publication>availability"
-            )
-        if availability and ingestion and availability > ingestion:
-            raise LLMGatewayError(
-                f"INVALID_PIT_ORDER:{ref}:availability>ingestion"
-            )
-
-
-def _parse_json_output(text: str) -> Any:
-    """Parse Gemini JSON even when wrapped in markdown/code fences."""
-    if not isinstance(text, str):
-        raise ValueError("LLM output is not text")
-    cleaned = text.strip()
-    if cleaned.startswith("```"):
-        lines = cleaned.splitlines()
-        if lines and lines[0].strip().startswith("```"):
-            lines = lines[1:]
-        if lines and lines[-1].strip() == "```":
-            lines = lines[:-1]
-        cleaned = "\n".join(lines).strip()
-        if cleaned.lower().startswith("json\n"):
-            cleaned = cleaned[5:].lstrip()
-    try:
-        return json.loads(cleaned)
-    except json.JSONDecodeError:
-        starts = [p for p in (cleaned.find("{"), cleaned.find("[")) if p >= 0]
-        if not starts:
-            raise
-        start = min(starts)
-        end = max(cleaned.rfind("}"), cleaned.rfind("]"))
-        if end < start:
-            raise
-        return json.loads(cleaned[start:end + 1])
 
 def build_system_instruction(static_prefix: str) -> str:
     suffix = (
@@ -232,8 +183,7 @@ def build_system_instruction(static_prefix: str) -> str:
 
 
 def build_user_payload(
-    envelope: dict[str, Any],
-    dynamic_suffix: dict[str, Any],
+    envelope: dict[str, Any], dynamic_suffix: dict[str, Any]
 ) -> dict[str, Any]:
     return {
         "request_id": envelope["request_id"],
@@ -254,11 +204,7 @@ def build_user_payload(
 
 class LLMGateway:
     def __init__(self, *, router: GeminiRouter | None = None):
-        timeout = int(os.environ.get("SUPABOT_LLM_TIMEOUT_SECONDS", "60"))
-        self.router = router or GeminiRouter(
-            api_key=os.environ.get("GEMINI_API_KEY"),
-            timeout_seconds=timeout,
-        )
+        self.router = router or GeminiRouter(api_key=os.environ.get("GEMINI_API_KEY"))
 
     def generate(
         self,
@@ -276,69 +222,41 @@ class LLMGateway:
 
         if canonical_schema is not None:
             expected_version = _schema_version_for_task(task)
-            requested_version = str(
-                envelope["output_schema_version"]
-            )
+            requested_version = str(envelope["output_schema_version"])
             if not expected_version:
-                raise LLMGatewayError(
-                    f"CANONICAL_SCHEMA_VERSION_MISSING:{task}"
-                )
+                raise LLMGatewayError(f"CANONICAL_SCHEMA_VERSION_MISSING:{task}")
             if requested_version != expected_version:
                 raise LLMGatewayError(
-                    f"OUTPUT_SCHEMA_VERSION_MISMATCH:{task}:"
-                    f"{requested_version}!={expected_version}"
+                    f"OUTPUT_SCHEMA_VERSION_MISMATCH:{task}:{requested_version}!={expected_version}"
                 )
-            if (
-                response_schema is not None
-                and _normalize_schema(response_schema)
-                != _normalize_schema(canonical_schema)
-            ):
-                raise LLMGatewayError(
-                    f"CANONICAL_SCHEMA_OVERRIDE_FORBIDDEN:{task}"
-                )
+            if response_schema is not None and not _schemas_equal(response_schema, canonical_schema):
+                raise LLMGatewayError(f"CANONICAL_SCHEMA_OVERRIDE_FORBIDDEN:{task}")
             schema = _normalize_schema(canonical_schema)
         else:
-            schema = (
-                _normalize_schema(response_schema)
-                if response_schema
-                else None
-            )
+            schema = _normalize_schema(response_schema) if response_schema else None
             if schema is None:
-                raise LLMGatewayError(
-                    f"OUTPUT_SCHEMA_REQUIRED:{task}"
-                )
+                raise LLMGatewayError(f"OUTPUT_SCHEMA_REQUIRED:{task}")
 
         requested_route = task_config.route
-        requested_model = self.router._route(
-            requested_route
-        ).model
+        requested_model = self.router._route(requested_route).model
 
-        try:
-            result = self.router.generate(
-                task,
-                system_instruction=build_system_instruction(
-                    static_prefix
-                ),
-                user_payload=build_user_payload(
-                    envelope,
-                    dynamic_suffix,
-                ),
-                response_schema=schema,
-            )
-        except LLMRouterError as exc:
-            raise LLMGatewayError(str(exc)) from exc
+        result = self.router.generate(
+            task,
+            system_instruction=build_system_instruction(static_prefix),
+            user_payload=build_user_payload(envelope, dynamic_suffix),
+            response_schema=schema,
+        )
 
+        output: dict[str, Any] | list[Any] | None
         try:
-            output = _parse_json_output(result["text"])
-        except (TypeError, ValueError, json.JSONDecodeError) as exc:
+            output = json.loads(result["text"])
+        except (TypeError, ValueError) as exc:
             raise LLMGatewayError("REJECTED_JSON_OUTPUT") from exc
 
         try:
             Draft202012Validator(schema).validate(output)
         except Exception as exc:
-            raise LLMGatewayError(
-                "REJECTED_SCHEMA_VALIDATION"
-            ) from exc
+            raise LLMGatewayError("REJECTED_SCHEMA_VALIDATION") from exc
 
         return {
             "request_id": envelope["request_id"],
@@ -346,8 +264,7 @@ class LLMGateway:
             "status": "SUCCESS",
             "claims": output if isinstance(output, (dict, list)) else [],
             "uncertainties": (
-                output.get("uncertainties", [])
-                if isinstance(output, dict)
+                output.get("uncertainties", []) if isinstance(output, dict)
                 else [
                     u
                     for item in output
@@ -356,8 +273,7 @@ class LLMGateway:
                 ]
             ),
             "evidence_refs": (
-                output.get("evidence_refs", [])
-                if isinstance(output, dict)
+                output.get("evidence_refs", []) if isinstance(output, dict)
                 else [
                     ref
                     for item in output
