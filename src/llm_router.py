@@ -148,7 +148,7 @@ class GeminiRouter:
         try:
             payload = response.json()
         except Exception:
-            return " ".join(response.text.split())[:1200]
+            return " ".join(str(getattr(response, "text", "") or "").split())[:1200]
 
         error = payload.get("error") if isinstance(payload, dict) else None
         if isinstance(error, dict):
@@ -217,9 +217,11 @@ class GeminiRouter:
                 response.raise_for_status()
             except requests.HTTPError as exc:
                 detail = self._provider_error(response)
-                raise LLMRouterError(
+                error = LLMRouterError(
                     f"GEMINI_HTTP_{response.status_code}:{detail}"
-                ) from exc
+                )
+                error.response = response
+                raise error from exc
 
             data = response.json()
             output_text = self._text(data)
