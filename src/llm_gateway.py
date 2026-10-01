@@ -282,7 +282,7 @@ class LLMGateway:
                     f"OUTPUT_SCHEMA_REQUIRED:{task}"
                 )
 
-        requested_route = task_config.get("route")
+        requested_route = task_config.route
         requested_model = self.router._route(
             requested_route
         ).model
