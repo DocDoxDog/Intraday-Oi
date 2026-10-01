@@ -4,6 +4,7 @@ on:
     paths:
       - 'src/**'
       - 'tests/**'
+      - '.github/workflows/oi-intelligence-tests.yml'
   workflow_dispatch:
 jobs:
   test:
