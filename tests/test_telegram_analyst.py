@@ -1,0 +1,36 @@
+from src.telegram import format_message, format_notification
+
+
+def test_telegram_uses_canonical_bias_and_does_not_create_trade_levels():
+    parsed = {
+        "future_price": 4300,
+        "cfd_price": 4297,
+        "dte": 1.38,
+        "raw_series": {"gex": {"status": "ok", "gamma_flip": 4280, "call_wall": 4400, "put_wall": 4200}},
+    }
+    ai = {
+        "market_overview": "ราคายังอยู่ใกล้ 4297 และหลักฐาน GEX ชี้ไปที่โซน 4200–4400",
+        "resistance_far": "4400",
+        "resistance_main": "4350",
+        "resistance_current": "4300",
+        "support_current": "4250",
+        "support_main": "4200",
+        "support_deep": "4100",
+        "bull_case": "ยืนเหนือ 4300 แล้วติดตามการตอบสนองที่ 4350",
+        "bear_case": "หลุด 4250 แล้วติดตาม 4200",
+        "sideway_case": "ยังไม่มีการยืนยันการออกจากกรอบ",
+        "bias": "WAIT",
+        "uncertainty": 0.3,
+        "evidence_refs": ["itb:oi:deterministic"],
+        "data_limitations": ["OI ไม่ใช่ traded intraday volume"],
+    }
+
+    message = format_message(parsed, ai)
+    notification = format_notification(parsed, ai)
+
+    assert "Bias: <b>WAIT</b>" in message
+    assert "4300" in message
+    assert "Entry" not in message
+    assert "TP1" not in message
+    assert "SL" not in message
+    assert "Bias: <b>WAIT</b>" in notification
