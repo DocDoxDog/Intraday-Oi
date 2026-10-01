@@ -21,7 +21,7 @@ jobs:
           python -m pip install -r requirements.txt
           playwright install --with-deps chromium
 
-      - name: Run live pipeline with existing GitHub secrets
+      - name: Run live Intraday-Oi pipeline with local supaBOT core
         env:
           QUIKSTRIKE_URL: ${{ secrets.QUIKSTRIKE_URL }}
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
