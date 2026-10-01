@@ -33,7 +33,7 @@ def calculate_gex(rows,future_price,dte_days=None,multiplier=GC_CONTRACT_MULTIPL
         if gamma is None and strike is not None:
             iv=_num(raw.get("vol")); dte=_num(dte_days)
             if iv is not None and dte is not None:
-                gamma=black76_gamma(F,strike,iv,dte); source="black76_iv_fallback"
+                gamma=black76_gamma(F,strike,iv,dte); source="black76_from_iv"
         if strike is None or gamma is None:continue
         call_oi=_num(raw.get("oiCall")) or 0.0; put_oi=_num(raw.get("oiPut")) or 0.0
         scale=multiplier*(F**2)*0.01
