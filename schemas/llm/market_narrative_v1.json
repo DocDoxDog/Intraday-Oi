@@ -1,14 +1,36 @@
 {
-  "type":"object","additionalProperties":false,
-  "properties":{
-    "market_overview":{"type":"string"},
-    "resistance_far":{"type":"string"},"resistance_main":{"type":"string"},"resistance_current":{"type":"string"},
-    "support_current":{"type":"string"},"support_main":{"type":"string"},"support_deep":{"type":"string"},
-    "bull_case":{"type":"string"},"bear_case":{"type":"string"},"sideway_case":{"type":"string"},
-    "bias":{"type":"string","enum":["BUY","SELL","WAIT"]},
-    "uncertainty":{"type":"number","minimum":0,"maximum":1},
-    "evidence_refs":{"type":"array","items":{"type":"string"}},
-    "data_limitations":{"type":"array","items":{"type":"string"}}
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "market_overview": {"type": "string"},
+    "resistance_far": {"type": "string"},
+    "resistance_main": {"type": "string"},
+    "resistance_current": {"type": "string"},
+    "support_current": {"type": "string"},
+    "support_main": {"type": "string"},
+    "support_deep": {"type": "string"},
+    "bull_case": {"type": "string"},
+    "bear_case": {"type": "string"},
+    "sideway_case": {"type": "string"},
+    "bias": {"type": "string", "enum": ["BUY", "SELL", "WAIT"]},
+    "uncertainty": {"type": "number", "minimum": 0, "maximum": 1},
+    "evidence_refs": {"type": "array", "items": {"type": "string"}},
+    "data_limitations": {"type": "array", "items": {"type": "string"}}
   },
-  "required":["market_overview","resistance_far","resistance_main","resistance_current","support_current","support_main","support_deep","bull_case","bear_case","sideway_case","bias","uncertainty","evidence_refs","data_limitations"]
+  "required": [
+    "market_overview",
+    "resistance_far",
+    "resistance_main",
+    "resistance_current",
+    "support_current",
+    "support_main",
+    "support_deep",
+    "bull_case",
+    "bear_case",
+    "sideway_case",
+    "bias",
+    "uncertainty",
+    "evidence_refs",
+    "data_limitations"
+  ]
 }
