@@ -173,7 +173,14 @@ class GeminiRouter:
             suffix = f":HTTP_{status}" if status is not None else ""
             if detail:
                 suffix += f":{detail}"
-            raise LLMRouterError(f"GEMINI_HTTP_ERROR{suffix}") from exc
+            err = LLMRouterError(f"GEMINI_HTTP_ERROR{suffix}")
+            # Preserve the provider response so the router can still classify
+            # 408/409/425/429/5xx as transient and use the configured fallback.
+            err.response = response
+            raise err from exc
+        except (requests.Timeout, requests.ConnectionError):
+            # Keep the native exception type so transient retry logic remains intact.
+            raise
         except requests.RequestException as exc:
             raise LLMRouterError(f"GEMINI_REQUEST_ERROR:{type(exc).__name__}:{exc}") from exc
         except Exception as exc:
