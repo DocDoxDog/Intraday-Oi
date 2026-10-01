@@ -9,10 +9,7 @@ from __future__ import annotations
 
 from typing import Any
 
-try:
-    from .supabot_llm import analyze_with_supabot, SupaBOTLLMError
-except ImportError:
-    from supabot_llm import analyze_with_supabot, SupaBOTLLMError
+from .supabot_llm import analyze_with_supabot, SupaBOTLLMError
 
 
 def summarize_raw_series(raw_series: Any) -> dict[str, Any]:
