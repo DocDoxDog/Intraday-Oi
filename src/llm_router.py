@@ -36,31 +36,22 @@ class TaskConfig:
 
 
 class GeminiRouter:
-    """Local supaBOT-compatible task router owned by Intraday-Oi."""
+    """Canonical task router; downstream repositories never select models."""
 
     def __init__(
         self,
         config_path: str | Path | None = None,
         api_key: str | None = None,
-        timeout_seconds: int = 60,
+        timeout_seconds: int = 45,
     ) -> None:
-        path = Path(
-            config_path
-            or Path(__file__).resolve().parents[1]
-            / "config"
-            / "llm_routes.json"
-        )
+        path = Path(config_path or Path(__file__).resolve().parents[1] / "config" / "llm_routes.json")
         self._config = json.loads(path.read_text(encoding="utf-8"))
         self._validate_config()
         self.api_key = api_key
         self.timeout_seconds = timeout_seconds
-        self.base_url = (
-            (self._config.get("api") or {}).get(
-                "base_url",
-                "https://generativelanguage.googleapis.com/v1beta",
-            )
-            .rstrip("/")
-        )
+        self.base_url = (self._config.get("api") or {}).get(
+            "base_url", "https://generativelanguage.googleapis.com/v1beta"
+        ).rstrip("/")
 
     def _validate_config(self) -> None:
         models = self._config.get("models") or {}
@@ -82,12 +73,7 @@ class GeminiRouter:
     def _route(self, key: str) -> RouteConfig:
         try:
             raw = self._config["models"][key]
-            route = RouteConfig(
-                key=key,
-                model=str(raw["model"]),
-                stable=bool(raw.get("stable", True)),
-                enabled=bool(raw.get("enabled", True)),
-            )
+            route = RouteConfig(key=key, model=str(raw["model"]), stable=bool(raw.get("stable", True)), enabled=bool(raw.get("enabled", True)))
             if not route.enabled:
                 raise LLMRouterError(f"DISABLED_LLM_ROUTE:{key}")
             return route
@@ -129,38 +115,12 @@ class GeminiRouter:
     def _text(response_json: dict[str, Any]) -> str:
         candidates = response_json.get("candidates") or []
         if not candidates:
-            feedback = response_json.get("promptFeedback") or {}
-            raise LLMRouterError(
-                f"GEMINI_NO_CANDIDATE:{feedback.get('blockReason', 'unknown')}"
-            )
+            raise LLMRouterError("GEMINI_NO_CANDIDATE")
         parts = ((candidates[0].get("content") or {}).get("parts") or [])
-        text = "".join(
-            str(part.get("text") or "")
-            for part in parts
-            if isinstance(part, dict)
-        ).strip()
+        text = "".join(str(part.get("text") or "") for part in parts if isinstance(part, dict)).strip()
         if not text:
             raise LLMRouterError("GEMINI_EMPTY_TEXT")
         return text
-
-    @staticmethod
-    def _provider_error(response: requests.Response) -> str:
-        try:
-            payload = response.json()
-        except Exception:
-            return " ".join(str(getattr(response, "text", "") or "").split())[:1200]
-
-        error = payload.get("error") if isinstance(payload, dict) else None
-        if isinstance(error, dict):
-            status = error.get("status")
-            message = error.get("message")
-            details = error.get("details")
-            detail = f"{status + ':' if status else ''}{message or ''}".strip()
-            if details:
-                detail += f" details={json.dumps(details, ensure_ascii=False, default=str)}"
-            return " ".join(detail.split())[:2000]
-
-        return " ".join(json.dumps(payload, ensure_ascii=False, default=str).split())[:2000]
 
     def _call_once(
         self,
@@ -172,69 +132,32 @@ class GeminiRouter:
         response_schema: dict[str, Any] | None,
     ) -> dict[str, Any]:
         body: dict[str, Any] = {
-            "systemInstruction": {
-                "parts": [{"text": system_instruction}]
-            },
-            "contents": [
-                {
-                    "role": "user",
-                    "parts": [
-                        {
-                            "text": json.dumps(
-                                user_payload,
-                                ensure_ascii=False,
-                                default=str,
-                            )
-                        }
-                    ],
-                }
-            ],
+            "systemInstruction": {"parts": [{"text": system_instruction}]},
+            "contents": [{"role": "user", "parts": [{"text": json.dumps(user_payload, ensure_ascii=False, default=str)}]}],
             "generationConfig": {
+                "temperature": task.temperature,
                 "maxOutputTokens": task.max_output_tokens,
             },
         }
-
-        # Current Intraday-Oi production baseline: Gemini 2.5 Flash.
-        # Keep the legacy temperature control for the 2.5 family.
-        body["generationConfig"]["temperature"] = task.temperature
-
         if response_schema:
-            # Use the canonical GenerateContent fields supported by the API
-            # directly. This avoids relying on SDK-only casing/translation.
-            body["generationConfig"]["responseMimeType"] = "application/json"
-            body["generationConfig"]["responseJsonSchema"] = response_schema
+            body["generationConfig"]["responseFormat"] = {
+                "text": {"mimeType": "application/json", "schema": response_schema}
+            }
 
         started_at = datetime.now(timezone.utc).isoformat()
         timer = time.perf_counter()
         try:
             response = requests.post(
                 f"{self.base_url}/models/{route.model}:generateContent",
-                headers={
-                    "x-goog-api-key": self.api_key or "",
-                    "Content-Type": "application/json",
-                },
+                headers={"x-goog-api-key": self.api_key or "", "Content-Type": "application/json"},
                 json=body,
                 timeout=self.timeout_seconds,
             )
-            try:
-                response.raise_for_status()
-            except requests.HTTPError as exc:
-                detail = self._provider_error(response)
-                error = LLMRouterError(
-                    f"GEMINI_HTTP_{response.status_code}:{detail}"
-                )
-                error.response = response
-                raise error from exc
-
+            response.raise_for_status()
             data = response.json()
             output_text = self._text(data)
-        except LLMRouterError:
+        except Exception:
             raise
-        except Exception as exc:
-            raise LLMRouterError(
-                f"GEMINI_TRANSPORT_ERROR:{exc}"
-            ) from exc
-
         completed_at = datetime.now(timezone.utc).isoformat()
         usage = data.get("usageMetadata") or {}
         return {
@@ -268,35 +191,23 @@ class GeminiRouter:
         if not key:
             raise LLMRouterError("GEMINI_API_KEY_MISSING")
         self.api_key = key
-
         if response_schema is None and task.output_schema:
-            schema_path = (
-                Path(__file__).resolve().parents[1]
-                / task.output_schema
-            )
-            response_schema = json.loads(
-                schema_path.read_text(encoding="utf-8")
-            )
+            schema_path = Path(__file__).resolve().parents[1] / task.output_schema
+            response_schema = json.loads(schema_path.read_text(encoding="utf-8"))
 
         routes = [task.route] + ([task.fallback] if task.fallback else [])
         last_error: Exception | None = None
-
         for index, route_key in enumerate(routes):
             route = self._route(route_key)
             try:
                 result = self._call_once(
-                    route,
-                    task,
+                    route, task,
                     system_instruction=system_instruction,
                     user_payload=user_payload,
                     response_schema=response_schema,
                 )
                 if validator:
-                    parsed = (
-                        json.loads(result["text"])
-                        if response_schema
-                        else {"text": result["text"]}
-                    )
+                    parsed = json.loads(result["text"]) if response_schema else {"text": result["text"]}
                     validator(parsed)
                 result["fallback_used"] = index > 0
                 result["requested_task"] = task_key
@@ -307,7 +218,4 @@ class GeminiRouter:
                 if index == 0 and task.fallback and self._transient(exc):
                     continue
                 break
-
-        raise LLMRouterError(
-            f"LLM_TASK_FAILED:{task_key}:{last_error}"
-        ) from last_error
+        raise LLMRouterError(f"LLM_TASK_FAILED:{task_key}:{last_error}") from last_error
