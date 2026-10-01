@@ -15,7 +15,7 @@ import uuid
 from datetime import datetime, timezone
 from typing import Any
 
-import requests
+from src.local_supabot import LocalSupaBOTError, generate_market_narrative
 
 
 DEFAULT_GATEWAY_PATH = "/internal/v1/llm/generate"
@@ -44,20 +44,6 @@ def _iso(value: Any) -> str:
     if dt.tzinfo is None:
         raise SupaBOTLLMError("AS_OF_TIMEZONE_REQUIRED")
     return dt.astimezone(timezone.utc).isoformat()
-
-
-def _gateway_url() -> str:
-    raw = os.environ.get("SUPABOT_LLM_GATEWAY_URL", "").strip()
-    if not raw:
-        raise SupaBOTLLMError("SUPABOT_LLM_GATEWAY_URL_MISSING")
-    return raw.rstrip("/") if raw.rstrip("/").endswith(DEFAULT_GATEWAY_PATH) else raw.rstrip("/") + DEFAULT_GATEWAY_PATH
-
-
-def _token() -> str:
-    token = os.environ.get("SUPABOT_LLM_GATEWAY_TOKEN", "").strip()
-    if not token:
-        raise SupaBOTLLMError("SUPABOT_LLM_GATEWAY_TOKEN_MISSING")
-    return token
 
 
 def _product(parsed: dict[str, Any]) -> str:
@@ -269,33 +255,14 @@ def analyze_with_supabot(parsed: dict[str, Any], history: dict[str, Any] | None 
         "output_schema_version": "market-narrative.v1",
     }
 
-    response = requests.post(
-        _gateway_url(),
-        headers={
-            "Authorization": f"Bearer {_token()}",
-            "Content-Type": "application/json",
-        },
-        json={
-            "envelope": envelope,
-            "static_prefix": STATIC_PROMPT,
-            "dynamic_suffix": {
-                "format": "human_analyst_thai",
-                "priority": ["WHAT", "WHY", "POSITIONING", "LEVELS", "SCENARIO", "CONFIRMATION", "INVALIDATION", "WAIT"],
-            },
-        },
-        timeout=float(os.environ.get("SUPABOT_LLM_TIMEOUT_SECONDS", "60")),
-    )
-    if response.status_code != 200:
-        try:
-            detail = response.json()
-        except Exception:
-            detail = response.text[:500]
-        raise SupaBOTLLMError(f"GATEWAY_HTTP_{response.status_code}:{detail}")
-
     try:
-        result = response.json()
-    except ValueError as exc:
-        raise SupaBOTLLMError("GATEWAY_INVALID_JSON") from exc
+        result = generate_market_narrative(
+            envelope,
+            static_prefix=STATIC_PROMPT,
+            dynamic={"format": "human_analyst_thai", "priority": ["WHAT","WHY","POSITIONING","LEVELS","SCENARIO","CONFIRMATION","INVALIDATION","WAIT"]},
+        )
+    except LocalSupaBOTError as exc:
+        raise SupaBOTLLMError(str(exc)) from exc
 
     if result.get("status") != "SUCCESS":
         raise SupaBOTLLMError(f"GATEWAY_STATUS:{result.get('status')}")
