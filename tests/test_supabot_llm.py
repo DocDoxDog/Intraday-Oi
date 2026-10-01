@@ -52,3 +52,35 @@ def test_no_model_selection_in_adapter(monkeypatch):
     envelope=captured["envelope"]
     assert envelope["model_policy"]["selection"]=="supaBOT_task_router"
     assert "model" not in envelope
+
+
+
+def test_gemini_3_uses_thinking_config_without_temperature(monkeypatch):
+    from src.llm_router import GeminiRouter
+
+    router = GeminiRouter(api_key="test")
+    captured = {}
+
+    class Response:
+        def raise_for_status(self):
+            return None
+        def json(self):
+            return {
+                "candidates": [{"content": {"parts": [{"text": "{}"}]}}],
+                "modelVersion": "gemini-3.8-flash-001",
+            }
+
+    monkeypatch.setattr(
+        "src.llm_router.requests.post",
+        lambda url, **kwargs: (captured.update(url=url, body=kwargs["json"]) or Response()),
+    )
+    router._call_once(
+        router._route("standard"),
+        router.task("market.narrative"),
+        system_instruction="test",
+        user_payload={"ok": True},
+        response_schema=None,
+    )
+    generation = captured["body"]["generationConfig"]
+    assert "temperature" not in generation
+    assert generation["thinkingConfig"] == {"thinkingLevel": "medium"}
