@@ -50,7 +50,7 @@ def test_no_model_selection_in_adapter(monkeypatch):
     parsed={"product_symbol":"GC","contract":"GC","future_price":4300,"raw_series":{"strike_rows":[],"totals":{},"gex":{}}}
     supabot_llm.analyze_with_supabot(parsed)
     envelope=captured["envelope"]
-    assert envelope["model_policy"]["selection"]=="supaBOT_task_router"
+    assert envelope["model_policy"]["selection"]=="local_supaBOT_task_router"
     assert "model" not in envelope
 
 
