@@ -12,17 +12,27 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-from scraper import scrape, ScrapeError
-from parser import parse, ParseError
-from analyze import analyze
-from twelve_data import fetch_spot, enrich_with_basis, TwelveDataError
-from technical_analysis import build_context
-from oi_positioning import enrich as enrich_oi_positioning
-from supabase_client import insert_snapshot, insert_oi_intelligence, upload_screenshot, get_active_chat_ids
-from url_manager import UrlManager, UrlManagerError
-import history
-import telegram
-import line
+try:
+    from .scraper import scrape, ScrapeError
+    from .parser import parse, ParseError
+    from .analyze import analyze
+    from .twelve_data import fetch_spot, enrich_with_basis, TwelveDataError
+    from .technical_analysis import build_context
+    from .oi_positioning import enrich as enrich_oi_positioning
+    from .supabase_client import insert_snapshot, insert_oi_intelligence, upload_screenshot, get_active_chat_ids
+    from .url_manager import UrlManager, UrlManagerError
+    from . import history, telegram, line
+except ImportError:
+    # Backward-compatible local execution: python src/main.py
+    from scraper import scrape, ScrapeError
+    from parser import parse, ParseError
+    from analyze import analyze
+    from twelve_data import fetch_spot, enrich_with_basis, TwelveDataError
+    from technical_analysis import build_context
+    from oi_positioning import enrich as enrich_oi_positioning
+    from supabase_client import insert_snapshot, insert_oi_intelligence, upload_screenshot, get_active_chat_ids
+    from url_manager import UrlManager, UrlManagerError
+    import history, telegram, line
 
 
 def run():
