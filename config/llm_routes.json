@@ -1,27 +1,121 @@
 {
-  "version": 3,
+  "version": 1,
   "provider": "gemini",
   "api": {
     "transport": "generateContent",
     "base_url": "https://generativelanguage.googleapis.com/v1beta",
-    "structured_output": "responseJsonSchema"
+    "structured_output": "responseFormat"
   },
   "models": {
+    "fast": {
+      "model": "gemini-3.5-flash-lite",
+      "stable": true,
+      "enabled": true
+    },
     "standard": {
-      "model": "gemini-2.5-flash",
+      "model": "gemini-3.8-flash",
+      "stable": true,
+      "enabled": true
+    },
+    "deep": {
+      "model": "gemini-2.5-pro",
+      "stable": true,
+      "enabled": true
+    },
+    "deep_preview": {
+      "model": "gemini-3.1-pro-preview",
+      "stable": false,
+      "enabled": true
+    },
+    "embedding": {
+      "model": "gemini-embedding-001",
       "stable": true,
       "enabled": true
     }
   },
   "tasks": {
+    "news.extract": {
+      "route": "fast",
+      "fallback": "standard",
+      "temperature": 0,
+      "max_output_tokens": 1200,
+      "enabled": true
+    },
+    "news.classify": {
+      "route": "fast",
+      "fallback": "standard",
+      "temperature": 0,
+      "max_output_tokens": 800,
+      "enabled": true
+    },
+    "news.cluster": {
+      "route": "fast",
+      "fallback": "standard",
+      "temperature": 0.1,
+      "max_output_tokens": 1000,
+      "enabled": true
+    },
+    "news.summary": {
+      "route": "standard",
+      "fallback": "fast",
+      "temperature": 0.2,
+      "max_output_tokens": 1800,
+      "enabled": true
+    },
+    "news.impact": {
+      "route": "standard",
+      "fallback": "deep",
+      "temperature": 0.2,
+      "max_output_tokens": 1800,
+      "output_schema": "schemas/llm/news_impact_v1.json",
+      "enabled": true,
+      "output_schema_version": "news-impact.v1"
+    },
+    "news.conflict": {
+      "route": "deep",
+      "fallback": "standard",
+      "temperature": 0.1,
+      "max_output_tokens": 2500,
+      "enabled": true
+    },
     "market.narrative": {
       "route": "standard",
-      "fallback": null,
+      "fallback": "deep",
       "temperature": 0.2,
       "max_output_tokens": 2200,
       "output_schema": "schemas/llm/market_narrative_v1.json",
       "enabled": true,
       "output_schema_version": "market-narrative.v1"
+    },
+    "market.scenario": {
+      "route": "standard",
+      "fallback": "deep",
+      "temperature": 0.2,
+      "max_output_tokens": 2200,
+      "enabled": true
+    },
+    "research.deep_dive": {
+      "route": "deep",
+      "fallback": "standard",
+      "temperature": 0.1,
+      "max_output_tokens": 5000,
+      "enabled": true
+    },
+    "research.deep_dive_preview": {
+      "route": "deep_preview",
+      "fallback": "deep",
+      "temperature": 0.1,
+      "max_output_tokens": 6000,
+      "enabled": true
+    },
+    "news.score": {
+      "route": "standard",
+      "fallback": "deep",
+      "temperature": 0.2,
+      "max_output_tokens": 1800,
+      "output_schema": "schemas/llm/news_score_v1.json",
+      "output_schema_version": "news-score.v1",
+      "enabled": true
     }
   },
   "source_of_truth": "repository_config"
