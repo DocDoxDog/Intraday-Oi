@@ -39,9 +39,7 @@ def verify_output(
     elif isinstance(output, list):
         evidence_refs = []
         for item in output:
-            if isinstance(item, dict) and isinstance(
-                item.get("evidence_refs"), list
-            ):
+            if isinstance(item, dict) and isinstance(item.get("evidence_refs"), list):
                 evidence_refs.extend(item["evidence_refs"])
         if not evidence_refs:
             raise LLMVerificationError("EVIDENCE_REFS_INVALID")
@@ -50,13 +48,9 @@ def verify_output(
 
     input_refs = {str(x) for x in envelope.get("input_refs", [])}
     evidence_refs = [str(ref) for ref in evidence_refs]
-    unknown_refs = [
-        ref for ref in evidence_refs if ref not in input_refs
-    ]
+    unknown_refs = [ref for ref in evidence_refs if ref not in input_refs]
     if unknown_refs:
-        raise LLMVerificationError(
-            "EVIDENCE_REF_NOT_IN_INPUT:" + ",".join(unknown_refs)
-        )
+        raise LLMVerificationError("EVIDENCE_REF_NOT_IN_INPUT:" + ",".join(unknown_refs))
 
     if not evidence_refs:
         raise LLMVerificationError("NO_EVIDENCE")
@@ -72,12 +66,9 @@ def verify_output(
     if expected_product in {"GC", "CL", "NG", "SI"}:
         for token in ("GC", "CL", "NG", "SI"):
             if token != expected_product and re.search(
-                rf"(?<![A-Z]){token}(?![A-Z])",
-                serialized,
+                rf"(?<![A-Z]){token}(?![A-Z])", serialized
             ):
-                raise LLMVerificationError(
-                    f"PRODUCT_CLAIM_MISMATCH:{token}"
-                )
+                raise LLMVerificationError(f"PRODUCT_CLAIM_MISMATCH:{token}")
 
     claim_fields = {
         "market_overview",
@@ -96,40 +87,28 @@ def verify_output(
     }
     if isinstance(output, dict):
         claim_payload: Any = {
-            key: output.get(key)
-            for key in claim_fields
-            if key in output
+            key: output.get(key) for key in claim_fields if key in output
         }
     else:
         claim_payload = [
-            {
-                key: item.get(key)
-                for key in claim_fields
-                if key in item
-            }
+            {key: item.get(key) for key in claim_fields if key in item}
             for item in output
             if isinstance(item, dict)
         ]
 
     output_numbers = _numeric_strings(claim_payload)
     cited_evidence_numbers = _cited_evidence_numbers(
-        envelope["evidence"],
-        evidence_refs,
+        envelope["evidence"], evidence_refs
     )
     unsupported_numbers = sorted(
         {
             number
             for number in output_numbers
-            if number not in cited_evidence_numbers
-            and number not in {"0", "1"}
+            if number not in cited_evidence_numbers and number not in {"0", "1"}
         }
     )
 
-    claim_text = json.dumps(
-        claim_payload,
-        ensure_ascii=False,
-        default=str,
-    ).lower()
+    claim_text = json.dumps(claim_payload, ensure_ascii=False, default=str).lower()
     forbidden_patterns = (
         "place order",
         "execute order",
@@ -143,20 +122,16 @@ def verify_output(
         "take profit order",
     )
     forbidden_claims = [
-        pattern
-        for pattern in forbidden_patterns
-        if pattern in claim_text
+        pattern for pattern in forbidden_patterns if pattern in claim_text
     ]
 
     if unsupported_numbers:
         raise LLMVerificationError(
-            "UNSUPPORTED_NUMERIC_CLAIMS:"
-            + ",".join(unsupported_numbers[:20])
+            "UNSUPPORTED_NUMERIC_CLAIMS:" + ",".join(unsupported_numbers[:20])
         )
     if forbidden_claims:
         raise LLMVerificationError(
-            "FORBIDDEN_EXECUTION_CLAIM:"
-            + ",".join(forbidden_claims)
+            "FORBIDDEN_EXECUTION_CLAIM:" + ",".join(forbidden_claims)
         )
 
     return {
