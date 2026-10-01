@@ -21,10 +21,7 @@ import re
 from pathlib import Path
 from playwright.sync_api import sync_playwright
 
-try:
-    from .supabase_client import get_client
-except ImportError:
-    from supabase_client import get_client
+from .supabase_client import get_client
 
 CONFIG_KEY = "quikstrike_url"
 
