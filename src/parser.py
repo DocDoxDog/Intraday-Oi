@@ -101,7 +101,10 @@ def _attach_gex(parsed: dict) -> dict:
             parsed.get("raw_series") or {}, parsed.get("future_price")
         )
     except Exception as exc:
-        parsed.setdefault("raw_series", {})["gex"] = {"status": "error", "reason": str(exc)}
+        parsed.setdefault("raw_series", {})["gex"] = {
+            "status": "error",
+            "reason": str(exc),
+        }
     return parsed
 
 
@@ -123,12 +126,10 @@ def _parse_image_map(raw):
         try:
             from .oi_chart import render_oi_positioning
         except ImportError:
-            try:
-            from .oi_chart import render_oi_positioning
-        except ImportError:
             from oi_chart import render_oi_positioning
         chart_png=render_oi_positioning(rows,title=heading or "Gold")
-    except Exception: pass
+    except Exception:
+        pass
     parsed = {"contract":heading,"dte":dte,"dte_low_confidence":low,"future_price":future,"future_chg":None,"put_volume":0,"call_volume":0,"vol":sum(vols)/len(vols) if vols else None,"vol_chg":None,"delta_levels":{},"raw_series":raw_series,"screenshot":chart_png or raw.get("screenshot")}
     return _attach_gex(parsed)
 
@@ -161,9 +162,13 @@ def _parse_legacy(raw):
     raw_series={"mode":"open_interest","dte":dte,"heading":heading,"strike_rows":rows,"oi_positioning_rows":rows,"expected_ranges":c.get("expected_ranges") or [],"secondary_views":list(secondary),"totals":totals,"series":[{"name":"Put OI","data":[{"x":r["strike"],"y":r["oiPut"]} for r in rows]},{"name":"Call OI","data":[{"x":r["strike"],"y":r["oiCall"]} for r in rows]},{"name":"Put OI Change","data":[{"x":r["strike"],"y":r.get("oiPutChange")} for r in rows if r.get("oiPutChange") is not None]},{"name":"Call OI Change","data":[{"x":r["strike"],"y":r.get("oiCallChange")} for r in rows if r.get("oiCallChange") is not None]},{"name":"Vol Settle","data":[{"x":r["strike"],"y":r.get("vol")} for r in rows if r.get("vol") is not None]}]}
     chart_png=None
     try:
-        from oi_chart import render_oi_positioning
+        try:
+            from .oi_chart import render_oi_positioning
+        except ImportError:
+            from oi_chart import render_oi_positioning
         chart_png=render_oi_positioning(rows,title=heading or "Gold")
-    except Exception: pass
+    except Exception:
+        pass
     iv_values = [r.get("vol") for r in rows if isinstance(r.get("vol"), (int, float))]
     parsed = {"contract":heading,"dte":dte,"dte_low_confidence":low,"future_price":future,"future_chg":None,"put_volume":0,"call_volume":0,"vol":sum(iv_values) / len(iv_values) if iv_values else None,"vol_chg":None,"delta_levels":{},"raw_series":raw_series,"screenshot":chart_png or raw.get("screenshot")}
     return _attach_gex(parsed)
