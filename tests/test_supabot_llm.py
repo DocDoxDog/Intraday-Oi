@@ -88,9 +88,15 @@ def test_builds_governed_envelope(monkeypatch):
 
 
 def test_no_model_selection_in_adapter(monkeypatch):
+    captured = {}
+
+    def fake_post(url, **kwargs):
+        captured["kwargs"] = kwargs
+        return _Response()
+
     monkeypatch.setenv("SUPABOT_LLM_GATEWAY_URL", "https://supabot.example")
     monkeypatch.setenv("SUPABOT_LLM_GATEWAY_TOKEN", "token")
-    monkeypatch.setattr(supabot_llm.requests, "post", lambda *a, **k: _Response())
+    monkeypatch.setattr(supabot_llm.requests, "post", fake_post)
 
     parsed = {
         "product_symbol": "GC",
@@ -101,11 +107,6 @@ def test_no_model_selection_in_adapter(monkeypatch):
 
     supabot_llm.analyze_with_supabot(parsed)
 
-    body = _Response().json()
-    assert "model" not in body["claims"]
-    assert "model_policy" in json.loads(json.dumps({
-        "model_policy": {
-            "provider": "gemini",
-            "selection": "supaBOT_task_router",
-        }
-    }))
+    envelope = captured["kwargs"]["json"]["envelope"]
+    assert envelope["model_policy"]["selection"] == "supaBOT_task_router"
+    assert "model" not in envelope
