@@ -16,10 +16,9 @@ jobs:
         with:
           python-version: "3.11"
 
-      - name: Install Intraday-Oi and supaBOT dependencies
+      - name: Install Intraday-Oi dependencies
         run: |
           python -m pip install -r requirements.txt
-          python -m pip install jsonschema
           playwright install --with-deps chromium
 
       - name: Run live pipeline with existing GitHub secrets
