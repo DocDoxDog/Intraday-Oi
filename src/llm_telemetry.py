@@ -5,12 +5,12 @@ import json
 from typing import Any
 
 
-def persist_llm_run(result: dict[str, Any], envelope: dict[str, Any]) -> None:
-    try:
-        from .supabase_client import get_client
-    except ImportError:
-        from supabase_client import get_client
+def _client():
+    from supabase_client import get_client
+    return get_client()
 
+
+def persist_llm_run(result: dict[str, Any], envelope: dict[str, Any]) -> None:
     payload = {
         "run_id": result["run_id"],
         "request_id": envelope["request_id"],
@@ -40,26 +40,12 @@ def persist_llm_run(result: dict[str, Any], envelope: dict[str, Any]) -> None:
         "output_tokens": result.get("output_tokens"),
         "cached_tokens": result.get("cached_tokens"),
         "response_id": result.get("response_id"),
-        "output_hash": hashlib.sha256(
-            json.dumps(
-                result.get("claims") or {},
-                ensure_ascii=False,
-                sort_keys=True,
-                default=str,
-            ).encode("utf-8")
-        ).hexdigest(),
+        "output_hash": hashlib.sha256(json.dumps(result.get("claims") or {}, ensure_ascii=False, sort_keys=True, default=str).encode("utf-8")).hexdigest(),
         "fallback_used": bool(result.get("fallback_used")),
         "error_code": result.get("error_code"),
     }
-    get_client().schema("llm").table("runs").insert(payload).execute()
+    _client().schema("llm").table("runs").insert(payload).execute()
 
 
-def persist_llm_verification(
-    run_id: str,
-    verification: dict[str, Any],
-) -> None:
-    from supabase_client import get_client
-
-    get_client().schema("llm").table("verifications").insert(
-        {"run_id": run_id, **verification}
-    ).execute()
+def persist_llm_verification(run_id: str, verification: dict[str, Any]) -> None:
+    _client().schema("llm").table("verifications").insert({"run_id": run_id, **verification}).execute()
