@@ -17,7 +17,7 @@ jobs:
         with:
           repository: DocDoxDog/supaBOT
           ref: 354a7299e6faa512495e2aec848318365692fb76
-          path: ../supaBOT
+          path: supaBOT
 
       - uses: actions/setup-python@v5
         with:
@@ -29,7 +29,7 @@ jobs:
           playwright install --with-deps chromium
 
       - name: Start pinned local supaBOT gateway
-        working-directory: ../supaBOT
+        working-directory: supaBOT
         env:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           INTERNAL_LLM_GATEWAY_ENABLED: "true"
