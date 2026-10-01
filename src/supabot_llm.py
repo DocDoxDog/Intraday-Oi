@@ -15,7 +15,10 @@ import uuid
 from datetime import datetime, timezone
 from typing import Any
 
-from local_supabot import LocalSupaBOTError, generate_market_narrative
+try:
+    from .local_supabot import LocalSupaBOTError, generate_market_narrative
+except ImportError:
+    from local_supabot import LocalSupaBOTError, generate_market_narrative
 
 
 DEFAULT_GATEWAY_PATH = "/internal/v1/llm/generate"
