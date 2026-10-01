@@ -1,6 +1,9 @@
 # OI-intraday
 
-Pipeline ดึงข้อมูล Options Flow (Vol2Vol Expected Range) จาก CME QuikStrike สำหรับ Gold Futures แล้วเก็บลง Supabase, วิเคราะห์ และส่งต่อ Telegram/LINE
+Pipeline ดึงข้อมูล Options/Open Interest จาก CME QuikStrike สำหรับ Gold Futures แล้วเดินต่อแบบ
+SOURCE → RAW → NORMALIZE → DETERMINISTIC OI/GEX → supaBOT LLM GATEWAY → VERIFIED NARRATIVE → Supabase → Telegram/LINE
+
+LLM ใน repository นี้เป็น downstream adapter เท่านั้น: Intraday-Oi ไม่เลือก Gemini model และไม่เรียก Gemini API โดยตรง.
 
 ## กลไก scraping ปัจจุบัน
 
@@ -67,7 +70,7 @@ python src/main.py
 
 ## Environment Variables
 
-ดู `.env.example` สำหรับ `QUIKSTRIKE_URL`, Supabase, Gemini, Telegram และ LINE credentials. ห้าม commit credentials ลง git; ใช้ GitHub Secrets ใน CI
+ดู `.env.example` สำหรับ `QUIKSTRIKE_URL`, Supabase, supaBOT gateway, Telegram และ LINE credentials. ห้าม commit credentials ลง git; ใช้ GitHub Secrets ใน CI
 
 ## ข้อควรระวัง
 
@@ -79,5 +82,6 @@ CME market data มีเงื่อนไขการใช้งาน คว
 
 ## Shared AI / Gemini standard
 Canonical standard: https://github.com/DocDoxDog/skill/blob/main/LLM_MARKET_INTELLIGENCE_STANDARD.md
-Canonical downstream market-intelligence implementation: https://github.com/DocDoxDog/supaBOT
-LLM remains downstream of deterministic OI/Greeks/GEX/PIT evidence.
+Canonical LLM gateway: https://github.com/DocDoxDog/supaBOT
+Intraday-Oi sends a governed request envelope with deterministic evidence and receives a verified human-readable narrative.
+Required CI secrets: SUPABOT_LLM_GATEWAY_URL and SUPABOT_LLM_GATEWAY_TOKEN.
