@@ -55,7 +55,7 @@ def test_no_model_selection_in_adapter(monkeypatch):
 
 
 
-def test_gemini_3_uses_thinking_config_without_temperature(monkeypatch):
+def test_gemini_25_flash_uses_legacy_temperature_config(monkeypatch):
     from src.llm_router import GeminiRouter
 
     router = GeminiRouter(api_key="test")
@@ -67,7 +67,7 @@ def test_gemini_3_uses_thinking_config_without_temperature(monkeypatch):
         def json(self):
             return {
                 "candidates": [{"content": {"parts": [{"text": "{}"}]}}],
-                "modelVersion": "gemini-3.8-flash-001",
+                "modelVersion": "gemini-2.5-flash-001",
             }
 
     monkeypatch.setattr(
@@ -82,5 +82,6 @@ def test_gemini_3_uses_thinking_config_without_temperature(monkeypatch):
         response_schema=None,
     )
     generation = captured["body"]["generationConfig"]
-    assert "temperature" not in generation
-    assert generation["thinkingConfig"] == {"thinkingLevel": "medium"}
+    assert generation["temperature"] == 0.2
+    assert "thinkingConfig" not in generation
+    assert captured["url"].endswith("/models/gemini-2.5-flash:generateContent")
