@@ -93,8 +93,13 @@ def _secondary_maps(raw):
 def _attach_gex(parsed: dict) -> dict:
     """คำนวณ GEX จาก gamma/OI จริงที่ QuikStrike ส่งมา โดยไม่สร้าง Greeks เอง."""
     try:
-        from gex import enrich_raw_series
-        parsed["raw_series"] = enrich_raw_series(parsed.get("raw_series") or {}, parsed.get("future_price"))
+        try:
+            from .gex import enrich_raw_series
+        except ImportError:
+            from gex import enrich_raw_series
+        parsed["raw_series"] = enrich_raw_series(
+            parsed.get("raw_series") or {}, parsed.get("future_price")
+        )
     except Exception as exc:
         parsed.setdefault("raw_series", {})["gex"] = {"status": "error", "reason": str(exc)}
     return parsed
@@ -115,7 +120,13 @@ def _parse_image_map(raw):
     raw_series={"mode":"open_interest","dte":dte,"expiration_selection":sel,"heading":heading,"strike_rows":rows,"oi_positioning_rows":rows,"expected_ranges":chart.get("expected_ranges") or [],"totals":{"open_interest_view_put":sum(r.get("oiPut") or 0 for r in rows),"open_interest_view_call":sum(r.get("oiCall") or 0 for r in rows),"open_interest_view_total":sum(r.get("oiTotal") or 0 for r in rows),"open_interest_put":sum(r.get("oiPut") or 0 for r in rows),"open_interest_call":sum(r.get("oiCall") or 0 for r in rows),"open_interest_total":sum(r.get("oiTotal") or 0 for r in rows)},"series":_build_series(rows,[])}
     chart_png=None
     try:
-        from oi_chart import render_oi_positioning
+        try:
+            from .oi_chart import render_oi_positioning
+        except ImportError:
+            try:
+            from .oi_chart import render_oi_positioning
+        except ImportError:
+            from oi_chart import render_oi_positioning
         chart_png=render_oi_positioning(rows,title=heading or "Gold")
     except Exception: pass
     parsed = {"contract":heading,"dte":dte,"dte_low_confidence":low,"future_price":future,"future_chg":None,"put_volume":0,"call_volume":0,"vol":sum(vols)/len(vols) if vols else None,"vol_chg":None,"delta_levels":{},"raw_series":raw_series,"screenshot":chart_png or raw.get("screenshot")}
