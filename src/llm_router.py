@@ -161,8 +161,23 @@ class GeminiRouter:
             response.raise_for_status()
             data = response.json()
             output_text = self._text(data)
-        except Exception:
-            raise
+        except requests.HTTPError as exc:
+            status = getattr(getattr(exc, "response", None), "status_code", None)
+            detail = ""
+            response = getattr(exc, "response", None)
+            if response is not None:
+                try:
+                    detail = response.text.replace("\n", " ").strip()[:600]
+                except Exception:
+                    detail = ""
+            suffix = f":HTTP_{status}" if status is not None else ""
+            if detail:
+                suffix += f":{detail}"
+            raise LLMRouterError(f"GEMINI_HTTP_ERROR{suffix}") from exc
+        except requests.RequestException as exc:
+            raise LLMRouterError(f"GEMINI_REQUEST_ERROR:{type(exc).__name__}:{exc}") from exc
+        except Exception as exc:
+            raise LLMRouterError(f"GEMINI_RESPONSE_ERROR:{type(exc).__name__}:{exc}") from exc
         completed_at = datetime.now(timezone.utc).isoformat()
         usage = data.get("usageMetadata") or {}
         return {
