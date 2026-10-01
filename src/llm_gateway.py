@@ -8,10 +8,7 @@ from typing import Any
 
 from jsonschema import Draft202012Validator
 
-try:
-    from .llm_router import GeminiRouter
-except ImportError:
-    from llm_router import GeminiRouter
+from .llm_router import GeminiRouter
 
 
 class LLMGatewayError(RuntimeError):
