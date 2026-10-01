@@ -135,10 +135,15 @@ class GeminiRouter:
             "systemInstruction": {"parts": [{"text": system_instruction}]},
             "contents": [{"role": "user", "parts": [{"text": json.dumps(user_payload, ensure_ascii=False, default=str)}]}],
             "generationConfig": {
-                "temperature": task.temperature,
                 "maxOutputTokens": task.max_output_tokens,
             },
         }
+        # Gemini 3.8 Flash rejects legacy sampling parameters such as
+        # temperature/top_p/top_k. Its default thinking level is valid for
+        # production; keep temperature for older Gemini routes only.
+        if not route.model.startswith("gemini-3."):
+            body["generationConfig"]["temperature"] = task.temperature
+
         if response_schema:
             body["generationConfig"]["responseFormat"] = {
                 "text": {"mimeType": "application/json", "schema": response_schema}
