@@ -6,7 +6,10 @@ from typing import Any
 
 
 def persist_llm_run(result: dict[str, Any], envelope: dict[str, Any]) -> None:
-    from supabase_client import get_client
+    try:
+        from .supabase_client import get_client
+    except ImportError:
+        from supabase_client import get_client
 
     payload = {
         "run_id": result["run_id"],
