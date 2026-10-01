@@ -1,5 +1,7 @@
 """Central LLM adapter for Intraday-Oi.
 
+CI/runtime path reuses the repository Gemini secret through a pinned supaBOT gateway.
+
 The repository owns deterministic market calculations. supaBOT owns model
 routing, structured output, verification, and LLM telemetry.
 """
