@@ -21,6 +21,11 @@ jobs:
           python -m pip install -r requirements.txt
           playwright install --with-deps chromium
 
+      - name: Smoke-test package imports and local supaBOT core
+        run: |
+          python -m compileall -q src
+          python -c "import src.main; from src.local_supabot import generate_market_narrative; print('✅ Intraday-Oi package imports OK')"
+
       - name: Run live Intraday-Oi pipeline with local supaBOT core
         env:
           QUIKSTRIKE_URL: ${{ secrets.QUIKSTRIKE_URL }}
