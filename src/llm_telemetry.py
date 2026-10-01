@@ -6,7 +6,10 @@ from typing import Any
 
 
 def _client():
-    from supabase_client import get_client
+    try:
+        from .supabase_client import get_client
+    except ImportError:
+        from supabase_client import get_client
     return get_client()
 
 
