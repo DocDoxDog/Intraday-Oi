@@ -82,7 +82,7 @@
       "route": "standard",
       "fallback": "fast",
       "temperature": 0.2,
-      "max_output_tokens": 2200,
+      "max_output_tokens": 3800,
       "output_schema": "schemas/llm/market_analyst_v2.json",
       "enabled": true,
       "output_schema_version": "market-analyst.v2"
