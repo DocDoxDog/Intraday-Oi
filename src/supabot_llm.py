@@ -661,7 +661,12 @@ def analyze_with_supabot(parsed: dict[str, Any], history: dict[str, Any] | None 
         result = generate_market_narrative(
             envelope,
             static_prefix=STATIC_PROMPT,
-            dynamic={"format": "human_analyst_thai", "priority": ["WHAT","WHY","POSITIONING","LEVELS","SCENARIO","CONFIRMATION","INVALIDATION","WAIT"]},
+            dynamic={
+                "format": "human_analyst_thai",
+                "priority": ["WHAT","WHY","POSITIONING","LEVELS","SCENARIO","CONFIRMATION","INVALIDATION","WAIT"],
+                "numeric_level_policy": "PRICE CLAIMS MAY USE ONLY VALUES PRESENT IN deterministic_levels OR current market snapshot. Do not invent, interpolate, calculate, or introduce any new price number.",
+                "allowed_price_levels": payload["deterministic_levels"],
+            },
         )
     except LocalSupaBOTError as exc:
         raise SupaBOTLLMError(str(exc)) from exc
