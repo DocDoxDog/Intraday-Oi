@@ -57,3 +57,25 @@ def test_gamma_table_uses_millions_per_one_percent_move():
     }
     image = render_gamma_table(matrix)
     assert image[:8] == b"\x89PNG\r\n\x1a\n"
+
+
+def test_full_gamma_table_includes_all_available_strikes():
+    from src.gamma_chart import render_gamma_table, render_gamma_table_full
+    matrix = {
+        "current_price": 4200,
+        "columns": [
+            {"code": "OG1V6", "dte": 0.34, "status": "OBSERVED"},
+            {"code": "G1MV6", "dte": 1.34, "status": "OBSERVED"},
+        ],
+        "matrix": [
+            {"strike": float(x), "OG1V6": 1_000_000, "G1MV6": -500_000}
+            for x in range(4100, 4310, 5)
+        ],
+        "totals": {"OG1V6": 43_000_000, "G1MV6": -21_500_000},
+        "status": "VALID",
+    }
+    compact = render_gamma_table(matrix)
+    full = render_gamma_table_full(matrix)
+    assert compact.startswith(b"\\x89PNG")
+    assert full.startswith(b"\\x89PNG")
+    assert len(full) > len(compact)
