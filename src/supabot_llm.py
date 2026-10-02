@@ -57,11 +57,9 @@ def _product(parsed: dict[str, Any]) -> str:
     if isinstance(product, dict) and product.get("symbol"):
         return str(product["symbol"]).upper()
     contract = str(parsed.get("contract") or "").upper()
-    match = re.search(r"\bGC\b", contract)
+    match = re.search(r"\b(GC|SI|CL|ES|NQ)\b", contract)
     if match:
-        return "GC"
-    if contract:
-        return "GC"
+        return match.group(1)
     raise SupaBOTLLMError("PRODUCT_UNRESOLVED")
 
 
