@@ -68,6 +68,12 @@ def _format_analysis_message(parsed: dict, ai_result: dict) -> str:
     status = str(ai_result.get("analysis_status") or "CONFIRMED").upper()
     bias = str(ai_result.get("bias") or "WAIT").upper()
 
+    state = raw.get("market_state") or {}
+    flow = state.get("flow") or {}
+    volatility = state.get("volatility") or {}
+    gamma_state = state.get("gamma") or {}
+    technical_state = state.get("technical") or {}
+
     lines = [
         "<b>GOLD MARKET ANALYST V2</b>",
         _thai_datetime_str(),
@@ -106,11 +112,42 @@ def _format_analysis_message(parsed: dict, ai_result: dict) -> str:
         f"  |  Total {_show(totals.get('churn'))}",
         f"Volume  Put {_show(parsed.get('put_volume'))}  |  Call {_show(parsed.get('call_volume'))}",
         f"IV {_show(parsed.get('vol'))}%  |  IV Δ {_show(parsed.get('vol_chg'))}%",
+        f"OI Ratio C/P {_show(flow.get('call_put_oi_ratio'))} | ΔOI Ratio C/P {_show(flow.get('call_put_delta_oi_ratio'))}",
+        f"OI Velocity/h P {_show((flow.get('oi_velocity_per_hour') or {}).get('put'))} | "
+        f"C {_show((flow.get('oi_velocity_per_hour') or {}).get('call'))} | "
+        f"T {_show((flow.get('oi_velocity_per_hour') or {}).get('total'))}",
+        f"OI Acceleration/h² P {_show((flow.get('oi_acceleration_per_hour2') or {}).get('put'))} | "
+        f"C {_show((flow.get('oi_acceleration_per_hour2') or {}).get('call'))} | "
+        f"T {_show((flow.get('oi_acceleration_per_hour2') or {}).get('total'))}",
         _escape(ai_result.get("history_comparison") or "-"),
+        "",
+        "<b>VOLATILITY / GAMMA</b>",
+        f"IV {_show(volatility.get('iv'))}% | IV Δ1H {_show(volatility.get('iv_change_1h'))}% | Skew {_show(volatility.get('skew'))}",
+        f"Net GEX {_show(gamma_state.get('net_gex'))} | Call GEX {_show(gamma_state.get('call_gex'))} | Put GEX {_show(gamma_state.get('put_gex'))}",
+        f"Gamma Mean {_show(gamma_state.get('gamma_mean'))} | Pivot/Flip {_show(gamma_state.get('gamma_pivot'))}",
+        f"+GEX {_show(gamma_state.get('positive_zone'))} | -GEX {_show(gamma_state.get('negative_zone'))} | "
+        f"Call Wall {_show(gamma_state.get('call_wall'))} | Put Wall {_show(gamma_state.get('put_wall'))}",
+        "",
+        "<b>TECHNICAL</b>",
+        f"M15 {str((technical_state.get('m15') or {}).get('trend') or 'UNKNOWN').upper()} | "
+        f"EMA50 {_show((technical_state.get('m15') or {}).get('ema50'))} | "
+        f"VWAP {_show((technical_state.get('m15') or {}).get('vwap'))} | "
+        f"ATR14 {_show((technical_state.get('m15') or {}).get('atr14'))} | "
+        f"Momentum {_show((technical_state.get('m15') or {}).get('momentum_5'))}",
+        f"M5  {str((technical_state.get('m5') or {}).get('trend') or 'UNKNOWN').upper()} | "
+        f"EMA50 {_show((technical_state.get('m5') or {}).get('ema50'))} | "
+        f"VWAP {_show((technical_state.get('m5') or {}).get('vwap'))} | "
+        f"ATR14 {_show((technical_state.get('m5') or {}).get('atr14'))} | "
+        f"Momentum {_show((technical_state.get('m5') or {}).get('momentum_5'))}",
+        f"M1  {str((technical_state.get('m1') or {}).get('trend') or 'UNKNOWN').upper()} | "
+        f"EMA50 {_show((technical_state.get('m1') or {}).get('ema50'))} | "
+        f"VWAP {_show((technical_state.get('m1') or {}).get('vwap'))} | "
+        f"ATR14 {_show((technical_state.get('m1') or {}).get('atr14'))} | "
+        f"Momentum {_show((technical_state.get('m1') or {}).get('momentum_5'))}",
     ]
 
     if news:
-        lines += ["", "<b>NEWS CONTEXT</b>"]
+        lines += ["", "<b>NEWS & CATALYST</b>"]
         for item in news[:2]:
             headline = item.get("headline") or "-"
             source = item.get("source") or "-"
@@ -146,6 +183,12 @@ def _format_levels_message(parsed: dict, ai_result: dict) -> str:
         f"<b>{len(gamma.get('columns') or [])}</b> expirations"
         f"  |  +GEX zone <b>{show(zones.get('highest_positive_gamma'))}</b>"
         f"  |  -GEX zone <b>{show(zones.get('highest_negative_gamma'))}</b>",
+        f"Gamma Mean <b>{show(gamma_state.get('gamma_mean'))}</b>"
+        f"  |  Pivot/Flip <b>{show(gamma_state.get('gamma_pivot'))}</b>",
+        f"Call Wall <b>{show(gamma_state.get('call_wall'))}</b>"
+        f"  |  Put Wall <b>{show(gamma_state.get('put_wall'))}</b>",
+        f"Acceleration zones <b>{_escape(str(len(gamma_state.get('acceleration_zones') or [])))}</b>"
+        f"  |  Net GEX <b>{show(gamma_state.get('net_gex'))}</b>",
         "",
         "<b>SCENARIOS</b>",
         f"🟢 <b>Bull</b> — {_escape(scenarios.get('bull') or '-')}",
