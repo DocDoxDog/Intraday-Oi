@@ -198,6 +198,39 @@ def run():
     except Exception as e:
         print(f"⚠️  OI intelligence failed (raw OI remains available): {e}", file=sys.stderr)
 
+    # Deterministic cross-session deltas used by the renderer and LLM.
+    try:
+        raw_intel = parsed.setdefault("raw_series", {})
+        cur_totals = raw_intel.get("totals") or {}
+        cur_gex = raw_intel.get("gex") or {}
+        cur_price = parsed.get("future_price")
+        cur_vol = parsed.get("vol")
+        def _num(v):
+            return float(v) if isinstance(v, (int, float)) else None
+        today = hist_context.get("today") or {}
+        yesterday = hist_context.get("yesterday") or {}
+        today_open = today.get("future_price_open")
+        today_oi = today.get("oi_first") or {}
+        today_gex = today_oi.get("gex_net")
+        yesterday_last = yesterday.get("future_price_last")
+        yesterday_oi = yesterday.get("oi_last") or {}
+        yesterday_gex = yesterday_oi.get("gex_net")
+        current_oi_total = _num(cur_totals.get("open_interest_view_total", cur_totals.get("open_interest_total")))
+        current_oi_put = _num(cur_totals.get("open_interest_view_put", cur_totals.get("open_interest_put")))
+        current_oi_call = _num(cur_totals.get("open_interest_view_call", cur_totals.get("open_interest_call")))
+        raw_intel["history_comparison"] = {
+            "today_price_change": _num(cur_price) - _num(today_open) if _num(cur_price) is not None and _num(today_open) is not None else None,
+            "today_oi_change": current_oi_total - _num(today_oi.get("oi_total")) if current_oi_total is not None and _num(today_oi.get("oi_total")) is not None else None,
+            "today_gex_change": _num(cur_gex.get("net_gex")) - _num(today_gex) if _num(cur_gex.get("net_gex")) is not None and _num(today_gex) is not None else None,
+            "yesterday_price_change": _num(cur_price) - _num(yesterday_last) if _num(cur_price) is not None and _num(yesterday_last) is not None else None,
+            "yesterday_oi_change": current_oi_total - _num(yesterday_oi.get("oi_total")) if current_oi_total is not None and _num(yesterday_oi.get("oi_total")) is not None else None,
+            "yesterday_gex_change": _num(cur_gex.get("net_gex")) - _num(yesterday_gex) if _num(cur_gex.get("net_gex")) is not None and _num(yesterday_gex) is not None else None,
+            "today_count": today.get("count", 0),
+            "yesterday_count": yesterday.get("count", 0),
+        }
+    except Exception as e:
+        print(f"⚠️  History comparison enrichment failed: {e}", file=sys.stderr)
+
     print("[5.8/9] Fetching governed macro/news announcements...")
     new_news_rows = []
     try:
