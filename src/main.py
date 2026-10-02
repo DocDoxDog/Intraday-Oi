@@ -231,17 +231,32 @@ def run():
             "bias": "WAIT",
             "uncertainty": 1.0,
             "trade_plan": {
-                "status": "NO_TRADE",
+                "status": "CONDITIONAL",
                 "direction": "WAIT",
-                "entry": "UNKNOWN",
-                "stop_loss": "UNKNOWN",
-                "take_profit_1": "UNKNOWN",
-                "take_profit_2": "UNKNOWN",
-                "setup": "ยังไม่เปิด setup เพราะ analyst output ไม่ผ่าน verification",
-                "trigger": "ต้องมี analyst output ที่ผ่าน verification",
-                "confirmation": "ต้องมี analyst output + technical confirmation ที่ผ่าน gate",
-                "invalidation": "ยังไม่มี setup ที่อนุมัติ",
-                "risk_note": "รอบ DEGRADED ห้ามสร้าง Entry/SL/TP จาก OI เพียงอย่างเดียว",
+                "entry": (
+                    f"LONG: รอ Break + Hold/Retest เหนือ {gex.get('call_wall') or 'UNKNOWN'} | "
+                    f"SHORT: รอ Break + Retest ต่ำกว่า {gex.get('put_wall') or 'UNKNOWN'}"
+                ),
+                "stop_loss": (
+                    f"LONG invalidation: ต่ำกว่า {gex.get('put_wall') or 'UNKNOWN'} | "
+                    f"SHORT invalidation: เหนือ {gex.get('call_wall') or 'UNKNOWN'}"
+                ),
+                "take_profit_1": (
+                    f"LONG: {gex.get('call_wall') or 'UNKNOWN'} | "
+                    f"SHORT: {gex.get('put_wall') or 'UNKNOWN'}"
+                ),
+                "take_profit_2": (
+                    f"LONG: next deterministic resistance | "
+                    f"SHORT: next deterministic support"
+                ),
+                "setup": "Conditional plan: ใช้สำหรับเฝ้ารอ trigger ไม่ใช่คำสั่งเปิดสถานะทันที",
+                "trigger": "Break + Hold/Retest success ฝั่งขึ้น หรือ Break + Retest failure ฝั่งลง",
+                "confirmation": "ต้องมี price action/technical confirmation; ΔOI/OI baseline ที่ไม่มีให้ถือเป็น UNKNOWN",
+                "invalidation": "เมื่อ trigger ไม่เกิดหรือราคากลับผ่าน level ที่กำหนดใน scenario",
+                "risk_reward": "คำนวณหลัง trigger ยืนยันโดยใช้ Entry/Stop/TP ที่มาจาก deterministic levels เท่านั้น",
+                "market_condition": "DEGRADED / PRICE-TRIGGER REQUIRED",
+                "position_risk": "กำหนดขนาดสถานะหลัง trigger และ invalidation ชัดเจน",
+                "risk_note": "ห้ามเพิ่มขนาด Position เพราะความมั่นใจ และห้ามสร้างตัวเลขนอก deterministic evidence",
             },
             "data_limitations": [
                 "LLM output rejected before delivery: " + str(ai_result.get("error")),
@@ -302,7 +317,7 @@ def run():
     print("[9/9] Sending to LINE (broadcast to all OA friends)...")
     if os.environ.get("LINE_CHANNEL_ACCESS_TOKEN"):
         try:
-            line.send(parsed, ai_result, screenshot_url=screenshot_url)
+            line.send(parsed, ai_result, screenshot_url=screenshot_url, gamma_table_url=gamma_table_url)
             print("✅ Sent to LINE")
         except Exception as e:
             print(f"⚠️  LINE send failed (data still saved to Supabase): {e}", file=sys.stderr)
