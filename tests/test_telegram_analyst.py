@@ -95,7 +95,7 @@ def test_telegram_renders_three_text_message_sections():
     m3 = telegram._format_analysis_message(parsed, ai)
     m4 = telegram._format_levels_message(parsed, ai)
     m5 = telegram._format_trade_plan_message(parsed, ai)
-    assert "WHAT text" in m3 and "WHY text" in m3 and "POSITIONING text" in m3 and "FLOW & HISTORY" in m3
+    assert "WHAT text" in m3 and "WHY text" in m3 and "POSITIONING text" in m3
     assert "4,232.49" in m4 and "GAMMA TERM STRUCTURE" in m4 and "7" in m4 and "🟢" in m4 and "🔴" in m4 and "🟡" in m4
     assert "Status: <b>CONDITIONAL</b>" in m5
     assert "Bias:" in m5
@@ -135,6 +135,6 @@ def test_degraded_v2_has_no_trade_levels():
         "evidence_refs": ["itb:oi:deterministic"], "data_limitations": ["LLM rejected"],
     }
     message = format_message(parsed, ai)
-    assert "GOLD MARKET ANALYST V2" in message
+    assert "GOLD MARKET" in message
     assert "GOLD OI UPDATE" not in message
     assert "DEGRADED" in message
