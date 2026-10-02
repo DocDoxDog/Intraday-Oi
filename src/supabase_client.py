@@ -95,6 +95,41 @@ def insert_snapshot(
     return result.data[0] if result.data else {}
 
 
+def insert_news_announcements(items: list[dict]) -> list[dict]:
+    """Insert unseen governed news items and return only newly created rows."""
+    if not items:
+        return []
+    client = get_client()
+    keys = [(str(item.get("source") or "").strip(), str(item.get("external_id") or "").strip()) for item in items]
+    keys = [(source, external) for source, external in keys if source and external]
+    if not keys:
+        return []
+
+    existing_by_key: set[tuple[str, str]] = set()
+    for source, external_id in keys:
+        result = (
+            client.table("news_announcements")
+            .select("source,external_id")
+            .eq("source", source)
+            .eq("external_id", external_id)
+            .execute()
+        )
+        existing_by_key.update(
+            (str(row.get("source")), str(row.get("external_id")))
+            for row in (result.data or [])
+        )
+
+    new_items = [
+        item for item in items
+        if (str(item.get("source") or "").strip(), str(item.get("external_id") or "").strip())
+        not in existing_by_key
+    ]
+    if not new_items:
+        return []
+
+    result = client.table("news_announcements").insert(new_items).execute()
+    return result.data or []
+
 def get_active_chat_ids() -> list[str]:
     """Return active authorized Telegram chat IDs from the customer registry.
     Empty is a valid "nobody authorized" state; registry errors propagate so
