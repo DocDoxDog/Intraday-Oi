@@ -182,6 +182,7 @@ def analyze(parsed: dict, history: dict | None = None) -> dict:
         "raw_series_summary": raw_summary,
         "hour_ago": (history or {}).get("hour_ago"),
         "today_summary": (history or {}).get("today"),
+        "news_context": parsed.get("news_context", []),
     }
 
     payload = {
