@@ -63,48 +63,12 @@ def verify_output(
     serialized = json.dumps(output, ensure_ascii=False, default=str).upper()
     if not expected_product or not expected_product.isalnum():
         raise LLMVerificationError("PRODUCT_ID_INVALID")
-    if expected_product in {"GC", "CL", "NG", "SI"}:
-        for token in ("GC", "CL", "NG", "SI"):
+    if expected_product in {"GC", "CL", "NG", "SI", "ES", "NQ"}:
+        for token in ("GC", "CL", "NG", "SI", "ES", "NQ"):
             if token != expected_product and re.search(
                 rf"(?<![A-Z]){token}(?![A-Z])", serialized
             ):
                 raise LLMVerificationError(f"PRODUCT_CLAIM_MISMATCH:{token}")
-
-    claim_fields = {
-        "market_overview",
-        "what",
-        "why",
-        "positioning",
-        "levels",
-        "scenarios",
-        "trade_plan",
-        "resistance_far",
-        "resistance_main",
-        "resistance_current",
-        "support_current",
-        "support_main",
-        "support_deep",
-        "bull_case",
-        "bear_case",
-        "sideway_case",
-        "reasoning",
-        "summary_th",
-        "headline",
-        "setup",
-        "confirmation",
-        "invalidation",
-        "risk_note",
-    }
-    if isinstance(output, dict):
-        claim_payload: Any = {
-            key: output.get(key) for key in claim_fields if key in output
-        }
-    else:
-        claim_payload = [
-            {key: item.get(key) for key in claim_fields if key in item}
-            for item in output
-            if isinstance(item, dict)
-        ]
 
     # V2 claims are nested under levels/scenarios/trade_plan. Verify the
     # complete claim object, not only legacy top-level fields, so numeric
@@ -114,7 +78,7 @@ def verify_output(
             key: output.get(key)
             for key in (
                 "market_overview", "what", "why", "positioning",
-                "levels", "scenarios", "trade_plan", "bias", "uncertainty",
+                "levels", "scenarios", "trade_plan", "bias",
             )
             if key in output
         }
