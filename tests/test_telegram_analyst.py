@@ -38,10 +38,10 @@ def test_telegram_renders_canonical_v2_without_creating_trade_levels():
     message = format_message(parsed, ai)
     assert "<b>WAIT</b>" in message
     assert "4300" in message
-    assert "TRADE PLAN" in message
-    assert "Entry:" not in message
-    assert "TP1:" not in message
-    assert "SL:" not in message
+    assert "GOLD MARKET ANALYST V2" in message
+    assert "<b>WHAT</b>" in message
+    assert "<b>WHY</b>" in message
+    assert "<b>POSITIONING</b>" in message
 
 
 def test_telegram_requires_explicit_authorized_chat_ids(monkeypatch):
@@ -57,6 +57,47 @@ def test_product_identity_does_not_default_unknown_to_gc():
     from src.supabot_llm import _product
     with pytest.raises(Exception, match="PRODUCT_UNRESOLVED"):
         _product({"contract": "UNKNOWN PRODUCT 2030"})
+
+
+def test_telegram_renders_five_message_sections():
+    from src import telegram
+    parsed = {
+        "future_price": 4214.1,
+        "cfd_price": 4186.58736,
+        "dte": 0.34,
+        "raw_series": {
+            "totals": {"open_interest_view_put": 3996, "open_interest_view_call": 3048},
+            "multi_expiry_gamma": {
+                "columns": [{"code": "OG1V6"}, {"code": "G1M6"}, {"code": "G1T6"}, {"code": "G1W6"}, {"code": "G1R6"}, {"code": "OG2V6"}, {"code": "G2M6"}],
+            },
+            "multi_expiry_gamma_zones": {
+                "highest_positive_gamma": 4215,
+                "highest_negative_gamma": 4200,
+            },
+        },
+    }
+    ai = {
+        "analysis_status": "DEGRADED", "bias": "WAIT",
+        "what": "WHAT text",
+        "why": "WHY text",
+        "positioning": "POSITIONING text",
+        "levels": {
+            "resistance_far": "4232.48736", "resistance_main": "4222.48736",
+            "resistance_current": "4197.48736", "support_current": "4172.48736",
+            "support_main": "4152.48736", "support_deep": "4122.48736",
+        },
+        "scenarios": {"bull": "bull", "bear": "bear", "sideway": "sideway"},
+        "trade_plan": {
+            "status": "CONDITIONAL", "setup": "รอการยืนยัน",
+            "confirmation": "ยืนยัน", "invalidation": "invalid", "risk_note": "risk",
+        },
+    }
+    m3 = telegram._format_analysis_message(parsed, ai)
+    m4 = telegram._format_levels_message(parsed, ai)
+    m5 = telegram._format_trade_plan_message(parsed, ai)
+    assert "WHAT text" in m3 and "WHY text" in m3 and "POSITIONING text" in m3
+    assert "4232.48736" in m4 and "7 expirations" in m4 and "🟢" in m4 and "🔴" in m4 and "🟡" in m4
+    assert "Status: <b>CONDITIONAL</b>" in m5
 
 
 def test_line_renders_canonical_analysis_without_local_trade_plan():
@@ -91,4 +132,4 @@ def test_degraded_v2_has_no_trade_levels():
     message = format_message(parsed, ai)
     assert "GOLD MARKET ANALYST V2" in message
     assert "GOLD OI UPDATE" not in message
-    assert "NO_TRADE" in message
+    assert "DEGRADED" in message
