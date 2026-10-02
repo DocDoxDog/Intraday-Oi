@@ -405,32 +405,59 @@ def _chart_fingerprint(page) -> str:
 
 
 def _discover_gold_expirations(page, limit: int = 7) -> list[dict]:
-    """Discover expiration identities from QuikStrike's actual menu.
+    """Discover real expiration identities without depending on brittle IDs.
 
-    Do not hard-code an OG prefix. CME's UI groups expirations by their
-    underlying future and the expiration header carries the option symbol/DTE;
-    the source menu is the authority for which identities are available.
+    CME can change the ASP.NET control IDs/classes used by the expiration menu.
+    The authoritative signal is the rendered menu text: an option code followed
+    by a DTE value. Prefer the known expiration-link selector, but fall back to
+    rendered anchors so a front-end ID change does not make the scraper blind.
     """
     links = page.locator(EXPIRATION_LINK_SELECTOR)
+    if links.count() == 0:
+        links = page.locator("a")
+
     candidates = []
     seen = set()
     for i in range(links.count()):
         link = links.nth(i)
         try:
-            code = (link.locator(".item-name").inner_text() or "").strip()
-            text = link.inner_text() or ""
+            text = (link.inner_text() or "").strip()
         except Exception:
             continue
-        if not code or code.upper() in seen:
+        if not text or "DTE" not in text.upper():
             continue
+
         match = re.search(r"\(([0-9]+(?:\.[0-9]+)?)\s*DTE\)", text, re.I)
         if not match:
             continue
         dte = float(match.group(1))
         if dte <= 0:
             continue
+
+        # Prefer .item-name when present; otherwise take the token immediately
+        # before the DTE parenthesis. Strip UI separators such as ">".
+        try:
+            code = (link.locator(".item-name").inner_text() or "").strip()
+        except Exception:
+            code = ""
+        if not code:
+            prefix = text[:match.start()].strip()
+            tokens = re.findall(r"[A-Za-z0-9._-]+", prefix)
+            code = tokens[-1] if tokens else ""
+        code = code.strip()
+        if not code or code.upper() in seen:
+            continue
+
+        # This page is already product-scoped by the saved QuikStrike URL.
+        # Still reject obvious non-option navigation/control text.
+        if len(code) < 2 or len(code) > 20:
+            continue
+        if not re.search(r"[A-Za-z]", code) or not re.search(r"\d", code):
+            continue
+
         seen.add(code.upper())
         candidates.append({"code": code, "dte": dte})
+
     candidates.sort(key=lambda x: (x["dte"], x["code"]))
     return candidates[: max(1, int(limit))]
 
