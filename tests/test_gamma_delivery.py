@@ -44,7 +44,7 @@ def test_telegram_mentions_multi_expiry_gamma():
     message = telegram._format_levels_message(parsed, ai)
     assert "GAMMA TERM STRUCTURE" in message
     assert "<b>7</b> expirations" in message
-    assert "4600" in message
+    assert "4,600.00" in message
 
 
 
