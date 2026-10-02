@@ -404,14 +404,60 @@ def _chart_fingerprint(page) -> str:
     """)
 
 
-def _discover_gold_expirations(page, limit: int = 7) -> list[dict]:
-    """Discover real expiration identities without depending on brittle IDs.
+def _open_expiration_menu(page) -> None:
+    """Open the rendered expiration selector before discovering its entries."""
+    triggers = [
+        page.locator("#ctl00_ucSelector_hlExpiration"),
+        page.get_by_text("Expiration", exact=True),
+        page.get_by_text("Expirations", exact=True),
+    ]
+    for trigger in triggers:
+        try:
+            if trigger.count():
+                trigger.first.click(timeout=5_000, force=True)
+                page.wait_for_timeout(750)
+                return
+        except Exception:
+            continue
 
-    CME can change the ASP.NET control IDs/classes used by the expiration menu.
-    The authoritative signal is the rendered menu text: an option code followed
-    by a DTE value. Prefer the known expiration-link selector, but fall back to
-    rendered anchors so a front-end ID change does not make the scraper blind.
+
+def _extract_dte(text: str) -> float | None:
+    """Accept the common QuikStrike renderings: '(12.5 DTE)' or 'DTE: 12.5'."""
+    patterns = (
+        r"\\(([0-9]+(?:\\.[0-9]+)?)\\s*DTE\\)",
+        r"\\bDTE\\s*[:=-]?\\s*([0-9]+(?:\\.[0-9]+)?)",
+    )
+    for pattern in patterns:
+        match = re.search(pattern, text or "", re.I)
+        if match:
+            try:
+                return float(match.group(1))
+            except ValueError:
+                pass
+    return None
+
+
+def _expiration_code_from_text(text: str, dte_match: re.Match[str] | None = None) -> str:
+    """Recover an option code from visible anchor text without assuming OG."""
+    if not text:
+        return ""
+    prefix = text[:dte_match.start()] if dte_match else text
+    tokens = re.findall(r"[A-Za-z0-9._-]+", prefix)
+    for token in reversed(tokens):
+        if re.search(r"[A-Za-z]", token) and re.search(r"\\d", token) and 2 <= len(token) <= 20:
+            return token
+    return ""
+
+
+def _discover_gold_expirations(page, limit: int = 7) -> list[dict]:
+    """Discover real expiration identities from the live selector.
+
+    The selector itself is authoritative. Do not depend on one ASP.NET control
+    ID or on the historical '(xx DTE)' formatting; both have changed across
+    QuikStrike renders.
     """
+    _open_expiration_menu(page)
+
     links = page.locator(EXPIRATION_LINK_SELECTOR)
     if links.count() == 0:
         links = page.locator("a")
@@ -427,40 +473,48 @@ def _discover_gold_expirations(page, limit: int = 7) -> list[dict]:
         if not text or "DTE" not in text.upper():
             continue
 
-        match = re.search(r"\(([0-9]+(?:\.[0-9]+)?)\s*DTE\)", text, re.I)
-        if not match:
-            continue
-        dte = float(match.group(1))
-        if dte <= 0:
+        dte = _extract_dte(text)
+        if dte is None or dte <= 0:
             continue
 
-        # Prefer .item-name when present; otherwise take the token immediately
-        # before the DTE parenthesis. Strip UI separators such as ">".
         try:
             code = (link.locator(".item-name").inner_text() or "").strip()
         except Exception:
             code = ""
         if not code:
-            prefix = text[:match.start()].strip()
-            tokens = re.findall(r"[A-Za-z0-9._-]+", prefix)
-            code = tokens[-1] if tokens else ""
+            code = _expiration_code_from_text(text, re.search(
+                r"\\(?:(?:[0-9]+(?:\\.[0-9]+)?)\\s*DTE)|(?:DTE\\s*[:=-]?\\s*[0-9]+(?:\\.[0-9]+)?)",
+                text, re.I,
+            ))
         code = code.strip()
         if not code or code.upper() in seen:
-            continue
-
-        # This page is already product-scoped by the saved QuikStrike URL.
-        # Still reject obvious non-option navigation/control text.
-        if len(code) < 2 or len(code) > 20:
-            continue
-        if not re.search(r"[A-Za-z]", code) or not re.search(r"\d", code):
             continue
 
         seen.add(code.upper())
         candidates.append({"code": code, "dte": dte})
 
     candidates.sort(key=lambda x: (x["dte"], x["code"]))
-    return candidates[: max(1, int(limit))]
+    if candidates:
+        return candidates[: max(1, int(limit))]
 
+    # Fail with diagnostics instead of the opaque "no expirations" message.
+    heading = ""
+    try:
+        heading = page.locator(".viewheader-info h3").first.inner_text()
+    except Exception:
+        pass
+    dte_lines = []
+    try:
+        body_text = page.locator("body").inner_text()
+        dte_lines = [line.strip() for line in body_text.splitlines() if "DTE" in line.upper()][:12]
+    except Exception:
+        pass
+    anchor_count = page.locator("a").count()
+    raise ScrapeError(
+        "ไม่พบ Gold expirations ที่มี DTE"
+        f" | heading={heading!r} | anchors={anchor_count}"
+        f" | DTE_text={dte_lines!r}"
+    )
 
 def _activate_expiration(page, code: str) -> None:
     links = page.locator(EXPIRATION_LINK_SELECTOR)
