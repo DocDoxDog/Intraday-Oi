@@ -91,48 +91,7 @@ def _format_analysis_message(parsed: dict, ai_result: dict) -> str:
         "────────────────────────",
     ])
 
-def _format_levels_message(parsed: dict, ai_result: dict) -> str:
-    raw = parsed.get("raw_series") or {}
-    gamma = raw.get("multi_expiry_gamma") or {}
-    zones = raw.get("multi_expiry_gamma_zones") or {}
-    levels = ai_result.get("levels") or {}
-    scenarios = ai_result.get("scenarios") or {}
-    state = raw.get("market_state") or {}
-    gamma_state = state.get("gamma") or {}
 
-    def show(value):
-        return _escape(_show(value))
-
-    return "\n".join([
-        "<b>KEY LEVELS (CFD)</b>",
-        f"🔴 ต้านไกล: <b>{show(levels.get('resistance_far'))}</b>",
-        f"🔴 ต้านหลัก: <b>{show(levels.get('resistance_main'))}</b>",
-        f"🟠 ต้านใกล้: <b>{show(levels.get('resistance_current'))}</b>",
-        f"🟢 รับใกล้: <b>{show(levels.get('support_current'))}</b>",
-        f"🟢 รับหลัก: <b>{show(levels.get('support_main'))}</b>",
-        f"🟢 รับลึก: <b>{show(levels.get('support_deep'))}</b>",
-        "",
-        "<b>GAMMA TERM STRUCTURE</b>",
-        f"<b>{len(gamma.get('columns') or [])}</b> expirations"
-        f"  |  +GEX zone <b>{show(zones.get('highest_positive_gamma'))}</b>"
-        f"  |  -GEX zone <b>{show(zones.get('highest_negative_gamma'))}</b>",
-        f"Gamma Mean <b>{show(gamma_state.get('gamma_mean'))}</b>"
-        f"  |  Pivot/Flip <b>{show(gamma_state.get('gamma_pivot'))}</b>",
-        f"Call Wall <b>{show(gamma_state.get('call_wall'))}</b>"
-        f"  |  Put Wall <b>{show(gamma_state.get('put_wall'))}</b>",
-        f"Acceleration zones <b>{_escape(str(len(gamma_state.get('acceleration_zones') or [])))}</b>"
-        f"  |  Net GEX <b>{show(gamma_state.get('net_gex'))}</b>",
-        "",
-        "<b>SCENARIOS</b>",
-        f"🟢 <b>Bull</b> — {_escape(scenarios.get('bull') or '-')}",
-        f"🔴 <b>Bear</b> — {_escape(scenarios.get('bear') or '-')}",
-        f"🟡 <b>Sideway</b> — {_escape(scenarios.get('sideway') or '-')}",
-        "",
-        "<b>CASE MAP</b>",
-        f"<b>BASE</b> — {_escape(ai_result.get('base_case') or '-')}",
-        f"<b>ALT</b> — {_escape(ai_result.get('alternative_case') or '-')}",
-        f"<b>INVALIDATION</b> — {_escape(ai_result.get('invalidation_case') or '-')}",
-    ])
 def _format_levels_message(parsed: dict, ai_result: dict) -> str:
     raw = parsed.get("raw_series") or {}
     gamma = raw.get("multi_expiry_gamma") or {}
@@ -150,9 +109,9 @@ def _format_levels_message(parsed: dict, ai_result: dict) -> str:
         f"ต้านไกล  <b>{show(levels.get('resistance_far'))}</b>",
         f"Gamma Mean <b>{show(gamma_state.get('gamma_mean'))}</b>",
         f"-GEX Zone <b>{show(gamma_state.get('negative_zone'))}</b>",
-        f"Trigger     <b>{show(levels.get('resistance_current'))}</b>",
-        f"Support     <b>{show(levels.get('support_main'))}</b>",
-        f"รับลึก      <b>{show(levels.get('support_deep'))}</b>",
+        f"Trigger   <b>{show(levels.get('resistance_current'))}</b>",
+        f"Support   <b>{show(levels.get('support_main'))}</b>",
+        f"รับลึก    <b>{show(levels.get('support_deep'))}</b>",
         "",
         "────────────────────────",
         "",
@@ -163,6 +122,61 @@ def _format_levels_message(parsed: dict, ai_result: dict) -> str:
         "",
         "────────────────────────",
     ])
+
+
+def _format_trade_plan_message(parsed: dict, ai_result: dict) -> str:
+    levels = ai_result.get("levels") or {}
+
+    def num(key):
+        value = levels.get(key)
+        try:
+            return float(str(value).replace(",", ""))
+        except (TypeError, ValueError):
+            return None
+
+    def fmt(value):
+        return _show(value) if value is not None else "-"
+
+    long_entry = num("resistance_current")
+    long_sl = num("support_current")
+    long_targets = sorted(
+        [x for x in (num("resistance_main"), num("resistance_far"))
+         if x is not None and long_entry is not None and x > long_entry]
+    )
+    short_entry = num("support_current")
+    short_sl = num("resistance_current")
+    short_targets = sorted(
+        [x for x in (num("support_main"), num("support_deep"))
+         if x is not None and short_entry is not None and x < short_entry],
+        reverse=True,
+    )
+
+    trade = ai_result.get("trade_plan") or {}
+    return "\n".join([
+        "<b>TRADE PLAN</b>",
+        "",
+        "🟢 <b>LONG</b>",
+        f"Trigger: {fmt(long_entry)} hold/retest",
+        f"SL: &lt;{fmt(long_sl)}",
+        f"TP1: {fmt(long_targets[0]) if len(long_targets) > 0 else '-'}",
+        f"TP2: {fmt(long_targets[1]) if len(long_targets) > 1 else '-'}",
+        "TP3: -",
+        "",
+        "🔴 <b>SHORT</b>",
+        f"Trigger: &lt;{fmt(short_entry)} + failed retest",
+        f"SL: &gt;{fmt(short_sl)}",
+        f"TP1: {fmt(short_targets[0]) if len(short_targets) > 0 else '-'}",
+        f"TP2: {fmt(short_targets[1]) if len(short_targets) > 1 else '-'}",
+        "TP3: -",
+        "",
+        f"Status: <b>{_escape(str(trade.get('status') or 'CONDITIONAL').upper())}</b> | "
+        f"Bias: <b>{_escape(str(ai_result.get('bias') or 'WAIT').upper())}</b>",
+    ])
+
+
+def format_message(parsed: dict, ai_result: dict) -> str:
+    return _format_analysis_message(parsed, ai_result)
+
 
 def format_message(parsed: dict, ai_result: dict) -> str:
     return _format_analysis_message(parsed, ai_result)
