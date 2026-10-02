@@ -74,7 +74,7 @@ def run():
         parsed.setdefault("raw_series", {})["multi_expiry_gamma"] = gamma_matrix
         parsed["raw_series"]["multi_expiry_gamma_zones"] = gamma_zones
         print(f"    gamma matrix: {gamma_matrix['expiration_count']} expirations x {len(gamma_matrix['strikes'])} strikes")
-    print(f"    product={parsed['product_symbol']} contract={parsed['contract']} future={parsed['future_price']} "
+    print(f"    product={parsed.get('product_symbol') or 'UNKNOWN'} contract={parsed['contract']} future={parsed['future_price']} "
           f"dte={parsed.get('dte')} retrieved_at={parsed['retrieved_at']}")
     if parsed.get("dte_low_confidence"):
         print("    ⚠️  DTE จับได้จาก fallback pattern เท่านั้น (ไม่เจอ 'vs <price>' ต่อท้าย) "
