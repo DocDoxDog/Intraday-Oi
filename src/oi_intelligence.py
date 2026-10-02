@@ -47,8 +47,8 @@ def build_flow_hypotheses(rows,future_change=None):
 def oi_migration(previous_rows,current_rows):
     prev={float(r["strike"]):r for r in (previous_rows or []) if r.get("strike") is not None}; cur={float(r["strike"]):r for r in current_rows if r.get("strike") is not None}; shifts=[]
     for side,field in (("call","oiCall"),("put","oiPut")):
-        dec=sorted([(k,_f(v.get(field))-_f(cur.get(k,{}).get(field))) for k,v in prev.items() if _f(v.get(field))>_f(cur.get(k,{}).get(field))],key=lambda x:x[1],reverse=True)
-        inc=sorted([(k,_f(cur.get(k,{}).get(field))-_f(v.get(field))) for k,v in prev.items() if _f(cur.get(k,{}).get(field))>_f(v.get(field))],key=lambda x:x[1],reverse=True)
+        dec=sorted([(k,_f(v.get(field),0.0)-_f(cur.get(k,{}).get(field),0.0)) for k,v in prev.items() if _f(v.get(field),0.0)>_f(cur.get(k,{}).get(field),0.0)],key=lambda x:x[1],reverse=True)
+        inc=sorted([(k,_f(cur.get(k,{}).get(field),0.0)-_f(v.get(field),0.0)) for k,v in prev.items() if _f(cur.get(k,{}).get(field),0.0)>_f(v.get(field),0.0)],key=lambda x:x[1],reverse=True)
         for fs,amt in dec[:10]:
             if inc:
                 ts,target=min(inc,key=lambda x:abs(x[0]-fs)); qty=min(amt,target)
