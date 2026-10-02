@@ -36,13 +36,12 @@ def test_telegram_renders_canonical_v2_without_creating_trade_levels():
         "data_limitations": ["OI ไม่ใช่ traded intraday volume"],
     }
     message = format_message(parsed, ai)
-    assert "Bias</b> WAIT" in message
-    assert "4,300.00" in message
-    assert "GOLD MARKET ANALYST V2" in message
-    assert "MARKET STATE" in message
-    assert "DRIVERS" in message
-    assert "<b>WHY / POSITIONING</b>" in message
-    assert "<b>CFD</b> 4,297.00" in message
+    assert "GOLD MARKET" in message
+    assert "Futures 4,300.00 | CFD 4,297.00" in message
+    assert "MARKET READ" in message
+    assert "WHY NOW" in message
+    assert "TECHNICAL" in message
+    assert "MACROECONOMIC / NEWS" in message
 
 
 def test_telegram_requires_explicit_authorized_chat_ids(monkeypatch):
@@ -60,7 +59,7 @@ def test_product_identity_does_not_default_unknown_to_gc():
         _product({"contract": "UNKNOWN PRODUCT 2030"})
 
 
-def test_telegram_renders_five_message_sections():
+def test_telegram_renders_three_text_message_sections():
     from src import telegram
     parsed = {
         "future_price": 4214.1,
@@ -98,10 +97,10 @@ def test_telegram_renders_five_message_sections():
     m5 = telegram._format_trade_plan_message(parsed, ai)
     assert "WHAT text" in m3 and "WHY text" in m3 and "POSITIONING text" in m3 and "FLOW & HISTORY" in m3
     assert "4,232.49" in m4 and "GAMMA TERM STRUCTURE" in m4 and "7" in m4 and "🟢" in m4 and "🔴" in m4 and "🟡" in m4
-    assert "Status: CONDITIONAL" in m5
-    assert "<b>Direction:</b> WAIT" in m5
-    assert "Entry:" in m5
-    assert "Stop:" in m5
+    assert "Status: <b>CONDITIONAL</b>" in m5
+    assert "Bias:" in m5
+    assert "Trigger:" in m5
+    assert "SL:" in m5
     assert "TP1:" in m5
     assert "TP2:" in m5
 
