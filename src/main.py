@@ -539,8 +539,6 @@ def run():
             )
     else:
         print("    ⏭️  ข้าม LINE (ไม่ได้ตั้งค่า LINE_CHANNEL_ACCESS_TOKEN)")
-    else:
-        print("    ⏭️  ข้าม LINE (ไม่ได้ตั้งค่า LINE_CHANNEL_ACCESS_TOKEN)")
 
 
 if __name__ == "__main__":
