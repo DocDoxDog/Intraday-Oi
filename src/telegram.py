@@ -64,20 +64,6 @@ def _chunk(text: str, limit: int = MAX_MESSAGE_LEN) -> list[str]:
 def _format_analysis_message(parsed: dict, ai_result: dict) -> str:
     status = str(ai_result.get("analysis_status") or "CONFIRMED").upper()
     bias = str(ai_result.get("bias") or "WAIT").upper()
-    news = parsed.get("news_context") or []
-
-    news_lines = []
-    for item in news[:2]:
-        if not isinstance(item, dict):
-            continue
-        headline = item.get("headline") or "-"
-        source = item.get("source") or "-"
-        freshness = item.get("freshness") or "UNKNOWN"
-        news_lines.append(
-            f"• {_escape(headline)} "
-            f"<i>({_escape(source)} | {_escape(freshness)})</i>"
-        )
-
     return "\n".join([
         "<b>GOLD MARKET</b>",
         _thai_datetime_str(),
@@ -107,8 +93,7 @@ def _format_analysis_message(parsed: dict, ai_result: dict) -> str:
         _escape(ai_result.get("market_microstructure") or "-"),
         "",
         "<b>MACROECONOMIC / NEWS</b>",
-        _escape(ai_result.get("macro") or "-"),
-        *(news_lines or ["• ไม่มีข่าวสำคัญจากข้อมูลที่ได้รับ"]),
+        _escape(ai_result.get("macro") or "ไม่มี Macro/News evidence ที่เพียงพอ"),
         "",
         "────────────────────────",
     ])
