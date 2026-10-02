@@ -8,23 +8,23 @@
   },
   "models": {
     "fast": {
-      "model": "gemini-3.5-flash-lite",
+      "model": "gemini-2.5-flash",
       "stable": true,
       "enabled": true
     },
     "standard": {
-      "model": "gemini-3.8-flash",
+      "model": "gemini-2.5-flash",
       "stable": true,
       "enabled": true
     },
     "deep": {
-      "model": "gemini-3.1-pro-preview",
+      "model": "gemini-2.5-flash",
       "stable": true,
       "enabled": true
     },
     "deep_preview": {
-      "model": "gemini-3.1-pro-preview",
-      "stable": false,
+      "model": "gemini-2.5-flash",
+      "stable": true,
       "enabled": true
     },
     "embedding": {
@@ -64,7 +64,7 @@
     },
     "news.impact": {
       "route": "standard",
-      "fallback": "deep",
+      "fallback": "fast",
       "temperature": 0.2,
       "max_output_tokens": 1800,
       "output_schema": "schemas/llm/news_impact_v1.json",
@@ -72,8 +72,8 @@
       "output_schema_version": "news-impact.v1"
     },
     "news.conflict": {
-      "route": "deep",
-      "fallback": "standard",
+      "route": "standard",
+      "fallback": "fast",
       "temperature": 0.1,
       "max_output_tokens": 2500,
       "enabled": true
@@ -95,22 +95,22 @@
       "enabled": true
     },
     "research.deep_dive": {
-      "route": "deep",
-      "fallback": "standard",
+      "route": "standard",
+      "fallback": "fast",
       "temperature": 0.1,
       "max_output_tokens": 5000,
       "enabled": true
     },
     "research.deep_dive_preview": {
-      "route": "deep_preview",
-      "fallback": "deep",
+      "route": "standard",
+      "fallback": "fast",
       "temperature": 0.1,
       "max_output_tokens": 6000,
       "enabled": true
     },
     "news.score": {
       "route": "standard",
-      "fallback": "deep",
+      "fallback": "fast",
       "temperature": 0.2,
       "max_output_tokens": 1800,
       "output_schema": "schemas/llm/news_score_v1.json",
