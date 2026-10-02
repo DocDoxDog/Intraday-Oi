@@ -100,6 +100,10 @@ def _format_analysis_message(parsed: dict, ai_result: dict) -> str:
 
     raw = parsed.get("raw_series") or {}
     totals = raw.get("totals") or {}
+    dex = raw.get("delta_exposure") or {}
+    flow = raw.get("flow_hypotheses") or {}
+    migration = raw.get("oi_migration") or {}
+    gamma = raw.get("gex") or {}
 
     sections = [
         f"<b>GOLD MARKET ANALYST V2</b>\n{_thai_datetime_str()}",
@@ -110,6 +114,9 @@ def _format_analysis_message(parsed: dict, ai_result: dict) -> str:
         f"OI  Put {_escape(show(totals.get('open_interest_view_put', totals.get('open_interest_put'))))}  |  Call {_escape(show(totals.get('open_interest_view_call', totals.get('open_interest_call'))))}",
         f"ΔOI Put {_escape(show(totals.get('oi_delta_put', totals.get('oi_change_put'))))}  |  Call {_escape(show(totals.get('oi_delta_call', totals.get('oi_change_call'))))}",
         f"Churn {_escape(show(totals.get('churn')))}  |  IV {_escape(show(parsed.get('vol')))}%",
+        f"ΔOI Total {_escape(show(totals.get('oi_delta_total')))}  |  Net GEX {_escape(show(gamma.get('net_gex')))}",
+        f"Delta Exposure {_escape(show(dex.get('net_delta_exposure')))}  |  Flow UNKNOWN {_escape(show(flow.get('unknown_rate'), 2))}",
+        f"OI Migration {_escape(str(len(migration.get('shifts') or [])))} shifts",
         "",
         "<b>MARKET REGIME</b>",
         _escape(ai_result.get("market_regime") or "UNKNOWN"),
@@ -204,8 +211,12 @@ def _format_trade_plan_message(parsed: dict, ai_result: dict) -> str:
 
 
 def format_message(parsed: dict, ai_result: dict) -> str:
-    """Backward-compatible alias for the second message."""
-    return _format_analysis_message(parsed, ai_result)
+    """Canonical single Telegram analyst message."""
+    return "\n\n".join([
+        _format_analysis_message(parsed, ai_result),
+        _format_levels_message(parsed, ai_result),
+        _format_trade_plan_message(parsed, ai_result),
+    ])
 
 
 def _post_with_retry(url: str, payload: dict, timeout: int = 20) -> None:
@@ -271,14 +282,10 @@ def send(
     if not chat_ids:
         raise RuntimeError("ไม่มี authorized chat_ids ให้ส่ง")
 
-    messages = [
-        _format_analysis_message(parsed, ai_result),
-        _format_levels_message(parsed, ai_result),
-        _format_trade_plan_message(parsed, ai_result),
-    ]
+    messages = [format_message(parsed, ai_result)]
 
     for cid in chat_ids:
-        # Message 1: compact table, Message 2: full available observed data.
+        # Two Gamma views + source screenshot, then one consolidated analyst message.
         if gamma_table_url:
             _post_with_retry(
                 TELEGRAM_PHOTO_API.format(token=token),
