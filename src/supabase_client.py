@@ -24,7 +24,7 @@ SNAPSHOT_COLUMNS = {
     "put_volume", "call_volume", "vol", "vol_chg", "delta_levels",
     "raw_series", "spot_price", "basis_diff", "cfd_price",
     "price_conversion", "technical_context", "ai_summary",
-    "screenshot_path", "screenshot_url",
+    "screenshot_path", "screenshot_url", "gamma_table_path", "gamma_table_url",
 }
 
 
@@ -73,6 +73,8 @@ def insert_snapshot(
     ai_summary: str | None = None,
     screenshot_path: str | None = None,
     screenshot_url: str | None = None,
+    gamma_table_path: str | None = None,
+    gamma_table_url: str | None = None,
 ) -> dict:
     client = get_client()
     row = {
@@ -80,6 +82,8 @@ def insert_snapshot(
         "ai_summary": ai_summary,
         "screenshot_path": screenshot_path,
         "screenshot_url": screenshot_url,
+        "gamma_table_path": gamma_table_path,
+        "gamma_table_url": gamma_table_url,
     }
     result = client.table("options_flow_snapshots").insert(row).execute()
     return result.data[0] if result.data else {}
