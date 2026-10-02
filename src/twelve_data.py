@@ -10,6 +10,20 @@ import requests
 
 API_URL = "https://api.twelvedata.com/time_series"
 DEFAULT_SYMBOL = "XAU/USD"
+DEFAULT_MAX_AGE_SECONDS = 600
+
+
+def _parse_timestamp(value: Any) -> datetime | None:
+    if not value:
+        return None
+    try:
+        text = str(value).strip().replace("Z", "+00:00")
+        dt = datetime.fromisoformat(text)
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        return dt.astimezone(timezone.utc)
+    except (TypeError, ValueError):
+        return None
 
 
 class TwelveDataError(RuntimeError):
@@ -43,10 +57,26 @@ def fetch_spot(symbol: str | None = None, api_key: str | None = None) -> dict[st
         spot = float(latest["close"])
     except (KeyError, TypeError, ValueError) as exc:
         raise TwelveDataError(f"ค่า close จาก Twelve Data ไม่ถูกต้อง: {latest}") from exc
+
+    timestamp_raw = latest.get("datetime")
+    timestamp = _parse_timestamp(timestamp_raw)
+    if timestamp is None:
+        raise TwelveDataError(f"Twelve Data คืน timestamp ไม่ถูกต้อง: {timestamp_raw}")
+
+    now = datetime.now(timezone.utc)
+    age_seconds = (now - timestamp).total_seconds()
+    max_age = max(30, int(os.environ.get("TWELVEDATA_MAX_AGE_SECONDS", str(DEFAULT_MAX_AGE_SECONDS))))
+    if age_seconds < -30:
+        raise TwelveDataError(f"Twelve Data timestamp อยู่ในอนาคต {abs(age_seconds):.0f}s")
+    if age_seconds > max_age:
+        raise TwelveDataError(f"Twelve Data spot stale: age={age_seconds:.0f}s > max={max_age}s")
+
     return {
         "symbol": params["symbol"],
         "spot_price": spot,
-        "timestamp": latest.get("datetime"),
+        "timestamp": timestamp.isoformat(),
+        "age_seconds": round(max(0.0, age_seconds), 1),
+        "max_age_seconds": max_age,
         "interval": "1min",
         "source": "twelve_data",
     }
@@ -79,7 +109,12 @@ def enrich_with_basis(parsed: dict, spot_data: dict) -> dict:
         "futures_price": futures,
         "spot_price": spot,
         "diff": diff,
+        "cfd_price": spot,
         "source": spot_data,
+        "source_name": "twelve_data",
+        "source_symbol": spot_data.get("symbol") or os.environ.get("TWELVEDATA_SYMBOL", DEFAULT_SYMBOL),
+        "source_timestamp": spot_data.get("timestamp"),
+        "source_age_seconds": spot_data.get("age_seconds"),
     }
 
     raw = parsed.get("raw_series")
