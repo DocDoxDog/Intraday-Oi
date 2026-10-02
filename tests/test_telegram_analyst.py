@@ -36,12 +36,13 @@ def test_telegram_renders_canonical_v2_without_creating_trade_levels():
         "data_limitations": ["OI ไม่ใช่ traded intraday volume"],
     }
     message = format_message(parsed, ai)
-    assert "Bias: WAIT" in message
+    assert "Bias</b> WAIT" in message
     assert "4300" in message
     assert "GOLD MARKET ANALYST V2" in message
     assert "<b>WHAT</b>" in message
     assert "<b>WHY</b>" in message
     assert "<b>POSITIONING</b>" in message
+    assert "<b>CFD</b> 4297.00" in message
 
 
 def test_telegram_requires_explicit_authorized_chat_ids(monkeypatch):
