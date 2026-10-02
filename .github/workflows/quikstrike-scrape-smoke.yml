@@ -58,6 +58,21 @@ jobs:
                       continue
                   if txt and ("EXPIRATION" in txt.upper() or "OG1V6" in txt.upper() or "DTE" in txt.upper()):
                       print({"text": txt[:300], **attrs})
+              trigger = page.locator("#ctl00_ucSelector_hlExpiration")
+              if trigger.count():
+                  print("\n=== EXPIRATION TRIGGER HTML ===")
+                  print(trigger.first.evaluate("(e) => e.parentElement ? e.parentElement.outerHTML.slice(0,12000) : e.outerHTML.slice(0,12000)"))
+              print("\n=== ARROW / NAV ELEMENTS ===")
+              navs = page.locator("a,button,[role='button'],[aria-label],[title]")
+              for i in range(min(navs.count(), 500)):
+                  el = navs.nth(i)
+                  try:
+                      attrs = el.evaluate("(e) => ({text:(e.innerText||'').trim(),id:e.id,aria:e.getAttribute('aria-label'),title:e.getAttribute('title'),cls:e.className})")
+                  except Exception:
+                      continue
+                  blob = " ".join(str(v or "") for v in attrs.values()).upper()
+                  if any(x in blob for x in ["NEXT", "PREVIOUS", "EXPIRATION", "›", "»", "→"]):
+                      print({k:str(v)[:500] for k,v in attrs.items()})
               browser.close()
 
           raw = scrape_multi_expiration(url, limit=7)
