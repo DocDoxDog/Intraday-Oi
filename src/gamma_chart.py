@@ -111,7 +111,7 @@ def _render(gamma_matrix: dict[str, Any], *, full: bool) -> bytes:
         colLabels=headers,
         cellColours=cell_colors,
         cellLoc="center",
-        loc="center",
+        bbox=[0.01, 0.05, 0.98, 0.86 if not full else 0.90],
         colWidths=[0.12] + [0.88 / ncols] * ncols,
     )
     table.auto_set_font_size(False)
@@ -121,7 +121,7 @@ def _render(gamma_matrix: dict[str, Any], *, full: bool) -> bytes:
     for (row_index, _col_index), cell in table.get_celld().items():
         cell.set_edgecolor("#333333")
         if row_index == 0:
-            cell.set_height(0.065 if full else 0.10)
+            cell.set_height(0.075 if full else 0.115)
             cell.get_text().set_weight("bold")
             cell.get_text().set_color("white")
             cell.get_text().set_fontsize(10.5 if full else 13)
@@ -142,7 +142,7 @@ def _render(gamma_matrix: dict[str, Any], *, full: bool) -> bytes:
         title,
         fontsize=17 if not full else 15,
         weight="bold",
-        y=0.99,
+        y=0.985,
     )
     fig.text(0.5, 0.015, subtitle, ha="center", fontsize=8)
 
