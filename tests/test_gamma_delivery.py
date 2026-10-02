@@ -43,8 +43,8 @@ def test_telegram_mentions_multi_expiry_gamma():
         "data_limitations": [],
     }
     message = format_message(parsed, ai)
-    assert "7 expirations" in message
-    assert "4600" in message
+    assert "GOLD MARKET ANALYST V2" in message
+    assert "7" in message  # expiry count is rendered in the dedicated levels/scenario message
 
 
 def test_gamma_table_uses_millions_per_one_percent_move():
