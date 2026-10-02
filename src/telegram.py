@@ -166,6 +166,8 @@ def _format_levels_message(parsed: dict, ai_result: dict) -> str:
     zones = raw.get("multi_expiry_gamma_zones") or {}
     levels = ai_result.get("levels") or {}
     scenarios = ai_result.get("scenarios") or {}
+    state = raw.get("market_state") or {}
+    gamma_state = state.get("gamma") or {}
 
     def show(value):
         return _escape(_show(value))
