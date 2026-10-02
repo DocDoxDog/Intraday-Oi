@@ -37,22 +37,57 @@ def _image_message(url: str) -> dict:
 
 
 def format_message(parsed: dict, ai_result: dict) -> str:
-    """Backward-compatible alias for message 3."""
-    dte = parsed.get("dte")
+    """Readable analyst message aligned with Telegram."""
+    def show(value):
+        if value is None or value == "":
+            return "-"
+        return f"{float(value):.2f}" if isinstance(value, (int, float)) else str(value)
+
     now = datetime.now(timezone.utc).astimezone(timezone(timedelta(hours=7)))
     thai_months = ["", "ม.ค.", "ก.พ.", "มี.ค.", "เม.ย.", "พ.ค.", "มิ.ย.",
                    "ก.ค.", "ส.ค.", "ก.ย.", "ต.ค.", "พ.ย.", "ธ.ค."]
     date_text = f"วันที่ {now.day} {thai_months[now.month]} {now.year + 543} | เวลา {now:%H:%M} น."
-    raw = parsed.get("raw_series") or {}
-    totals = raw.get("totals") or {}
+
     return (
         f"GOLD MARKET ANALYST V2 • {date_text}\n"
-        f"Futures {parsed.get('future_price','-')} | CFD {parsed.get('cfd_price','-')} | DTE {dte if dte is not None else '-'}\n"
-        f"Status: {str(ai_result.get('analysis_status') or 'CONFIRMED').upper()} | "
-        f"Bias: {str(ai_result.get('bias') or ai_result.get('short_bias') or 'WAIT').upper()}\n\n"
+        f"Futures {show(parsed.get('future_price'))} | CFD {show(parsed.get('cfd_price'))} | DTE {show(parsed.get('dte'))}\n"
+        f"Status: {str(ai_result.get('analysis_status') or 'CONFIRMED').upper()} | Bias: {str(ai_result.get('bias') or 'WAIT').upper()}\n\n"
+        f"MARKET REGIME\n{ai_result.get('market_regime') or '-'}\n\n"
+        f"MACRO\n{ai_result.get('macro') or '-'}\n\n"
+        f"FINANCIAL ENGINEERING\n{ai_result.get('financial_engineering') or '-'}\n\n"
+        f"MARKET MICROSTRUCTURE\n{ai_result.get('market_microstructure') or '-'}\n\n"
+        f"MARKET PSYCHOLOGY\n{ai_result.get('market_psychology') or '-'}\n\n"
         f"WHAT\n{ai_result.get('what') or ai_result.get('market_overview') or '-'}\n\n"
         f"WHY\n{ai_result.get('why') or '-'}\n\n"
-        f"POSITIONING\n{ai_result.get('positioning') or '-'}"
+        f"POSITIONING\n{ai_result.get('positioning') or '-'}\n\n"
+        f"HISTORY CHANGE\n{ai_result.get('history_comparison') or '-'}"
+    )
+
+
+def _levels_message(parsed: dict, ai_result: dict) -> str:
+    raw = parsed.get("raw_series") or {}
+    gamma = raw.get("multi_expiry_gamma") or {}
+    zones = raw.get("multi_expiry_gamma_zones") or {}
+    levels = ai_result.get("levels") or {}
+    scenarios = ai_result.get("scenarios") or {}
+    show=lambda v: "-" if v is None or v == "" else (f"{float(v):.2f}" if isinstance(v,(int,float)) else str(v))
+    return (
+        "KEY LEVELS\n"
+        f"🔴 ต้านไกล: {show(levels.get('resistance_far'))}\n"
+        f"🔴 ต้านหลัก: {show(levels.get('resistance_main'))}\n"
+        f"🟠 ต้านใกล้: {show(levels.get('resistance_current'))}\n"
+        f"🟢 รับใกล้: {show(levels.get('support_current'))}\n"
+        f"🟢 รับหลัก: {show(levels.get('support_main'))}\n"
+        f"🟢 รับลึก: {show(levels.get('support_deep'))}\n\n"
+        f"GAMMA TERM STRUCTURE\n"
+        f"{len(gamma.get('columns') or [])} expirations | +GEX zone {show(zones.get('highest_positive_gamma'))} | -GEX zone {show(zones.get('highest_negative_gamma'))}\n\n"
+        f"SCENARIOS\n"
+        f"🟢 Bull — {scenarios.get('bull') or '-'}\n"
+        f"🔴 Bear — {scenarios.get('bear') or '-'}\n"
+        f"🟡 Sideway — {scenarios.get('sideway') or '-'}\n\n"
+        f"BASE: {ai_result.get('base_case') or '-'}\n"
+        f"ALT: {ai_result.get('alternative_case') or '-'}\n"
+        f"INVALIDATION: {ai_result.get('invalidation_case') or '-'}"
     )
 
 
