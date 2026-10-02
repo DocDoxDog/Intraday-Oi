@@ -28,6 +28,21 @@ def test_v2_numeric_levels_are_checked_against_evidence():
         verify_output(envelope=envelope(), output=output, schema=None)
 
 
+def test_v2_accepts_thousands_separators_and_display_rounding():
+    output = {
+        "analysis_status": "CONFIRMED", "market_overview": "x", "what": "x", "why": "x", "positioning": "x",
+        "levels": {
+            "resistance_far": "4,400", "resistance_main": "4,400.00", "resistance_current": "4,200",
+            "support_current": "4,200", "support_main": "4,200.0", "support_deep": "4,200",
+        },
+        "scenarios": {"bull": "x", "bear": "x", "sideway": "x"}, "bias": "WAIT", "uncertainty": 0.3,
+        "trade_plan": {"status": "NO_TRADE", "setup": "x", "confirmation": "x", "invalidation": "x", "risk_note": "x"},
+        "evidence_refs": ["itb:oi:deterministic"], "data_limitations": [],
+    }
+    result = verify_output(envelope=envelope(), output=output, schema=None)
+    assert result["verdict"] == "PASS"
+
+
 def test_v2_confidence_is_not_treated_as_market_number():
     output = {
         "analysis_status": "CONFIRMED", "market_overview": "x", "what": "x", "why": "x", "positioning": "x",
