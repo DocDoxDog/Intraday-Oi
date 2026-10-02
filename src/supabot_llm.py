@@ -459,11 +459,13 @@ RANGE, BREAKOUT, BREAKDOWN หรือ TRANSITION_UNCERTAIN
 ใช้ข้อมูลหลายชั้น ไม่ใช้ GEX เครื่องหมายเดียว
 
 HISTORY
-ต้องเปรียบเทียบ current กับ:
-1) hour_ago = เปลี่ยนแปลงล่าสุดราว 1 ชั่วโมง
-2) today = ภาพรวม/ช่วงของวันนี้
-3) yesterday = วันก่อนหน้า
-อธิบาย “อะไรเปลี่ยน” และ “การเปลี่ยนนั้นสำคัญอย่างไร”
+ต้องเปรียบเทียบ current กับ 3 horizon ทุกครั้ง:
+1) hour_ago = การเปลี่ยนแปลงล่าสุดราว 1 ชั่วโมง
+2) today = current เทียบกับ today_open + intraday range
+3) yesterday = current เทียบกับวันก่อนหน้า/last available
+ใน history_comparison ต้องกล่าวถึงทั้ง 1H, TODAY และ YESTERDAY แยกกันอย่างชัดเจน
+และต้องระบุทั้ง price, IV/volatility, OI/ΔOI, churn และ Net GEX เมื่อข้อมูลมี
+ถ้าข้อมูลตัวใดไม่มี baseline ให้เขียน UNKNOWN เฉพาะตัวนั้น ห้ามทำให้ทั้ง section เป็น UNKNOWN
 ห้ามสร้าง delta ถ้าข้อมูลก่อนหน้าไม่มี
 
 FUTURES → CFD
@@ -481,13 +483,12 @@ Gamma Flip, Acceleration Level, Major Liquidity และ Next Target
 
 TRADE PLAN — ต้องมีทุกครั้ง
 ไม่ต้องรอ confirmation เพิ่มเพื่อ “สร้างแผน”
-แผนต้องอธิบาย Trigger/Confirmation ที่ผู้ใช้ควรรอในตลาด แต่การวิเคราะห์และแผนต้องถูกสร้างในรอบนี้
-เมื่อ trigger ยังไม่เกิด ให้ใช้ status=CONDITIONAL และ direction ตาม scenario ที่มี evidence รองรับ หรือ WAIT ถ้าขัดแย้ง
-ห้ามใช้ NO_TRADE เพียงเพราะ LLM/technical ยังไม่ครบ ถ้ายังมี price levels ให้ทำ conditional roadmap
+แผนต้องถูกสร้างในรอบนี้ทันที และต้องมี LONG + SHORT conditional logic แม้ bias จะ WAIT
+เมื่อ trigger ยังไม่เกิด ให้ใช้ status=CONDITIONAL แต่ห้ามตอบเพียง “รอ confirmation” หรือ “คำนวณเมื่อ trigger” หากมี deterministic level ที่ใช้กำหนดแผนได้
 Entry / Stop / TP1 / TP2 ต้องอ้างอิง deterministic levels หรือ current CFD price เท่านั้น
-ห้ามสร้างราคาใหม่
-Risk/Reward ถ้ายังไม่มีเลข Entry/Stop/TP ที่ valid ให้ระบุว่า “คำนวณเมื่อ trigger ตรงตามเงื่อนไข”
-ต้องมีทั้ง LONG PLAN และ SHORT PLAN conceptually อยู่ใน scenarios/TRADE PLAN แม้ final bias จะ WAIT
+ห้ามสร้างราคาใหม่และห้ามเดาตัวเลข
+ถ้ามี level ที่ valid ให้ระบุราคา Entry/Stop/TP เป็นตัวเลข 2 ตำแหน่ง พร้อมบอกว่าเป็น CONDITIONAL ENTRY/STOP/TP
+Risk/Reward ให้คำนวณเมื่อมีตัวเลข Entry/Stop/TP ครบ; ถ้ายังไม่ครบให้ระบุ UNKNOWN อย่างตรงไปตรงมา
 
 OUTPUT JSON
 ต้องมี fields:
