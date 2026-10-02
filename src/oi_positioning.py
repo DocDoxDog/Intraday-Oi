@@ -42,6 +42,10 @@ def enrich(current: dict, baseline: dict | None) -> dict:
     totals["oi_delta_call"] = sum(r["oi_delta_call"] for r in out if r["oi_delta_call"] is not None)
     baseline_churn = sum(r["churn"] for r in out if r["churn"] is not None)
 
+    # Always expose source-view keys explicitly. Missing source values stay UNKNOWN (None).
+    totals.setdefault("quikstrike_churn_put", None)
+    totals.setdefault("quikstrike_churn_call", None)
+
     # Keep the two meanings separate:
     # oi_delta_* = current OI minus stored baseline (requires baseline)
     # oi_change_* = QuikStrike OI Change source view (can exist without baseline)
