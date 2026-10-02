@@ -1,4 +1,5 @@
 from src.telegram import format_message, format_notification
+from src.line import format_message as format_line_message
 
 
 def test_telegram_uses_canonical_bias_and_does_not_create_trade_levels():
@@ -49,3 +50,31 @@ def test_product_identity_does_not_default_unknown_to_gc():
     from src.supabot_llm import _product
     with pytest.raises(Exception, match="PRODUCT_UNRESOLVED"):
         _product({"contract": "UNKNOWN PRODUCT 2030"})
+
+
+def test_line_renders_canonical_analysis_without_local_trade_plan():
+    parsed = {
+        "future_price": 4300,
+        "cfd_price": 4297,
+        "dte": 1.38,
+        "vol": 15.2,
+        "raw_series": {"totals": {"open_interest_view_put": 100, "open_interest_view_call": 200}}
+    }
+    ai = {
+        "market_overview": "หลักฐานยังไม่ยืนยันการเปิดสถานะ",
+        "bias": "WAIT",
+        "resistance_far": "4400",
+        "resistance_main": "4350",
+        "resistance_current": "4300",
+        "support_current": "4250",
+        "support_main": "4200",
+        "support_deep": "4100",
+        "bull_case": "ยืนเหนือ 4300",
+        "bear_case": "หลุด 4250",
+        "sideway_case": "อยู่ในกรอบ",
+    }
+    message = format_line_message(parsed, ai)
+    assert "TRADE PLAN" not in message
+    assert "Entry" not in message
+    assert "TP1" not in message
+    assert "SL" not in message
