@@ -36,7 +36,7 @@ def _image_message(url: str) -> dict:
 
 
 def format_message(parsed: dict, ai_result: dict) -> str:
-    """Render only the governed canonical analysis; never construct a trade plan."""
+    """Compact LINE renderer: source facts + verified narrative, no local trade plan."""
     dte = parsed.get("dte")
     dte_line = f" (DTE: {dte})" if dte is not None else ""
 
@@ -45,36 +45,42 @@ def format_message(parsed: dict, ai_result: dict) -> str:
 
     raw = parsed.get("raw_series") or {}
     totals = raw.get("totals") or {}
-    spot = parsed.get("cfd_price", parsed.get("future_price", "-"))
-    iv = parsed.get("vol", "-")
-    put = totals.get("open_interest_view_put", totals.get("open_interest_put", "-"))
-    call = totals.get("open_interest_view_call", totals.get("open_interest_call", "-"))
-    delta_put = totals.get("oi_delta_put", "-")
-    delta_call = totals.get("oi_delta_call", "-")
-    churn = totals.get("churn", "-")
+    spot = parsed.get("cfd_price", parsed.get("future_price"))
+    iv = parsed.get("vol")
+    put = totals.get("open_interest_view_put", totals.get("open_interest_put"))
+    call = totals.get("open_interest_view_call", totals.get("open_interest_call"))
+    delta_put = totals.get("oi_delta_put")
+    delta_call = totals.get("oi_delta_call")
+    churn = totals.get("churn")
 
-    def compact(value):
+    levels = ai_result.get("levels") or {}
+    scenarios = ai_result.get("scenarios") or {}
+
+    def show(value):
+        return "-" if value is None or value == "" else str(value)
+
+    def compact(value, limit=220):
         text = " ".join(str(value or "-").split())
-        return text if len(text) <= 220 else text[:220].rsplit(" ", 1)[0] + "..."
+        return text if len(text) <= limit else text[:limit].rsplit(" ", 1)[0] + "..."
 
     return (
         f"📊 Gold Options Flow{dte_line}\n\n"
-        f"สรุป: CFD {spot} | IV {iv}%\n"
-        f"Open Interest: Put {put} | Call {call}\n"
-        f"ΔOI: Put {delta_put} | Call {delta_call} | Churn {churn}\n"
-        f"Bias: {ai_result.get('bias', ai_result.get('short_bias', '-'))}\n\n"
+        f"สรุป: CFD {show(spot)} | IV {show(iv)}%\n"
+        f"Open Interest: Put {show(put)} | Call {show(call)}\n"
+        f"ΔOI: Put {show(delta_put)} | Call {show(delta_call)} | Churn {show(churn)}\n"
+        f"Bias: {show(ai_result.get('bias', ai_result.get('short_bias')))}\n\n"
         f"วิเคราะห์\n{compact(ai_result.get('market_overview'))}\n\n"
         f"KEY LEVELS (CFD)\n"
-        f"ต้านไกล: {ai_result.get('resistance_far', '-')}\n"
-        f"ต้านหลัก: {ai_result.get('resistance_main', '-')}\n"
-        f"ต้านใกล้: {ai_result.get('resistance_current', '-')}\n"
-        f"รับใกล้: {ai_result.get('support_current', '-')}\n"
-        f"รับหลัก: {ai_result.get('support_main', '-')}\n"
-        f"รับลึก: {ai_result.get('support_deep', '-')}\n\n"
+        f"ต้านไกล: {show(levels.get('resistance_far', ai_result.get('resistance_far')))}\n"
+        f"ต้านหลัก: {show(levels.get('resistance_main', ai_result.get('resistance_main')))}\n"
+        f"ต้านใกล้: {show(levels.get('resistance_current', ai_result.get('resistance_current')))}\n"
+        f"รับใกล้: {show(levels.get('support_current', ai_result.get('support_current')))}\n"
+        f"รับหลัก: {show(levels.get('support_main', ai_result.get('support_main')))}\n"
+        f"รับลึก: {show(levels.get('support_deep', ai_result.get('support_deep')))}\n\n"
         f"SCENARIOS\n"
-        f"Bull: {compact(ai_result.get('bull_case'))}\n"
-        f"Bear: {compact(ai_result.get('bear_case'))}\n"
-        f"Sideway: {compact(ai_result.get('sideway_case'))}"
+        f"Bull: {compact(scenarios.get('bull', ai_result.get('bull_case')))}\n"
+        f"Bear: {compact(scenarios.get('bear', ai_result.get('bear_case')))}\n"
+        f"Sideway: {compact(scenarios.get('sideway', ai_result.get('sideway_case')))}"
     )
 
 
