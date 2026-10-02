@@ -138,7 +138,13 @@ def _relevance(text: str) -> str:
 
 
 def _xml_rows(xml_text: str) -> Iterable[dict]:
-    root = ET.fromstring(xml_text)
+    cleaned = (xml_text or "").lstrip("\ufeff\x00 \t\r\n")
+    # Some public feeds/proxies prepend a few bytes before the XML declaration.
+    # Remove only leading junk; never invent feed content.
+    xml_start = cleaned.find("<")
+    if xml_start > 0:
+        cleaned = cleaned[xml_start:]
+    root = ET.fromstring(cleaned)
     # RSS 2.0 and Atom both appear in public economic feeds.
     for node in root.iter():
         tag = node.tag.rsplit("}", 1)[-1].lower()
@@ -191,30 +197,43 @@ def collect_news(
 
     output: list[NewsItem] = []
     seen: set[tuple[str, str]] = set()
+    source_errors: list[str] = []
+
     for source in NEWS_SOURCES:
-        response = requests.get(
-            source.url,
-            timeout=timeout_seconds,
-            headers={"User-Agent": "Intraday-Oi-News/1.0"},
-        )
-        response.raise_for_status()
-        for row in list(_xml_rows(response.text))[: max(1, int(max_items_per_source))]:
-            item = _to_item(source, row, now)
-            if item is None or item.relevance == "LOW":
-                continue
-            key = (item.source, item.external_id)
-            if key in seen:
-                continue
-            seen.add(key)
-            output.append(item)
+        try:
+            response = requests.get(
+                source.url,
+                timeout=timeout_seconds,
+                headers={
+                    "User-Agent": "Mozilla/5.0 (compatible; Intraday-Oi-News/1.0)",
+                    "Accept": "application/rss+xml, application/xml;q=0.9, text/xml;q=0.8, */*;q=0.1",
+                },
+            )
+            response.raise_for_status()
+            rows = list(_xml_rows(response.text))
+            for row in rows[: max(1, int(max_items_per_source))]:
+                item = _to_item(source, row, now)
+                if item is None or item.relevance == "LOW":
+                    continue
+                key = (item.source, item.external_id)
+                if key in seen:
+                    continue
+                seen.add(key)
+                output.append(item)
+        except Exception as exc:
+            source_errors.append(f"{source.key}:{type(exc).__name__}:{exc}")
 
     output.sort(
         key=lambda item: (
-            item.published_at is None,
+            item.published_at is not None,
             item.published_at or "",
         ),
         reverse=True,
     )
+    if source_errors:
+        # Preserve partial success; diagnostics are returned to logs, never to
+        # customer-facing text as if they were market facts.
+        print("⚠️  News source errors: " + " | ".join(source_errors)[:1800])
     return output
 
 
