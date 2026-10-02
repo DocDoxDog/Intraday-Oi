@@ -451,6 +451,10 @@ def _activate_expiration(page, code: str) -> None:
         raise ScrapeError(f"ไม่พบ expiration {code}")
 
     before = _chart_fingerprint(page)
+    # The first candidate may already be the active expiration. In that case
+    # the existing chart is the correct chart and no postback is needed.
+    if code in before:
+        return
     try:
         trigger = page.locator("#ctl00_ucSelector_hlExpiration")
         if trigger.count() and not target.is_visible():
