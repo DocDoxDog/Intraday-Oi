@@ -54,7 +54,7 @@ def run():
             print(f"    multi-expiration enabled: {len(raw.get('expiration_snapshots') or [])} expirations")
         else:
             raw = scrape(quikstrike_url)
-    except ScrapeError as e:
+    except (ScrapeError, ValueError) as e:
         print(f"❌ Scrape failed: {e}", file=sys.stderr)
         sys.exit(1)
 
@@ -257,7 +257,7 @@ def run():
         chat_ids = []
 
     try:
-        telegram.send(parsed, ai_result, screenshot_url=screenshot_url, chat_ids=chat_ids)
+        telegram.send(parsed, ai_result, screenshot_url=screenshot_url, gamma_table_url=gamma_table_url, chat_ids=chat_ids)
         print("✅ Sent to Telegram")
     except Exception as e:
         print(f"⚠️  Telegram send failed (data still saved to Supabase): {e}", file=sys.stderr)
