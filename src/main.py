@@ -30,6 +30,8 @@ from src.supabase_client import (
     upload_screenshot,
     get_active_chat_ids,
     insert_news_announcements,
+    can_notify,
+    mark_notified,
 )
 from src.url_manager import UrlManager, UrlManagerError
 from src import history, telegram, line
