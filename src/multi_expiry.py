@@ -117,14 +117,14 @@ def build_gamma_matrix(
             row[exp["code"]] = cells.get(strike_key, {}).get(exp["code"])
         matrix.append(row)
 
-    totals = {
-        exp["code"]: sum(
-            value
-            for value in (row.get(exp["code"]) for row in matrix)
+    totals = {}
+    for exp in columns:
+        values = [
+            value for value in (row.get(exp["code"]) for row in matrix)
             if isinstance(value, (int, float))
-        )
-        for exp in columns
-    }
+        ]
+        # No observations is UNKNOWN, not numeric zero.
+        totals[exp["code"]] = sum(values) if values else None
 
     return {
         "version": "gamma-matrix-v1",
