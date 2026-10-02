@@ -86,40 +86,77 @@ def _format_source_message(parsed: dict) -> str:
 
 
 def _format_analysis_message(parsed: dict, ai_result: dict) -> str:
-    """Compact analyst message aligned with the preferred LINE presentation."""
+    """Render the complete V2 analyst narrative as message 3."""
     dte = parsed.get("dte")
     raw = parsed.get("raw_series") or {}
     totals = raw.get("totals") or {}
-    levels = ai_result.get("levels") or {}
-    scenarios = ai_result.get("scenarios") or {}
 
     def show(value):
         return "-" if value is None or value == "" else str(value)
 
-    def compact(value, limit=220):
-        text = " ".join(str(value or "-").split())
-        return text if len(text) <= limit else text[:limit].rsplit(" ", 1)[0] + "..."
+    header = (
+        f"<b>GOLD MARKET ANALYST V2 • {_thai_datetime_str()}</b>\n"
+        f"Futures {show(parsed.get('future_price'))} | CFD {show(parsed.get('cfd_price'))} | DTE {show(dte)}\n"
+        f"Status: <b>{_escape(str(ai_result.get('analysis_status') or 'CONFIRMED').upper())}</b> | "
+        f"Bias: <b>{_escape(str(ai_result.get('bias') or 'WAIT').upper())}</b>"
+    )
+
+    parts = [
+        header,
+        "",
+        "<b>WHAT</b>",
+        _escape(ai_result.get("what") or ai_result.get("market_overview") or "-"),
+        "",
+        "<b>WHY</b>",
+        _escape(ai_result.get("why") or "-"),
+        "",
+        "<b>POSITIONING</b>",
+        _escape(ai_result.get("positioning") or "-"),
+    ]
+
+    return "\n".join(parts)
+
+
+def _format_levels_message(parsed: dict, ai_result: dict) -> str:
+    raw = parsed.get("raw_series") or {}
+    gamma = raw.get("multi_expiry_gamma") or {}
+    zones = raw.get("multi_expiry_gamma_zones") or {}
+    levels = ai_result.get("levels") or {}
+
+    def show(value):
+        return "-" if value is None or value == "" else str(value)
+
+    columns = gamma.get("columns") or []
+    expiration_count = len(columns)
+    positive = zones.get("highest_positive_gamma")
+    negative = zones.get("highest_negative_gamma")
 
     return (
-        f"📊 Gold Options Flow (DTE: {show(dte)})\n\n"
-        f"สรุป: CFD {show(parsed.get('cfd_price', parsed.get('future_price')))} | IV {show(parsed.get('vol'))}%\n"
-        f"Open Interest: Put {show(totals.get('open_interest_view_put', totals.get('open_interest_put')))} | "
-        f"Call {show(totals.get('open_interest_view_call', totals.get('open_interest_call')))}\n"
-        f"ΔOI: Put {show(totals.get('oi_delta_put'))} | Call {show(totals.get('oi_delta_call'))} | "
-        f"Churn {show(totals.get('churn'))}\n"
-        f"Bias: {show(ai_result.get('bias', ai_result.get('short_bias')))}\n\n"
-        f"วิเคราะห์\n{compact(ai_result.get('market_overview'))}\n\n"
-        f"KEY LEVELS (CFD)\n"
+        "<b>KEY LEVELS</b>\n"
         f"ต้านไกล: {show(levels.get('resistance_far'))}\n"
         f"ต้านหลัก: {show(levels.get('resistance_main'))}\n"
         f"ต้านใกล้: {show(levels.get('resistance_current'))}\n"
         f"รับใกล้: {show(levels.get('support_current'))}\n"
         f"รับหลัก: {show(levels.get('support_main'))}\n"
         f"รับลึก: {show(levels.get('support_deep'))}\n\n"
-        f"SCENARIOS\n"
-        f"Bull: {compact(scenarios.get('bull'))}\n"
-        f"Bear: {compact(scenarios.get('bear'))}\n"
-        f"Sideway: {compact(scenarios.get('sideway'))}"
+        "<b>GAMMA TERM STRUCTURE</b>\n"
+        f"{expiration_count} expirations | +GEX zone {show(positive)} | -GEX zone {show(negative)}\n\n"
+        "<b>SCENARIOS</b>\n"
+        f"🟢 <b>Bull</b> — {_escape((ai_result.get('scenarios') or {}).get('bull') or '-')}\n"
+        f"🔴 <b>Bear</b> — {_escape((ai_result.get('scenarios') or {}).get('bear') or '-')}\n"
+        f"🟡 <b>Sideway</b> — {_escape((ai_result.get('scenarios') or {}).get('sideway') or '-')}"
+    )
+
+
+def _format_trade_plan_message(parsed: dict, ai_result: dict) -> str:
+    trade = ai_result.get("trade_plan") or {}
+    return (
+        "<b>TRADE PLAN</b>\n"
+        f"Status: <b>{_escape(str(trade.get('status') or 'NO_TRADE').upper())}</b>\n"
+        f"{_escape(trade.get('setup') or '-')}\n"
+        f"Confirmation: {_escape(trade.get('confirmation') or '-')}\n"
+        f"Invalidation: {_escape(trade.get('invalidation') or '-')}\n"
+        f"Risk: {_escape(trade.get('risk_note') or '-')}"
     )
 
 
@@ -206,25 +243,34 @@ def send(
     if not chat_ids:
         raise RuntimeError("ไม่มี authorized chat_ids ให้ส่ง")
 
-    # Preferred delivery is the same compact 3-message experience as LINE:
-    # 1) real QuikStrike source screenshot
-    # 2) compact analysis
-    # 3) final Bias line
-    analysis_text = _format_analysis_message(parsed, ai_result)
-    bias_text = f"🎯 Bias ฟันธง!\n{str(ai_result.get('bias', ai_result.get('short_bias', 'WAIT')))}"
+    messages = [
+        _format_analysis_message(parsed, ai_result),
+        _format_levels_message(parsed, ai_result),
+        _format_trade_plan_message(parsed, ai_result),
+    ]
+    bias_message = f"🎯 Bias ฟันธง!\n{str(ai_result.get('bias', ai_result.get('short_bias', 'WAIT')))}"
 
     for cid in chat_ids:
+        if gamma_table_url:
+            _post_with_retry(
+                TELEGRAM_PHOTO_API.format(token=token),
+                {"chat_id": cid, "photo": gamma_table_url, "caption": "GOLD GAMMA TABLE — Multi-Expiration"},
+            )
         if screenshot_url:
             _post_with_retry(
                 TELEGRAM_PHOTO_API.format(token=token),
-                {"chat_id": cid, "photo": screenshot_url, "caption": "QUIKSTRIKE OI • SOURCE"},
+                {"chat_id": cid, "photo": screenshot_url, "caption": "QUIKSTRIKE OI — Source Screenshot"},
             )
-
-        for text in (analysis_text, bias_text):
+        for text in (*messages, bias_message):
+            # The fifth message should be the trade plan. Keep Bias out of the
+            # canonical five-message bundle unless it is needed for legacy callers.
+            pass
+        # Exact 5-message delivery: 2 images + analyst + levels/scenarios + trade plan.
+        for text in messages:
             for chunk in _chunk(text):
                 _post_with_retry(
                     TELEGRAM_API.format(token=token),
-                    {"chat_id": cid, "text": chunk},
+                    {"chat_id": cid, "text": chunk, "parse_mode": "HTML"},
                 )
                 time.sleep(0.4)
-        print(f"✅ Telegram compact analyst bundle sent to {cid}")
+        print(f"✅ Telegram 5-message analyst bundle sent to {cid}")
