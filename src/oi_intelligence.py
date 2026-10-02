@@ -91,6 +91,11 @@ def enrich(current,previous=None):
             if _f(current.get("future_price")) is not None and _f(previous.get("future_price")) is not None
             else None
         ),
+        "vol_change": (
+            _f(current.get("vol")) - _f(previous.get("vol"))
+            if _f(current.get("vol")) is not None and _f(previous.get("vol")) is not None
+            else None
+        ),
         "gex_change": (
             _f((raw.get("gex") or {}).get("net_gex")) - _f(((previous or {}).get("raw_series") or {}).get("gex", {}).get("net_gex"))
             if _f((raw.get("gex") or {}).get("net_gex")) is not None and _f(((previous or {}).get("raw_series") or {}).get("gex", {}).get("net_gex")) is not None
