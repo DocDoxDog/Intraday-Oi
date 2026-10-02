@@ -139,6 +139,12 @@ def _relevance(text: str) -> str:
 
 def _xml_rows(xml_text: str) -> Iterable[dict]:
     cleaned = (xml_text or "").lstrip("\ufeff\x00 \t\r\n")
+    # Public feeds occasionally contain XML-invalid control bytes. Remove only
+    # characters forbidden by XML 1.0; never alter printable feed content.
+    cleaned = "".join(
+        ch for ch in cleaned
+        if ch in "\t\n\r" or ord(ch) >= 0x20
+    )
     # Some public feeds/proxies prepend a few bytes before the XML declaration.
     # Remove only leading junk; never invent feed content.
     xml_start = cleaned.find("<")
@@ -210,7 +216,26 @@ def collect_news(
                 },
             )
             response.raise_for_status()
-            rows = list(_xml_rows(response.text))
+            content_type = (response.headers.get("content-type") or "").lower()
+            body = response.text
+            if "html" in content_type and source.key == "BEA_RELEASES":
+                # BEA may serve its releases page instead of the RSS document.
+                # Keep the source-backed page usable without inventing dates.
+                links = re.findall(
+                    r'href=["\']([^"\']*/news/[^"\']+)["\'][^>]*>(.*?)</a>',
+                    body,
+                    flags=re.I | re.S,
+                )
+                rows = [
+                    {
+                        "title": _clean_text(title),
+                        "link": ("https://www.bea.gov" + href) if href.startswith("/") else href,
+                    }
+                    for href, title in links
+                    if _clean_text(title)
+                ]
+            else:
+                rows = list(_xml_rows(body))
             for row in rows[: max(1, int(max_items_per_source))]:
                 item = _to_item(source, row, now)
                 if item is None or item.relevance == "LOW":
