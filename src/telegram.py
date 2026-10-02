@@ -120,18 +120,69 @@ def format_message(parsed: dict, ai_result: dict) -> str:
         lines += ["", f"<i>Evidence: {_escape(', '.join(map(str, refs)))}</i>"]
     return "\n".join(lines)
 
-def format_notification(parsed: dict, ai_result: dict) -> str:
-    if "error" in ai_result:
-        return f"⚠️ OI ANALYST\n{_compact(ai_result['error'], 500)}"
 
-    bias = str(ai_result.get("bias") or ai_result.get("short_bias") or "WAIT").upper()
-    headline = _compact(ai_result.get("market_overview"), 900)
-    watch = _compact(ai_result.get("sideway_case"), 420)
+def _post_with_retry(url: str, payload: dict, timeout: int = 20) -> None:
+    last_error: Exception | None = None
+    for attempt in range(3):
+        try:
+            response = requests.post(url, json=payload, timeout=timeout)
+            if response.status_code < 400:
+                return
+            if response.status_code == 429:
+                retry_after = 2
+                try:
+                    retry_after = int((response.json().get("parameters") or {}).get("retry_after", 2))
+                except Exception:
+                    pass
+                time.sleep(max(1, min(retry_after, 10)))
+                continue
+            if response.status_code >= 500:
+                time.sleep(1.0 * (attempt + 1))
+                continue
+            response.raise_for_status()
+        except Exception as exc:
+            last_error = exc
+            if attempt < 2:
+                time.sleep(1.0 * (attempt + 1))
+                continue
+            raise
+    if last_error:
+        raise last_error
+    raise RuntimeError("TELEGRAM_SEND_FAILED")
 
-    return (
-        f"🟡 <b>GOLD OI UPDATE</b>  •  {_thai_datetime_str()}\n"
-        f"Bias: <b>{_escape(bias)}</b>\n\n"
-        f"{_escape(headline)}\n\n"
-        f"<b>Next watch</b>\n{_escape(watch)}"
-    )
 
+def send(
+    parsed: dict,
+    ai_result: dict,
+    screenshot_url: str | None = None,
+    chat_ids: list[str] | None = None,
+    gamma_table_url: str | None = None,
+) -> None:
+    token = os.environ.get("TELEGRAM_BOT_TOKEN")
+    if not token:
+        raise RuntimeError("TELEGRAM_BOT_TOKEN ไม่ได้ตั้งค่า")
+    if chat_ids is None:
+        raise RuntimeError("ต้องระบุ chat_ids ที่ผ่านการอนุมัติจาก customer registry")
+    chat_ids = [str(cid).strip() for cid in chat_ids if str(cid).strip()]
+    if not chat_ids:
+        raise RuntimeError("ไม่มี authorized chat_ids ให้ส่ง")
+
+    detailed = format_message(parsed, ai_result)
+    for cid in chat_ids:
+        if gamma_table_url:
+            _post_with_retry(
+                TELEGRAM_PHOTO_API.format(token=token),
+                {"chat_id": cid, "photo": gamma_table_url, "caption": "GOLD GAMMA TABLE — Multi-Expiration"},
+            )
+        if screenshot_url:
+            _post_with_retry(
+                TELEGRAM_PHOTO_API.format(token=token),
+                {"chat_id": cid, "photo": screenshot_url, "caption": "QUIKSTRIKE OI — Source Screenshot"},
+            )
+        for chunk in _chunk(detailed):
+            _post_with_retry(
+                TELEGRAM_API.format(token=token),
+                {"chat_id": cid, "text": chunk, "parse_mode": "HTML"},
+            )
+            time.sleep(0.4)
+        print(f"✅ Telegram analyst update sent to {cid}")
