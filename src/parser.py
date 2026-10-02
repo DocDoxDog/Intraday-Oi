@@ -112,6 +112,111 @@ def _attach_gex(parsed: dict) -> dict:
     return parsed
 
 
+def _aux_value(fields: dict[str, Any], *, side: str, kind: str) -> float | int | None:
+    """Find a source value whose key explicitly names side + change/churn."""
+    candidates = []
+    for key, value in (fields or {}).items():
+        key_text = re.sub(r"[^a-z0-9]", "", str(key).lower())
+        if kind == "change":
+            if not re.search(r"change|chg|oichg|oichange", key_text) or "churn" in key_text:
+                continue
+        elif kind == "churn":
+            if "churn" not in key_text:
+                continue
+        else:
+            continue
+        if side not in key_text:
+            continue
+        number = _number(value)
+        if number is not None:
+            candidates.append(number)
+    return candidates[0] if candidates else None
+
+
+def _merge_secondary_views(rows: list[dict], secondary_views: dict) -> tuple[list[dict], dict]:
+    """Attach OI Change / Churn source observations; missing remains UNKNOWN."""
+    by_strike = {row.get("strike"): row for row in rows if row.get("strike") is not None}
+    totals = {
+        "oi_change_put": None,
+        "oi_change_call": None,
+        "oi_change_total": None,
+        "quikstrike_churn_put": None,
+        "quikstrike_churn_call": None,
+        "churn": None,
+    }
+
+    for view_name, payload in (secondary_views or {}).items():
+        if not isinstance(payload, dict):
+            continue
+
+        aux_rows = payload.get("rows") or []
+        if aux_rows:
+            for aux in aux_rows:
+                if not isinstance(aux, dict):
+                    continue
+                strike = _number(aux.get("strike"))
+                if strike is None:
+                    continue
+                target = by_strike.get(strike)
+                if target is None:
+                    continue
+                fields = aux.get("fields") or {}
+                if view_name == "oi_change":
+                    put_change = _aux_value(fields, side="put", kind="change")
+                    call_change = _aux_value(fields, side="call", kind="change")
+                    if put_change is not None:
+                        target["oiPutChange"] = put_change
+                    if call_change is not None:
+                        target["oiCallChange"] = call_change
+                elif view_name == "churn":
+                    put_churn = _aux_value(fields, side="put", kind="churn")
+                    call_churn = _aux_value(fields, side="call", kind="churn")
+                    if put_churn is not None:
+                        target["churnPut"] = put_churn
+                    if call_churn is not None:
+                        target["churnCall"] = call_churn
+
+        charts = payload.get("charts") or []
+        if charts:
+            for series in charts[0].get("series", []):
+                name = str(series.get("name") or "").lower()
+                side = "put" if "put" in name else "call" if "call" in name else None
+                if not side:
+                    continue
+                if view_name == "oi_change":
+                    target_key = "oiPutChange" if side == "put" else "oiCallChange"
+                elif view_name == "churn":
+                    target_key = "churnPut" if side == "put" else "churnCall"
+                else:
+                    continue
+                for point in series.get("data") or []:
+                    strike = _number(point.get("x"))
+                    value = _number(point.get("y"))
+                    if strike is not None and value is not None and strike in by_strike:
+                        by_strike[strike][target_key] = value
+
+    def summed(key: str):
+        values = [row.get(key) for row in rows if isinstance(row.get(key), (int, float))]
+        return sum(values) if values else None
+
+    totals["oi_change_put"] = summed("oiPutChange")
+    totals["oi_change_call"] = summed("oiCallChange")
+    if totals["oi_change_put"] is not None or totals["oi_change_call"] is not None:
+        totals["oi_change_total"] = sum(
+            value for value in (totals["oi_change_put"], totals["oi_change_call"])
+            if isinstance(value, (int, float))
+        )
+
+    totals["quikstrike_churn_put"] = summed("churnPut")
+    totals["quikstrike_churn_call"] = summed("churnCall")
+    if totals["quikstrike_churn_put"] is not None or totals["quikstrike_churn_call"] is not None:
+        totals["churn"] = sum(
+            value for value in (totals["quikstrike_churn_put"], totals["quikstrike_churn_call"])
+            if isinstance(value, (int, float))
+        )
+    return rows, totals
+
+
 def _parse_image_map(raw):
     chart = raw.get("chart_data") or {}; rows = _deduplicate_rows([_normalise_row(x) for x in chart.get("strike_rows",[])])
     if not rows: raise ParseError("ไม่พบ OI strike rows")
@@ -124,7 +229,18 @@ def _parse_image_map(raw):
         if future is not None: break
     future = future or _extract_float(r"\bvs\s*(%s)"%_NUM,heading)
     vols=[_iv_percent(r["vol"]) for r in rows if isinstance(r.get("vol"),(int,float))]
-    raw_series={"mode":"open_interest","dte":dte,"expiration_selection":sel,"heading":heading,"strike_rows":rows,"oi_positioning_rows":rows,"expected_ranges":chart.get("expected_ranges") or [],"totals":{"open_interest_view_put":sum(r.get("oiPut") or 0 for r in rows),"open_interest_view_call":sum(r.get("oiCall") or 0 for r in rows),"open_interest_view_total":sum(r.get("oiTotal") or 0 for r in rows),"open_interest_put":sum(r.get("oiPut") or 0 for r in rows),"open_interest_call":sum(r.get("oiCall") or 0 for r in rows),"open_interest_total":sum(r.get("oiTotal") or 0 for r in rows)},"series":_build_series(rows,[])}
+    secondary_views = raw.get("secondary_views") or {}
+    rows, secondary_totals = _merge_secondary_views(rows, secondary_views)
+    oi_totals = {
+        "open_interest_view_put": sum(r.get("oiPut") or 0 for r in rows),
+        "open_interest_view_call": sum(r.get("oiCall") or 0 for r in rows),
+        "open_interest_view_total": sum(r.get("oiTotal") or 0 for r in rows),
+        "open_interest_put": sum(r.get("oiPut") or 0 for r in rows),
+        "open_interest_call": sum(r.get("oiCall") or 0 for r in rows),
+        "open_interest_total": sum(r.get("oiTotal") or 0 for r in rows),
+        **secondary_totals,
+    }
+    raw_series={"mode":"open_interest","dte":dte,"expiration_selection":sel,"heading":heading,"strike_rows":rows,"oi_positioning_rows":rows,"expected_ranges":chart.get("expected_ranges") or [],"secondary_views":list(secondary_views),"totals":oi_totals,"series":_build_series(rows,[])}
     # IMPORTANT: screenshot means the actual QuikStrike source image.
     # Never replace it with a locally rendered OI chart. The old implementation
     # did exactly that, so Telegram labeled a synthetic chart as "Source Screenshot".
