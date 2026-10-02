@@ -318,7 +318,8 @@ def run():
                 return None
             if isinstance(future_price, (int, float)) and isinstance(cfd_price, (int, float)):
                 return float(strike) - float(future_price) + float(cfd_price)
-            return float(strike)
+            # Never label a Futures strike as CFD when the basis is unavailable.
+            return None
 
         strikes = sorted({
             float(row.get("strike"))
