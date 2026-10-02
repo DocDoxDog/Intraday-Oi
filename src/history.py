@@ -30,7 +30,7 @@ def _history_contract_prefix(contract: str | None) -> str | None:
         return None
     text = str(contract).strip()
     match = re.match(
-        r"^(?P<prefix>.*?\b[A-Za-z0-9._-]+\s*\([0-9]+(?:\.[0-9]+)?\s*DTE\))",
+        r"^(?P<prefix>.*?\b[A-Za-z0-9._-]+)\s*\([0-9]+(?:\.[0-9]+)?\s*DTE\)",
         text,
         re.I,
     )
@@ -142,8 +142,7 @@ def get_today_summary(contract: str | None = None) -> dict:
         .lte("captured_at", end_iso)
         .order("captured_at", desc=False)
     )
-    if contract:
-        query = query.eq("contract", contract)
+    query = _apply_series_filter(query, contract)
 
     rows = query.execute().data or []
     return _summary_for_range(rows)
