@@ -797,11 +797,6 @@ def scrape_multi_expiration(url: str | None = None, limit: int = 7) -> dict:
                 if not chart_data.get("strike_rows"):
                     chart_data = page.evaluate(EXTRACT_HIGHCHARTS_JS)
 
-                # Secondary OI views are only needed for the primary expiry.
-                # This keeps the term-structure scrape fast while still giving
-                # the analyst real OI Change / Churn evidence.
-                secondary_views = _read_secondary_oi_views(page) if index == 0 else {}
-
                 if chart_data.get("error") or (
                     not chart_data.get("strike_rows") and not chart_data.get("charts")
                 ):
@@ -820,6 +815,8 @@ def scrape_multi_expiration(url: str | None = None, limit: int = 7) -> dict:
                         f"expiration identity mismatch: requested={candidate['code']} heading={heading!r}"
                     )
 
+                # Capture the real QuikStrike OI source image BEFORE
+                # switching to OI Change / Churn secondary views.
                 source_screenshot = None
                 if index == 0:
                     try:
@@ -843,6 +840,12 @@ def scrape_multi_expiration(url: str | None = None, limit: int = 7) -> dict:
                             )
                         except Exception:
                             source_screenshot = None
+
+                # Collect secondary source views only for the primary expiry,
+                # then return to the OI view before the next expiration.
+                secondary_views = _read_secondary_oi_views(page) if index == 0 else {}
+                if index == 0 and secondary_views:
+                    _load_oi_chart(page)
 
                 snapshot = {
                     "source": (
