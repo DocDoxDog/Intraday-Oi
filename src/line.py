@@ -42,7 +42,13 @@ def format_message(parsed: dict, ai_result: dict) -> str:
     def show(value):
         if value is None or value == "":
             return "-"
-        return f"{float(value):.2f}" if isinstance(value, (int, float)) else str(value)
+        if isinstance(value, (int, float)):
+            return f"{float(value):.2f}"
+        text = str(value).strip()
+        try:
+            return f"{float(text):.2f}"
+        except ValueError:
+            return text
 
     raw = parsed.get("raw_series") or {}
     totals = raw.get("totals") or {}
