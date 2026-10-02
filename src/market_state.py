@@ -226,19 +226,23 @@ def _gamma_state(parsed: dict[str, Any], history: dict[str, Any]) -> dict[str, A
     changes.sort(key=lambda item: abs(item[1]), reverse=True)
 
     zones = raw.get("multi_expiry_gamma_zones") or {}
+    future = _num(parsed.get("future_price"))
+    cfd = _num(parsed.get("cfd_price"))
+    to_cfd = lambda value: _cfd_level(value, future, cfd)
     return {
         "net_gex": _num(gex.get("net_gex")),
         "call_gex": _num(gex.get("call_gex_total")),
         "put_gex": _num(gex.get("put_gex_total")),
-        "gamma_mean": round(gamma_mean, 5) if gamma_mean is not None else None,
-        "gamma_pivot": _num(gex.get("gamma_flip")),
-        "gamma_flip": _num(gex.get("gamma_flip")),
-        "positive_zone": _num(zones.get("highest_positive_gamma")),
-        "negative_zone": _num(zones.get("highest_negative_gamma")),
-        "call_wall": _num(gex.get("call_wall")),
-        "put_wall": _num(gex.get("put_wall")),
+        "gamma_mean": to_cfd(gamma_mean),
+        "gamma_mean_futures": round(gamma_mean, 5) if gamma_mean is not None else None,
+        "gamma_pivot": to_cfd(gex.get("gamma_flip")),
+        "gamma_flip": to_cfd(gex.get("gamma_flip")),
+        "positive_zone": to_cfd(zones.get("highest_positive_gamma")),
+        "negative_zone": to_cfd(zones.get("highest_negative_gamma")),
+        "call_wall": to_cfd(gex.get("call_wall")),
+        "put_wall": to_cfd(gex.get("put_wall")),
         "acceleration_zones": [
-            {"strike_futures": strike, "gex_change": change}
+            {"strike_futures": strike, "strike_cfd": to_cfd(strike), "gex_change": change}
             for strike, change in changes[:3]
         ],
     }
@@ -431,6 +435,57 @@ def _plan_numbers(levels: dict[str, float | None]) -> dict[str, dict[str, float 
     }
 
 
+def _unique_sorted(values: list[float], *, reverse: bool = False) -> list[float]:
+    return sorted({round(value, 5) for value in values}, reverse=reverse)
+
+
+def _deterministic_trade_levels(
+    parsed: dict[str, Any],
+    levels: dict[str, float | None],
+    gamma: dict[str, Any],
+) -> dict[str, Any]:
+    """Build complete targets only from normalized QuikStrike strikes/gamma levels."""
+    future = _num(parsed.get("future_price"))
+    cfd = _num(parsed.get("cfd_price"))
+    raw_rows = ((parsed.get("raw_series") or {}).get("gex") or {}).get("rows") or []
+    strikes_futures = _unique_sorted([
+        _num(row.get("strike"))
+        for row in raw_rows
+        if isinstance(row, dict) and _num(row.get("strike")) is not None
+    ])
+    strikes_cfd = [
+        value for value in (_cfd_level(strike, future, cfd) for strike in strikes_futures)
+        if value is not None
+    ]
+    long_entry = levels.get("resistance_current")
+    short_entry = levels.get("support_current")
+    structural = [
+        _num(gamma.get("negative_zone")),
+        _num(gamma.get("gamma_mean")),
+        _num(gamma.get("positive_zone")),
+    ]
+    long_candidates = _unique_sorted([
+        value for value in strikes_cfd + structural
+        if value is not None and long_entry is not None and value > long_entry
+    ])
+    short_candidates = _unique_sorted([
+        value for value in strikes_cfd + structural
+        if value is not None and short_entry is not None and value < short_entry
+    ], reverse=True)
+    return {
+        "long_trigger": long_entry,
+        "long_stop": levels.get("support_current"),
+        "long_tp1": long_candidates[0] if len(long_candidates) > 0 else None,
+        "long_tp2": long_candidates[1] if len(long_candidates) > 1 else None,
+        "long_tp3": long_candidates[2] if len(long_candidates) > 2 else None,
+        "short_trigger": short_entry,
+        "short_stop": levels.get("resistance_current"),
+        "short_tp1": short_candidates[0] if len(short_candidates) > 0 else None,
+        "short_tp2": short_candidates[1] if len(short_candidates) > 1 else None,
+        "short_tp3": short_candidates[2] if len(short_candidates) > 2 else None,
+    }
+
+
 def _rr(side: str, p: dict[str, float | None]) -> tuple[float | None, float | None]:
     entry, stop, tp1, tp2 = p["entry"], p["stop"], p["tp1"], p["tp2"]
     if any(x is None for x in (entry, stop)):
@@ -476,7 +531,14 @@ def normalize_analyst_output(
     if not state.get("cfd_complete") and str(ai.get("analysis_status") or "").upper() == "CONFIRMED":
         ai["analysis_status"] = "DEGRADED"
 
-    plan = _plan_numbers(levels)
+    gamma = state.get("gamma") or {}
+    deterministic = _deterministic_trade_levels(parsed, levels, gamma)
+    plan = {
+        "long": {"entry": deterministic["long_trigger"], "stop": deterministic["long_stop"],
+                 "tp1": deterministic["long_tp1"], "tp2": deterministic["long_tp2"], "tp3": deterministic["long_tp3"]},
+        "short": {"entry": deterministic["short_trigger"], "stop": deterministic["short_stop"],
+                  "tp1": deterministic["short_tp1"], "tp2": deterministic["short_tp2"], "tp3": deterministic["short_tp3"]},
+    }
     long_rr = _rr("LONG", plan["long"])
     short_rr = _rr("SHORT", plan["short"])
     has_any_numeric_plan = any(
@@ -501,42 +563,29 @@ def normalize_analyst_output(
     ai["trade_plan"] = {
         "status": "CONDITIONAL",
         "direction": bias if bias in {"BUY", "SELL"} and has_any_numeric_plan else "WAIT",
+        "long_trigger": deterministic["long_trigger"], "long_stop": deterministic["long_stop"],
+        "long_tp1": deterministic["long_tp1"], "long_tp2": deterministic["long_tp2"], "long_tp3": deterministic["long_tp3"],
+        "short_trigger": deterministic["short_trigger"], "short_stop": deterministic["short_stop"],
+        "short_tp1": deterministic["short_tp1"], "short_tp2": deterministic["short_tp2"], "short_tp3": deterministic["short_tp3"],
         "entry": plan_line("LONG", plan["long"]) + " | " + plan_line("SHORT", plan["short"]),
-        "stop_loss": (
-            f"LONG invalidation {_fmt(plan['long']['stop'])} | "
-            f"SHORT invalidation {_fmt(plan['short']['stop'])}"
-        ),
-        "take_profit_1": (
-            f"LONG {_fmt(plan['long']['tp1'])} | "
-            f"SHORT {_fmt(plan['short']['tp1'])}"
-        ),
-        "take_profit_2": (
-            f"LONG {_fmt(plan['long']['tp2'])} | "
-            f"SHORT {_fmt(plan['short']['tp2'])}"
-        ),
-        "setup": (
-            f"LONG: break/holdเหนือ {_fmt(plan['long']['entry'])}; "
-            f"SHORT: break/retest fail ใต้ {_fmt(plan['short']['entry'])}"
-        ),
-        "trigger": (
-            f"LONG trigger {_fmt(plan['long']['entry'])} with hold/retest | "
-            f"SHORT trigger {_fmt(plan['short']['entry'])} with break/retest failure"
-        ),
-        "confirmation": (
-            "ใช้ price action/technical confirmation จากข้อมูลที่มี; "
-            "OI/ΔOI/churn เป็น context ไม่ใช่ entry โดยลำพัง"
-        ),
-        "invalidation": (
-            f"LONG invalidation ใต้ {_fmt(plan['long']['stop'])} | "
-            f"SHORT invalidation เหนือ {_fmt(plan['short']['stop'])}"
-        ),
-        "risk_reward": (
-            f"LONG RR1 {_fmt(long_rr[0])}R / RR2 {_fmt(long_rr[1])}R | "
-            f"SHORT RR1 {_fmt(short_rr[0])}R / RR2 {_fmt(short_rr[1])}R"
-        ),
+        "stop_loss": f"LONG invalidation {_fmt(plan['long']['stop'])} | SHORT invalidation {_fmt(plan['short']['stop'])}",
+        "take_profit_1": f"LONG {_fmt(plan['long']['tp1'])} | SHORT {_fmt(plan['short']['tp1'])}",
+        "take_profit_2": f"LONG {_fmt(plan['long']['tp2'])} | SHORT {_fmt(plan['short']['tp2'])}",
+        "take_profit_3": f"LONG {_fmt(plan['long']['tp3'])} | SHORT {_fmt(plan['short']['tp3'])}",
+        "setup": f"LONG: break/holdเหนือ {_fmt(plan['long']['entry'])}; SHORT: break/retest fail ใต้ {_fmt(plan['short']['entry'])}",
+        "trigger": f"LONG trigger {_fmt(plan['long']['entry'])} with hold/retest | SHORT trigger {_fmt(plan['short']['entry'])} with break/retest failure",
+        "confirmation": "ใช้ price action/technical confirmation จากข้อมูลที่มี; OI/ΔOI/churn เป็น context ไม่ใช่ entry โดยลำพัง",
+        "invalidation": f"LONG invalidation ใต้ {_fmt(plan['long']['stop'])} | SHORT invalidation เหนือ {_fmt(plan['short']['stop'])}",
+        "risk_reward": f"LONG RR1 {_fmt(long_rr[0])}R / RR2 {_fmt(long_rr[1])}R | SHORT RR1 {_fmt(short_rr[0])}R / RR2 {_fmt(short_rr[1])}R",
         "market_condition": str(ai.get("market_regime") or "UNKNOWN"),
         "position_risk": old_trade.get("position_risk") or "กำหนดขนาดความเสี่ยงหลัง trigger ตามกติกาพอร์ต",
         "risk_note": old_trade.get("risk_note") or "Conditional roadmap จาก deterministic evidence; ไม่ใช่คำสั่ง execute",
+    }
+
+    ai["scenarios"] = {
+        "bull": f"ยืนเหนือ {_fmt(plan['long']['entry'])} และ hold/retest ได้ → TP1 {_fmt(plan['long']['tp1'])} → TP2 {_fmt(plan['long']['tp2'])} → TP3 {_fmt(plan['long']['tp3'])}; invalidation ใต้ {_fmt(plan['long']['stop'])}",
+        "bear": f"หลุด {_fmt(plan['short']['entry'])} และ failed retest → TP1 {_fmt(plan['short']['tp1'])} → TP2 {_fmt(plan['short']['tp2'])} → TP3 {_fmt(plan['short']['tp3'])}; invalidation เหนือ {_fmt(plan['short']['stop'])}",
+        "sideway": f"ราคาอยู่ระหว่าง {_fmt(plan['short']['entry'])} และ {_fmt(plan['long']['entry'])} โดยยังไม่มี breakout confirmation ให้มองเป็น range",
     }
 
     ai["market_state"] = state
