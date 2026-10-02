@@ -36,7 +36,7 @@ def test_telegram_renders_canonical_v2_without_creating_trade_levels():
         "data_limitations": ["OI ไม่ใช่ traded intraday volume"],
     }
     message = format_message(parsed, ai)
-    assert "<b>WAIT</b>" in message
+    assert "Bias: WAIT" in message
     assert "4300" in message
     assert "GOLD MARKET ANALYST V2" in message
     assert "<b>WHAT</b>" in message
@@ -98,6 +98,11 @@ def test_telegram_renders_five_message_sections():
     assert "WHAT text" in m3 and "WHY text" in m3 and "POSITIONING text" in m3
     assert "4232.48736" in m4 and "7 expirations" in m4 and "🟢" in m4 and "🔴" in m4 and "🟡" in m4
     assert "Status: CONDITIONAL" in m5
+    assert "Direction: WAIT" in m5
+    assert "Entry:" in m5
+    assert "Stop:" in m5
+    assert "TP1:" in m5
+    assert "TP2:" in m5
 
 
 def test_line_renders_canonical_analysis_without_local_trade_plan():
