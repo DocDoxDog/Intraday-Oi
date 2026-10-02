@@ -30,7 +30,16 @@ from src.analyze import analyze
 from src.twelve_data import fetch_spot, enrich_with_basis, TwelveDataError
 from src.technical_analysis import build_context
 from src.oi_positioning import enrich as enrich_oi_positioning
-from src.supabase_client import insert_snapshot, insert_oi_intelligence, insert_multi_expiry_options, upload_screenshot, get_active_chat_ids, insert_news_announcements
+from src.supabase_client import (
+    insert_snapshot,
+    insert_oi_intelligence,
+    insert_multi_expiry_options,
+    upload_screenshot,
+    get_active_chat_ids,
+    insert_news_announcements,
+    can_notify,
+    mark_notified,
+)
 from src.url_manager import UrlManager, UrlManagerError
 from src import history, telegram, line
 from src.multi_expiry import build_gamma_matrix, summarize_gamma_zones, merge_expected_expirations, build_gold_weekly_series_window
@@ -423,18 +432,38 @@ def run():
         print("    ⏭️  ไม่มีผู้รับที่ active ใน Supabase customers — ข้าม Telegram", file=sys.stderr)
         chat_ids = []
 
+    cooldown_minutes = max(0, int(os.environ.get("OI_BOT_NOTIFICATION_COOLDOWN_MINUTES", "30")))
+    force_notify = os.environ.get("OI_BOT_FORCE_NOTIFY", "").strip().lower() in {"1", "true", "yes"}
+
+    telegram_allowed = False
     try:
-        telegram.send(
-            parsed,
-            ai_result,
-            screenshot_url=screenshot_url,
-            gamma_table_url=gamma_table_url,
-            gamma_table_full_url=gamma_table_full_url,
-            chat_ids=chat_ids,
-        )
-        print("✅ Sent to Telegram")
+        telegram_allowed, remaining = can_notify("telegram", cooldown_minutes)
     except Exception as e:
-        print(f"⚠️  Telegram send failed (data still saved to Supabase): {e}", file=sys.stderr)
+        # Delivery state failure must not block analysis persistence. In an
+        # unavailable state store, default to allowing one delivery.
+        telegram_allowed = True
+        remaining = None
+        print(f"⚠️  Telegram cooldown state unavailable: {e}", file=sys.stderr)
+
+    if force_notify or telegram_allowed:
+        try:
+            telegram.send(
+                parsed,
+                ai_result,
+                screenshot_url=screenshot_url,
+                gamma_table_url=gamma_table_url,
+                gamma_table_full_url=gamma_table_full_url,
+                chat_ids=chat_ids,
+            )
+            mark_notified("telegram")
+            print("✅ Sent to Telegram")
+        except Exception as e:
+            print(f"⚠️  Telegram send failed (data still saved to Supabase): {e}", file=sys.stderr)
+    else:
+        print(
+            f"⏭️  Telegram cooldown active — skip delivery for ~{remaining / 60:.1f} min. "
+            "Set OI_BOT_FORCE_NOTIFY=1 to force a test delivery."
+        )
 
     if new_news_rows:
         news_text = format_news_announcement(new_news_rows, limit=3)
@@ -453,17 +482,33 @@ def run():
 
     print("[9/9] Sending to LINE (broadcast to all OA friends)...")
     if os.environ.get("LINE_CHANNEL_ACCESS_TOKEN"):
+        line_allowed = False
         try:
-            line.send(
-            parsed,
-            ai_result,
-            screenshot_url=screenshot_url,
-            gamma_table_url=gamma_table_url,
-            gamma_table_full_url=gamma_table_full_url,
-        )
-            print("✅ Sent to LINE")
+            line_allowed, line_remaining = can_notify("line", cooldown_minutes)
         except Exception as e:
-            print(f"⚠️  LINE send failed (data still saved to Supabase): {e}", file=sys.stderr)
+            line_allowed = True
+            line_remaining = None
+            print(f"⚠️  LINE cooldown state unavailable: {e}", file=sys.stderr)
+
+        if force_notify or line_allowed:
+            try:
+                line.send(
+                    parsed,
+                    ai_result,
+                    screenshot_url=screenshot_url,
+                    gamma_table_url=gamma_table_url,
+                    gamma_table_full_url=gamma_table_full_url,
+                )
+                mark_notified("line")
+                print("✅ Sent to LINE")
+            except Exception as e:
+                print(f"⚠️  LINE send failed (data still saved to Supabase): {e}", file=sys.stderr)
+        else:
+            print(
+                f"⏭️  LINE cooldown active — skip delivery for ~{line_remaining / 60:.1f} min."
+            )
+    else:
+        print("    ⏭️  ข้าม LINE (ไม่ได้ตั้งค่า LINE_CHANNEL_ACCESS_TOKEN)")
     else:
         print("    ⏭️  ข้าม LINE (ไม่ได้ตั้งค่า LINE_CHANNEL_ACCESS_TOKEN)")
 
