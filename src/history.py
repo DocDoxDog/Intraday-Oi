@@ -11,6 +11,7 @@ history.py
 """
 
 import os
+import re
 from datetime import datetime, timezone, timedelta
 try:
     from .supabase_client import get_client
@@ -21,6 +22,26 @@ BANGKOK_TZ = timezone(timedelta(hours=7))
 
 # ฟิลด์ที่ดึงมาใช้จริง — ไม่ดึง raw_series/screenshot_url เพราะหนักและไม่จำเป็นสำหรับ trend summary
 FIELDS = "captured_at,contract,dte,future_price,future_chg,put_volume,call_volume,vol,vol_chg,raw_series"
+
+
+def _history_contract_prefix(contract: str | None) -> str | None:
+    """Normalize QuikStrike's changing heading into a stable series identity."""
+    if not contract:
+        return None
+    text = str(contract).strip()
+    match = re.match(
+        r"^(?P<prefix>.*?\b[A-Za-z0-9._-]+\s*\([0-9]+(?:\.[0-9]+)?\s*DTE\))",
+        text,
+        re.I,
+    )
+    return match.group("prefix").strip() if match else text
+
+
+def _apply_series_filter(query, contract: str | None):
+    prefix = _history_contract_prefix(contract)
+    if prefix:
+        return query.ilike("contract", prefix + "%")
+    return query
 
 
 def _bangkok_day_bounds(now: datetime | None = None) -> tuple[str, str]:
@@ -45,8 +66,7 @@ def get_hour_ago_snapshot(contract: str | None = None) -> dict | None:
         .order("captured_at", desc=True)
         .limit(1)
     )
-    if contract:
-        query = query.eq("contract", contract)
+    query = _apply_series_filter(query, contract)
 
     result = query.execute()
     return result.data[0] if result.data else None
