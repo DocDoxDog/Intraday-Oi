@@ -48,6 +48,10 @@ def _extract_dte(*texts: str | None) -> tuple[float | None, bool]:
             if m: return float(m.group(1).replace(",", "")), True
     return None, False
 
+def _product_symbol(text: str) -> str | None:
+    match = re.search(r"\\b(GC|SI|CL|ES|NQ)\\b", text or "", re.I)
+    return match.group(1).upper() if match else None
+
 def _marker_number(text: str, label: str) -> float | None:
     return _extract_float(rf"{label}\s*:\s*({_NUM})", text)
 
@@ -126,6 +130,7 @@ def _parse_image_map(raw):
     # did exactly that, so Telegram labeled a synthetic chart as "Source Screenshot".
     parsed = {
         "contract": heading,
+        "product_symbol": _product_symbol(heading),
         "expiration_code": sel.get("selected"),
         "dte": dte,
         "dte_low_confidence": low,
