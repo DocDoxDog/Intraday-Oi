@@ -319,3 +319,47 @@ def insert_multi_expiry_options(parsed: dict, snapshot_id: int | None = None) ->
             written += len(rows)
 
     return written
+
+
+def can_notify(channel: str, cooldown_minutes: int = 30) -> tuple[bool, float | None]:
+    """Return whether a channel may send now, backed by Supabase delivery state."""
+    channel = str(channel).strip().lower()
+    if not channel:
+        raise ValueError("CHANNEL_REQUIRED")
+    client = get_client()
+    result = (
+        client.table("bot_delivery_state")
+        .select("last_sent_at")
+        .eq("channel", channel)
+        .limit(1)
+        .execute()
+    )
+    rows = result.data or []
+    if not rows or not rows[0].get("last_sent_at"):
+        return True, None
+    last_raw = str(rows[0]["last_sent_at"]).replace("Z", "+00:00")
+    from datetime import datetime, timezone
+    last = datetime.fromisoformat(last_raw)
+    if last.tzinfo is None:
+        last = last.replace(tzinfo=timezone.utc)
+    elapsed = (datetime.now(timezone.utc) - last.astimezone(timezone.utc)).total_seconds()
+    remaining = max(0.0, float(cooldown_minutes) * 60.0 - elapsed)
+    return remaining <= 0.0, remaining
+
+
+def mark_notified(channel: str) -> None:
+    """Record a successful delivery only after the provider call succeeds."""
+    from datetime import datetime, timezone
+    channel = str(channel).strip().lower()
+    if not channel:
+        raise ValueError("CHANNEL_REQUIRED")
+    now = datetime.now(timezone.utc).isoformat()
+    client = get_client()
+    (
+        client.table("bot_delivery_state")
+        .upsert(
+            {"channel": channel, "last_sent_at": now, "updated_at": now},
+            on_conflict="channel",
+        )
+        .execute()
+    )
