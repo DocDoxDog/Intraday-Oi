@@ -19,7 +19,9 @@ def _render(gamma_matrix: dict[str, Any], *, full: bool) -> bytes:
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
 
-    columns = _observed_columns(gamma_matrix)
+    all_columns = _observed_columns(gamma_matrix)
+    display_columns = gamma_matrix.get("display_columns") or all_columns[:7]
+    columns = all_columns if full else list(display_columns)
     rows = list(gamma_matrix.get("matrix") or [])
     if not columns or not rows:
         raise ValueError("GAMMA_MATRIX_EMPTY")
@@ -133,7 +135,7 @@ def _render(gamma_matrix: dict[str, Any], *, full: bool) -> bytes:
         else "GOLD GAMMA TABLE — Multi-Expiration"
     )
     subtitle = (
-        "All available observed strikes • $M per 1% move • blank = no source observation"
+        f"All available observed strikes and series ({len(all_columns)}) • $M per 1% move • blank = no source observation"
         if full
         else "25 strikes around current Futures price • DTE shown in header • $M per 1% move"
     )
