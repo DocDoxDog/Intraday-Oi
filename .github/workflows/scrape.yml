@@ -2,6 +2,12 @@ name: Scrape OI Intraday
 
 on:
   workflow_dispatch: {}
+  repository_dispatch:
+    types: [run-analysis]
+
+concurrency:
+  group: oi-live-analysis
+  cancel-in-progress: true
 
 jobs:
   scrape:
