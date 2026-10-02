@@ -92,7 +92,11 @@ def _format_analysis_message(parsed: dict, ai_result: dict) -> str:
             return "-"
         if isinstance(value, (int, float)):
             return f"{float(value):.{digits}f}"
-        return str(value)
+        text = str(value).strip()
+        try:
+            return f"{float(text):.{digits}f}"
+        except ValueError:
+            return text
 
     raw = parsed.get("raw_series") or {}
     totals = raw.get("totals") or {}
@@ -149,7 +153,11 @@ def _format_levels_message(parsed: dict, ai_result: dict) -> str:
             return "-"
         if isinstance(value, (int, float)):
             return f"{float(value):.2f}"
-        return str(value)
+        text = str(value).strip()
+        try:
+            return f"{float(text):.2f}"
+        except ValueError:
+            return text
 
     return (
         "<b>KEY LEVELS</b>\n"
