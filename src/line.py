@@ -54,7 +54,7 @@ def format_message(parsed: dict, ai_result: dict) -> str:
 
     return (
         f"GOLD MARKET ANALYST V2 • {date_text}\n"
-        f"Futures {show(parsed.get('future_price'))} | CFD {show(parsed.get('cfd_price'))} | DTE {show(parsed.get('dte'))}\n"
+        f"Futures {show(parsed.get('future_price'))} | CFD {show(parsed.get('cfd_price'))} | Basis {show(parsed.get('basis_diff'))} (FUTURES - CFD) | DTE {show(parsed.get('dte'))}\n"
         f"Status: {str(ai_result.get('analysis_status') or 'CONFIRMED').upper()} | Bias: {str(ai_result.get('bias') or 'WAIT').upper()}\n\n"
         f"FLOW SNAPSHOT\n"
         f"OI Put {show(totals.get('open_interest_view_put', totals.get('open_interest_put')))} | Call {show(totals.get('open_interest_view_call', totals.get('open_interest_call')))}\n"
