@@ -36,3 +36,17 @@ def test_oi_positioning_does_not_invent_delta_without_baseline():
     assert row["oi_delta_put"] is None
     assert totals["oi_delta_total"] is None
     assert totals["churn"] is None
+
+
+def test_missing_oi_is_not_treated_as_zero_exposure():
+    result = delta_adjusted_exposure([{"strike": 4300, "oiCall": None, "oiPut": 5, "callDelta": 0.5, "putDelta": -0.4}])
+    assert result["status"] == "UNKNOWN"
+    assert result["rows"][0]["net_delta_exposure"] is None
+
+
+def test_migration_ignores_unknown_oi_instead_of_treating_it_as_zero():
+    result = oi_migration(
+        [{"strike": 4300, "oiCall": 100}, {"strike": 4350, "oiCall": None}],
+        [{"strike": 4300, "oiCall": None}, {"strike": 4350, "oiCall": 50}],
+    )
+    assert result["shifts"] == []
