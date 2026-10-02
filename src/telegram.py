@@ -57,68 +57,124 @@ def _chunk(text: str, limit: int = MAX_MESSAGE_LEN) -> list[str]:
     return chunks
 
 
-def format_message(parsed: dict, ai_result: dict) -> str:
+def _format_source_message(parsed: dict) -> str:
     raw = parsed.get("raw_series") or {}
+    window = raw.get("gold_series_window") or []
     gamma = raw.get("multi_expiry_gamma") or {}
-    zones = raw.get("multi_expiry_gamma_zones") or {}
-    levels = ai_result.get("levels") or {}
-    scenarios = ai_result.get("scenarios") or {}
-    trade = ai_result.get("trade_plan") or {}
-    status = str(ai_result.get("analysis_status") or ("DEGRADED" if ai_result.get("error") else "CONFIRMED")).upper()
-    bias = str(ai_result.get("bias") or "WAIT").upper()
+    observed = sum(1 for c in (gamma.get("columns") or []) if c.get("status") == "OBSERVED")
 
     lines = [
-        f"<b>GOLD MARKET ANALYST V2</b> • {_thai_datetime_str()}",
-        f"Futures <b>{_escape(parsed.get('future_price', '-'))}</b> | CFD <b>{_escape(parsed.get('cfd_price', parsed.get('future_price', '-')))}</b> | DTE {_escape(parsed.get('dte', '-'))}",
-        f"Status: <b>{_escape(status)}</b> | Bias: <b>{_escape(bias)}</b>",
+        "<b>GOLD OPTIONS • 7-DAY TERM STRUCTURE</b>",
+        "Source: CME QuikStrike",
+        f"Observed: <b>{observed}/7</b> series",
         "",
-        "<b>WHAT</b>",
-        _escape(_compact(ai_result.get("what") or ai_result.get("market_overview"), 700)),
-        "",
-        "<b>WHY</b>",
-        _escape(_compact(ai_result.get("why"), 700)),
-        "",
-        "<b>POSITIONING</b>",
-        _escape(_compact(ai_result.get("positioning"), 700)),
-        "",
-        "<b>KEY LEVELS</b>",
     ]
-    for key, label in (
-        ("resistance_far","ต้านไกล"),("resistance_main","ต้านหลัก"),
-        ("resistance_current","ต้านใกล้"),("support_current","รับใกล้"),
-        ("support_main","รับหลัก"),("support_deep","รับลึก")
-    ):
-        value = levels.get(key)
-        lines.append(f"{label}: <b>{_escape(value if value is not None else 'UNKNOWN')}</b>")
-
-    if gamma.get("expiration_count"):
-        lines += [
-            "",
-            "<b>GAMMA TERM STRUCTURE</b>",
-            _escape(f"{gamma.get('expiration_count')} expirations | +GEX zone {zones.get('highest_positive_gamma') or 'UNKNOWN'} | -GEX zone {zones.get('highest_negative_gamma') or 'UNKNOWN'}"),
-        ]
+    for item in window[:7]:
+        code = item.get("code") or "UNKNOWN"
+        date = str(item.get("expiry_date") or "")
+        date_label = f"{date[8:10]}/{date[5:7]}" if len(date) >= 10 else "--/--"
+        status = "✓" if item.get("status") == "OBSERVED" else "—"
+        dte = item.get("dte")
+        dte_label = f"DTE {dte:.2f}" if isinstance(dte, (int, float)) else "DTE —"
+        lines.append(f"{status} {date_label} {item.get('weekday_short','')} · <b>{_escape(code)}</b> · {dte_label}")
 
     lines += [
         "",
-        "<b>SCENARIOS</b>",
-        f"🟢 Bull — {_escape(_compact(scenarios.get('bull'), 500))}",
-        f"🔴 Bear — {_escape(_compact(scenarios.get('bear'), 500))}",
-        f"🟡 Sideway — {_escape(_compact(scenarios.get('sideway'), 500))}",
-        "",
-        "<b>TRADE PLAN</b>",
-        f"Status: <b>{_escape(trade.get('status') or 'NO_TRADE')}</b>",
-        _escape(_compact(trade.get('setup'), 500)),
-        f"Confirmation: {_escape(_compact(trade.get('confirmation'), 500))}",
-        f"Invalidation: {_escape(_compact(trade.get('invalidation'), 500))}",
-        f"Risk: {_escape(_compact(trade.get('risk_note'), 500))}",
+        "ราคาบนลงล่างใน Gamma Table • ช่องว่าง = ยังไม่มี source observation",
     ]
+    return "\n".join(lines)
+
+
+def _format_analysis_message(parsed: dict, ai_result: dict) -> str:
+    status = str(ai_result.get("analysis_status") or "CONFIRMED").upper()
+    bias = str(ai_result.get("bias") or "WAIT").upper()
+    raw = parsed.get("raw_series") or {}
+    technical = parsed.get("technical_context") or {}
+    confirmation = technical.get("confirmation") or {}
+
+    lines = [
+        "<b>🧭 GOLD • มองตลาดตอนนี้</b>",
+        f"ราคา CFD <b>{_escape(parsed.get('cfd_price', parsed.get('future_price', '-')))}</b> · Bias <b>{_escape(bias)}</b>",
+        "",
+        "<b>เกิดอะไรขึ้น</b>",
+        _escape(_compact(ai_result.get("what") or ai_result.get("market_overview"), 850)),
+        "",
+        "<b>ทำไมถึงสำคัญ</b>",
+        _escape(_compact(ai_result.get("why"), 850)),
+        "",
+        "<b>โครงสร้างตลาด</b>",
+        _escape(_compact(ai_result.get("positioning"), 850)),
+    ]
+
+    if confirmation:
+        lines += [
+            "",
+            "<b>Price / Technical Context</b>",
+            _escape(
+                _compact(
+                    f"H4={confirmation.get('bias','UNKNOWN')} | "
+                    f"HTF aligned={confirmation.get('htf_aligned','UNKNOWN')} | "
+                    f"M15/M5 aligned={confirmation.get('m15_m5_aligned','UNKNOWN')}",
+                    500,
+                )
+            ),
+        ]
+
+    levels = ai_result.get("levels") or {}
+    shown = [
+        ("resistance_current", "ต้านใกล้"),
+        ("resistance_main", "ต้านหลัก"),
+        ("support_current", "รับใกล้"),
+        ("support_main", "รับหลัก"),
+    ]
+    level_lines = [
+        f"{label}: <b>{_escape(levels.get(key) if levels.get(key) is not None else 'UNKNOWN')}</b>"
+        for key, label in shown
+    ]
+    lines += ["", "<b>จุดที่ต้องดู</b>"] + level_lines
+
     limitations = ai_result.get("data_limitations") or []
     if limitations:
-        lines += ["", "<b>DATA LIMITATIONS</b>"] + ["• " + _escape(_compact(x, 260)) for x in limitations[:4]]
-    refs = ai_result.get("evidence_refs") or []
-    if refs:
-        lines += ["", f"<i>Evidence: {_escape(', '.join(map(str, refs)))}</i>"]
+        lines += ["", "<b>สิ่งที่ยังไม่ชัด</b>"] + ["• " + _escape(_compact(x, 300)) for x in limitations[:3]]
+
     return "\n".join(lines)
+
+
+def _format_trade_plan_message(parsed: dict, ai_result: dict) -> str:
+    trade = ai_result.get("trade_plan") or {}
+    direction = str(trade.get("direction") or "WAIT").upper()
+    status = str(trade.get("status") or "NO_TRADE").upper()
+
+    lines = [
+        "<b>🎯 GOLD • TRADE PLAN</b>",
+        f"สถานะ: <b>{_escape(status)}</b> · ทิศทาง: <b>{_escape(direction)}</b>",
+        "",
+        f"<b>Entry</b>   {_escape(trade.get('entry') or 'UNKNOWN')}",
+        f"<b>SL</b>      {_escape(trade.get('stop_loss') or 'UNKNOWN')}",
+        f"<b>TP1</b>     {_escape(trade.get('take_profit_1') or 'UNKNOWN')}",
+        f"<b>TP2</b>     {_escape(trade.get('take_profit_2') or 'UNKNOWN')}",
+        "",
+        "<b>Setup</b>",
+        _escape(_compact(trade.get("setup"), 650)),
+        "",
+        "<b>Trigger</b>",
+        _escape(_compact(trade.get("trigger"), 650)),
+        "",
+        "<b>Invalidation</b>",
+        _escape(_compact(trade.get("invalidation"), 650)),
+        "",
+        "<b>เหตุผล</b>",
+        _escape(_compact(trade.get("confirmation"), 650)),
+        "",
+        "<b>Risk</b>",
+        _escape(_compact(trade.get("risk_note"), 500)),
+    ]
+    return "\n".join(lines)
+
+
+def format_message(parsed: dict, ai_result: dict) -> str:
+    """Backward-compatible alias for the second message."""
+    return _format_analysis_message(parsed, ai_result)
 
 
 def _post_with_retry(url: str, payload: dict, timeout: int = 20) -> None:
@@ -167,22 +223,38 @@ def send(
     if not chat_ids:
         raise RuntimeError("ไม่มี authorized chat_ids ให้ส่ง")
 
-    detailed = format_message(parsed, ai_result)
+    source_text = _format_source_message(parsed)
+    analysis_text = _format_analysis_message(parsed, ai_result)
+    trade_text = _format_trade_plan_message(parsed, ai_result)
+
     for cid in chat_ids:
-        if gamma_table_url:
+        photos = [url for url in (gamma_table_url, screenshot_url) if url]
+        if len(photos) >= 2:
+            media = [
+                {"type": "photo", "media": gamma_table_url, "caption": "GOLD GAMMA TABLE • 7 DAYS"},
+                {"type": "photo", "media": screenshot_url, "caption": "QUIKSTRIKE OI • SOURCE"},
+            ]
             _post_with_retry(
-                TELEGRAM_PHOTO_API.format(token=token),
-                {"chat_id": cid, "photo": gamma_table_url, "caption": "GOLD GAMMA TABLE — Multi-Expiration"},
+                f"https://api.telegram.org/bot{token}/sendMediaGroup",
+                {"chat_id": cid, "media": media},
             )
-        if screenshot_url:
-            _post_with_retry(
-                TELEGRAM_PHOTO_API.format(token=token),
-                {"chat_id": cid, "photo": screenshot_url, "caption": "QUIKSTRIKE OI — Source Screenshot"},
-            )
-        for chunk in _chunk(detailed):
-            _post_with_retry(
-                TELEGRAM_API.format(token=token),
-                {"chat_id": cid, "text": chunk, "parse_mode": "HTML"},
-            )
-            time.sleep(0.4)
-        print(f"✅ Telegram analyst update sent to {cid}")
+        else:
+            if gamma_table_url:
+                _post_with_retry(
+                    TELEGRAM_PHOTO_API.format(token=token),
+                    {"chat_id": cid, "photo": gamma_table_url, "caption": "GOLD GAMMA TABLE • 7 DAYS"},
+                )
+            if screenshot_url:
+                _post_with_retry(
+                    TELEGRAM_PHOTO_API.format(token=token),
+                    {"chat_id": cid, "photo": screenshot_url, "caption": "QUIKSTRIKE OI • SOURCE"},
+                )
+
+        for text in (source_text, analysis_text, trade_text):
+            for chunk in _chunk(text):
+                _post_with_retry(
+                    TELEGRAM_API.format(token=token),
+                    {"chat_id": cid, "text": chunk, "parse_mode": "HTML"},
+                )
+                time.sleep(0.4)
+        print(f"✅ Telegram 3-message analyst bundle sent to {cid}")
