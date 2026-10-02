@@ -8,6 +8,7 @@ Insert record ลง table `options_flow_snapshots`
 import os
 import re
 import time
+import uuid
 from supabase import create_client, Client
 
 SCREENSHOT_BUCKET = os.environ.get("SUPABASE_STORAGE_BUCKET", "oi-screenshots")
@@ -49,7 +50,12 @@ def upload_screenshot(image_bytes: bytes | None, contract: str | None = None) ->
     # in the database row, so no identifying information is lost.
     safe_contract = re.sub(r"[^A-Za-z0-9._-]+", "_", contract or "unknown")
     safe_contract = re.sub(r"_+", "_", safe_contract).strip("._-") or "unknown"
-    path = f"{safe_contract}/{time.strftime('%Y%m%d-%H%M%S')}.png"
+    # Object keys must be unique across rapid scheduled runs. Second-level
+    # timestamps can collide and cause Storage 409s, which would silently drop
+    # the real QuikStrike source screenshot from delivery.
+    timestamp = time.strftime("%Y%m%d-%H%M%S")
+    unique_suffix = uuid.uuid4().hex[:10]
+    path = f"{safe_contract}/{timestamp}-{unique_suffix}.png"
 
     client.storage.from_(SCREENSHOT_BUCKET).upload(
         path, image_bytes, {"content-type": "image/png"}
