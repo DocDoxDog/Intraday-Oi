@@ -22,7 +22,7 @@ from playwright.sync_api import sync_playwright
 OI_SELECTOR = "map area[fields]"
 INTRADAY_LINK_ID = "MainContent_ucViewControl_IntegratedV2VExpectedRange_1_lbIntraday"
 OI_LINK_ID = "MainContent_ucViewControl_IntegratedV2VExpectedRange_lbOI"
-EXPIRATION_LINK_SELECTOR = "a[id*='ucExpirationGroup'][id$='lbExpiration']"
+EXPIRATION_LINK_SELECTOR = "a[id*='lvExpirations'][id$='lbExpiration']"
 QUIKSTRIKE_REFERER = "https://www.cmegroup.com/tools-information/quikstrike/vol2vol-expected-range.html"
 QUIKSTRIKE_SESSION_STATE = os.environ.get("QUIKSTRIKE_SESSION_STATE", "/tmp/quikstrike_storage_state.json")
 
@@ -507,12 +507,17 @@ def _discover_gold_expirations(page, limit: int = 7) -> list[dict]:
         link = links.nth(i)
         try:
             text = (link.inner_text() or "").strip()
+            title = (link.get_attribute("title") or "").strip()
         except Exception:
             continue
-        if not text or "DTE" not in text.upper():
+
+        # Current QuikStrike puts DTE and Option Symbol in the anchor title,
+        # while the visible label shows only code/date.
+        metadata = "\n".join(x for x in (text, title) if x)
+        if not metadata or ("DTE" not in metadata.upper() and "OPTION EXPIRATION" not in metadata.upper()):
             continue
 
-        dte = _extract_dte(text)
+        dte = _extract_dte(metadata)
         if dte is None or dte <= 0:
             continue
 
@@ -521,9 +526,12 @@ def _discover_gold_expirations(page, limit: int = 7) -> list[dict]:
         except Exception:
             code = ""
         if not code:
-            code = _expiration_code_from_text(text, re.search(
+            match = re.search(r"Option Symbol:\s*([A-Za-z0-9._-]+)", metadata, re.I)
+            code = match.group(1).strip() if match else ""
+        if not code:
+            code = _expiration_code_from_text(metadata, re.search(
                 r"(?:(?:\([0-9]+(?:\.[0-9]+)?)\s*DTE\))|(?:DTE\s*[:=-]?\s*[0-9]+(?:\.[0-9]+)?)",
-                text, re.I,
+                metadata, re.I,
             ))
         code = code.strip()
         if not code or code.upper() in seen:
@@ -592,16 +600,21 @@ def _activate_expiration(page, code: str) -> None:
         link = links.nth(i)
         try:
             text = (link.inner_text() or "").strip()
+            title = (link.get_attribute("title") or "").strip()
             candidate = (link.locator(".item-name").inner_text() or "").strip()
         except Exception:
             continue
-        if not candidate and text:
+        metadata = "\n".join(x for x in (text, title) if x)
+        if not candidate:
+            match = re.search(r"Option Symbol:\s*([A-Za-z0-9._-]+)", metadata, re.I)
+            candidate = match.group(1).strip() if match else ""
+        if not candidate and metadata:
             # Same fallback identity rule used during discovery.
-            match = re.search(r"\(([0-9]+(?:\.[0-9]+)?)\s*DTE\)", text, re.I)
-            if match:
-                prefix = text[:match.start()].strip()
-                tokens = re.findall(r"[A-Za-z0-9._-]+", prefix)
-                candidate = tokens[-1] if tokens else ""
+            tokens = re.findall(r"[A-Za-z0-9._-]+", metadata)
+            for token in reversed(tokens):
+                if re.search(r"[A-Za-z]", token) and re.search(r"\d", token):
+                    candidate = token
+                    break
         if candidate == code:
             target = link
             break
