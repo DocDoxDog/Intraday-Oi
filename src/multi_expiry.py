@@ -264,8 +264,9 @@ def merge_expected_expirations(
     )
     observed_columns = [
         dict(col, status="OBSERVED")
-        for col in ordered_existing[: max(1, int(count))]
+        for col in ordered_existing
     ]
+    display_columns = observed_columns[: max(1, int(count))]
 
     observed_codes = [str(col["code"]).upper() for col in observed_columns]
     row_values = {
@@ -295,6 +296,7 @@ def merge_expected_expirations(
     out = dict(gamma_matrix)
     out.update({
         "columns": observed_columns,
+        "display_columns": display_columns,
         "matrix": matrix,
         "totals": totals,
         "expected_expirations": expected,
@@ -302,7 +304,7 @@ def merge_expected_expirations(
         "expected_expiration_count": len(expected),
         "observed_expiration_count": len(observed_columns),
         "expiration_count": len(observed_columns),
-        "display_complete": len(observed_columns) >= count,
+        "display_complete": len(display_columns) >= count,
         "status": "VALID" if matrix and observed_columns else "PARTIAL",
     })
     return out
