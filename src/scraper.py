@@ -492,18 +492,11 @@ def _expiration_code_from_text(text: str, dte_match: re.Match[str] | None = None
 
 
 def _discover_gold_expirations(page, limit: int = 7) -> list[dict]:
-    """Discover real expiration identities from the live selector.
-
-    The selector itself is authoritative. Do not depend on one ASP.NET control
-    ID or on the historical '(xx DTE)' formatting; both have changed across
-    QuikStrike renders.
-    """
+    """Discover real expiration identities and retain enough metadata to click exactly the same entry."""
     _open_expiration_menu(page)
 
     links = page.locator(EXPIRATION_LINK_SELECTOR)
     if links.count() == 0:
-        # The current CME render can expose the dropdown as buttons/options
-        # rather than anchors. Search only interactive expiration entries.
         links = page.locator("a,button,[role='option'],[role='menuitem'],li")
     if links.count() == 0:
         links = page.locator("a")
@@ -518,8 +511,6 @@ def _discover_gold_expirations(page, limit: int = 7) -> list[dict]:
         except Exception:
             continue
 
-        # Current QuikStrike puts DTE and Option Symbol in the anchor title,
-        # while the visible label shows only code/date.
         metadata = "\n".join(x for x in (text, title) if x)
         if not metadata or ("DTE" not in metadata.upper() and "OPTION EXPIRATION" not in metadata.upper()):
             continue
@@ -528,13 +519,13 @@ def _discover_gold_expirations(page, limit: int = 7) -> list[dict]:
         if dte is None or dte <= 0:
             continue
 
+        code = ""
         try:
-            code = ""
             item_name = link.locator(".item-name")
             if item_name.count():
                 code = (item_name.first.inner_text(timeout=2_000) or "").strip()
         except Exception:
-            code = ""
+            pass
         if not code:
             match = re.search(r"Option Symbol:\s*([A-Za-z0-9._-]+)", metadata, re.I)
             code = match.group(1).strip() if match else ""
@@ -548,15 +539,18 @@ def _discover_gold_expirations(page, limit: int = 7) -> list[dict]:
             continue
 
         seen.add(code.upper())
-        candidates.append({"code": code, "dte": dte})
+        candidates.append({
+            "code": code,
+            "dte": dte,
+            "title": title,
+            "text": text,
+            "id": (link.get_attribute("id") or "").strip(),
+        })
 
     candidates.sort(key=lambda x: (x["dte"], x["code"]))
     if candidates:
         return candidates[: max(1, int(limit))]
 
-    # Fallback: the active expiration is always present in the report heading,
-    # even when the selector menu itself is lazy-rendered. Keep this as a real
-    # single-expiry snapshot rather than inventing additional expirations.
     heading = ""
     try:
         heading = page.locator(".viewheader-info h3").first.inner_text()
@@ -589,10 +583,47 @@ def _discover_gold_expirations(page, limit: int = 7) -> list[dict]:
         f" | DTE_text={dte_lines!r}"
     )
 
+
+def _expiration_target(page, code: str):
+    """Find the exact QuikStrike expiration entry, preferring its Option Symbol title."""
+    exact_title = page.locator(f"a[title*='Option Symbol: {code}' i]")
+    if exact_title.count():
+        return exact_title.first
+
+    if code:
+        exact_id = page.locator(f"a#{code}")
+        if exact_id.count():
+            return exact_id.first
+
+    links = page.locator(EXPIRATION_LINK_SELECTOR)
+    if links.count() == 0:
+        links = page.locator("a,button,[role='option'],[role='menuitem'],li")
+    if links.count() == 0:
+        links = page.locator("a")
+
+    for i in range(links.count()):
+        link = links.nth(i)
+        try:
+            text = (link.inner_text() or "").strip()
+            title = (link.get_attribute("title") or "").strip()
+            item_name = link.locator(".item-name")
+            candidate = (
+                (item_name.first.inner_text(timeout=2_000) or "").strip()
+                if item_name.count() else ""
+            )
+        except Exception:
+            continue
+        metadata = "\n".join(x for x in (text, title) if x)
+        if not candidate:
+            match = re.search(r"Option Symbol:\s*([A-Za-z0-9._-]+)", metadata, re.I)
+            candidate = match.group(1).strip() if match else ""
+        if candidate == code:
+            return link
+    return None
+
+
 def _activate_expiration(page, code: str) -> None:
-    # When discovery had to use the active heading fallback, this code is
-    # already selected. Do not scan 100+ unrelated anchors; missing selectors
-    # can make per-anchor locator calls wait and exhaust the CI timeout.
+    """Select one expiration and prove the rendered heading changed to that exact code."""
     try:
         heading = page.locator(".viewheader-info h3").first.inner_text()
     except Exception:
@@ -600,68 +631,58 @@ def _activate_expiration(page, code: str) -> None:
     if code and code in heading:
         return
 
-    links = page.locator(EXPIRATION_LINK_SELECTOR)
-    if links.count() == 0:
-        links = page.locator("a,button,[role='option'],[role='menuitem'],li")
-    if links.count() == 0:
-        links = page.locator("a")
-    target = None
-    for i in range(links.count()):
-        link = links.nth(i)
+    target = _expiration_target(page, code)
+    if target is None:
         try:
-            text = (link.inner_text() or "").strip()
-            title = (link.get_attribute("title") or "").strip()
-            candidate = ""
-            item_name = link.locator(".item-name")
-            if item_name.count():
-                candidate = (item_name.first.inner_text(timeout=2_000) or "").strip()
+            _open_expiration_menu(page)
+            target = _expiration_target(page, code)
         except Exception:
-            continue
-        metadata = "\n".join(x for x in (text, title) if x)
-        if not candidate:
-            match = re.search(r"Option Symbol:\s*([A-Za-z0-9._-]+)", metadata, re.I)
-            candidate = match.group(1).strip() if match else ""
-        if not candidate and metadata:
-            # Same fallback identity rule used during discovery.
-            tokens = re.findall(r"[A-Za-z0-9._-]+", metadata)
-            for token in reversed(tokens):
-                if re.search(r"[A-Za-z]", token) and re.search(r"\d", token):
-                    candidate = token
-                    break
-        if candidate == code:
-            target = link
-            break
+            target = None
     if target is None:
         raise ScrapeError(f"ไม่พบ expiration {code}")
 
     before = _chart_fingerprint(page)
-    # The first candidate may already be the active expiration. In that case
-    # the existing chart is the correct chart and no postback is needed.
-    if code in before:
-        return
-    try:
-        trigger = page.locator("#ctl00_ucSelector_hlExpiration")
-        if trigger.count() and not target.is_visible():
-            trigger.click(timeout=10_000)
-            page.wait_for_timeout(250)
-        target.click(force=True, timeout=10_000)
-        last_heading = ""
-        for _ in range(45):
-            page.wait_for_timeout(1_000)
-            heading = (
-                page.locator(".viewheader-info h3").first.inner_text()
-                if page.locator(".viewheader-info h3").count()
-                else ""
-            )
-            current = _chart_fingerprint(page)
-            if code in heading and current != before:
-                return
-            last_heading = heading
-    except Exception as exc:
-        raise ScrapeError(f"เลือก expiration {code} ไม่สำเร็จ: {exc}") from exc
+    for attempt in range(2):
+        try:
+            if not target.is_visible():
+                trigger = page.locator("#ctl00_ucSelector_hlExpiration")
+                if trigger.count():
+                    trigger.click(timeout=10_000, force=True)
+                    page.wait_for_timeout(500)
+                    target = _expiration_target(page, code) or target
+            target.click(force=True, timeout=10_000)
+            last_heading = ""
+            for _ in range(45):
+                page.wait_for_timeout(1_000)
+                heading = (
+                    page.locator(".viewheader-info h3").first.inner_text()
+                    if page.locator(".viewheader-info h3").count()
+                    else ""
+                )
+                current = _chart_fingerprint(page)
+                if code in heading and current != before:
+                    return
+                last_heading = heading
+
+            # The first click can race an ASP.NET menu refresh. Re-open the
+            # dropdown and resolve the exact Option Symbol before retrying.
+            if attempt == 0:
+                _open_expiration_menu(page)
+                target = _expiration_target(page, code)
+                if target is None:
+                    break
+                before = _chart_fingerprint(page)
+        except Exception as exc:
+            if attempt == 1:
+                raise ScrapeError(f"เลือก expiration {code} ไม่สำเร็จ: {exc}") from exc
+            _open_expiration_menu(page)
+            target = _expiration_target(page, code)
+            if target is None:
+                break
+
     raise ScrapeError(
-        f"expiration {code} เปลี่ยน heading เป็น '{last_heading}' แต่ OI chart "
-        "ยังไม่เปลี่ยนจาก snapshot เดิม — หยุดเพื่อป้องกันการติดป้ายข้อมูลผิด"
+        f"expiration {code} เปลี่ยน heading เป็น '{last_heading}' แต่ไม่สามารถยืนยัน "
+        "OI chart identity ได้ — หยุดเพื่อป้องกันการติดป้ายข้อมูลผิด"
     )
 
 def scrape_multi_expiration(url: str | None = None, limit: int = 7) -> dict:
