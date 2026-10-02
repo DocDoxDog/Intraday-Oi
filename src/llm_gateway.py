@@ -176,7 +176,8 @@ def build_system_instruction(static_prefix: str) -> str:
         "\n\nNEVER invent market numbers.\n"
         "Every factual claim must be traceable to an evidence reference.\n"
         "Use only exact identifiers from input_refs in evidence_refs.\n"
-        "When evidence is missing, output NO_EVIDENCE.\n"
+        "When one evidence field is missing, mark that field UNKNOWN and continue using the valid evidence that remains.\n"
+        "Never abandon the full scenario analysis or conditional trade-plan requirement solely because one field lacks a baseline.\n"
         "LLM output is interpretation only; deterministic market truth remains authoritative."
     )
     return static_prefix.strip() + suffix
