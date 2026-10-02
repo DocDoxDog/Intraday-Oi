@@ -176,6 +176,7 @@ def _parse_legacy(raw):
     iv_values = [r.get("vol") for r in rows if isinstance(r.get("vol"), (int, float))]
     parsed = {
         "contract": heading,
+        "product_symbol": _product_symbol(heading),
         "expiration_code": (raw.get("expiration_selection") or {}).get("selected"),
         "dte": dte,
         "dte_low_confidence": low,
