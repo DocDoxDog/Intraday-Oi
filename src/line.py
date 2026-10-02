@@ -99,30 +99,6 @@ def _levels_message(parsed: dict, ai_result: dict) -> str:
     )
 
 
-def _levels_message(parsed: dict, ai_result: dict) -> str:
-    raw = parsed.get("raw_series") or {}
-    gamma = raw.get("multi_expiry_gamma") or {}
-    zones = raw.get("multi_expiry_gamma_zones") or {}
-    levels = ai_result.get("levels") or {}
-    scenarios = ai_result.get("scenarios") or {}
-    show=lambda v: "-" if v is None or v == "" else str(v)
-    return (
-        "KEY LEVELS\n"
-        f"ต้านไกล: {show(levels.get('resistance_far'))}\n"
-        f"ต้านหลัก: {show(levels.get('resistance_main'))}\n"
-        f"ต้านใกล้: {show(levels.get('resistance_current'))}\n"
-        f"รับใกล้: {show(levels.get('support_current'))}\n"
-        f"รับหลัก: {show(levels.get('support_main'))}\n"
-        f"รับลึก: {show(levels.get('support_deep'))}\n\n"
-        f"GAMMA TERM STRUCTURE\n"
-        f"{len(gamma.get('columns') or [])} expirations | +GEX zone {show(zones.get('highest_positive_gamma'))} | -GEX zone {show(zones.get('highest_negative_gamma'))}\n\n"
-        f"SCENARIOS\n"
-        f"🟢 Bull — {scenarios.get('bull') or '-'}\n"
-        f"🔴 Bear — {scenarios.get('bear') or '-'}\n"
-        f"🟡 Sideway — {scenarios.get('sideway') or '-'}"
-    )
-
-
 def _trade_plan_message(parsed: dict, ai_result: dict) -> str:
     trade = ai_result.get("trade_plan") or {}
     return (
@@ -138,7 +114,9 @@ def _trade_plan_message(parsed: dict, ai_result: dict) -> str:
         f"Risk/Reward: {trade.get('risk_reward') or 'UNKNOWN'}\n"
         f"Market Condition: {trade.get('market_condition') or 'UNKNOWN'}\n"
         f"Position Risk: {trade.get('position_risk') or 'UNKNOWN'}\n"
-        f"Risk: {trade.get('risk_note') or 'UNKNOWN'}"
+        f"Risk: {trade.get('risk_note') or 'UNKNOWN'}\n\n"
+        f"FINAL TRADE IDEA\n"
+        f"{ai_result.get('final_trade_idea') or trade.get('setup') or 'UNKNOWN'}"
     )
 
 
