@@ -162,8 +162,7 @@ def get_yesterday_summary(contract: str | None = None) -> dict:
         .lt("captured_at", end.astimezone(timezone.utc).isoformat())
         .order("captured_at", desc=False)
     )
-    if contract:
-        query = query.eq("contract", contract)
+    query = _apply_series_filter(query, contract)
 
     rows = query.execute().data or []
     return _summary_for_range(rows)
