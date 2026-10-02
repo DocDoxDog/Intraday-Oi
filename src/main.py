@@ -30,11 +30,12 @@ from src.analyze import analyze
 from src.twelve_data import fetch_spot, enrich_with_basis, TwelveDataError
 from src.technical_analysis import build_context
 from src.oi_positioning import enrich as enrich_oi_positioning
-from src.supabase_client import insert_snapshot, insert_oi_intelligence, insert_multi_expiry_options, upload_screenshot, get_active_chat_ids
+from src.supabase_client import insert_snapshot, insert_oi_intelligence, insert_multi_expiry_options, upload_screenshot, get_active_chat_ids, insert_news_announcements
 from src.url_manager import UrlManager, UrlManagerError
 from src import history, telegram, line
 from src.multi_expiry import build_gamma_matrix, summarize_gamma_zones, merge_expected_expirations, build_gold_weekly_series_window
 from src.gamma_chart import render_gamma_table
+from src.news_announcement import collect_news, format_news_announcement
 
 
 def run():
@@ -184,6 +185,18 @@ def run():
               f"migrations={len(migration.get('shifts', []))}")
     except Exception as e:
         print(f"⚠️  OI intelligence failed (raw OI remains available): {e}", file=sys.stderr)
+
+    print("[5.8/9] Fetching governed macro/news announcements...")
+    new_news_rows = []
+    try:
+        news_items = collect_news()
+        news_dicts = [item.as_dict() for item in news_items]
+        new_news_rows = insert_news_announcements(news_dicts)
+        parsed["news_context"] = [item.as_dict() for item in news_items[:10]]
+        print(f"    news candidates={len(news_items)} | new announcements={len(new_news_rows)}")
+    except Exception as e:
+        parsed["news_context"] = []
+        print(f"⚠️  News collection failed (analysis continues without news): {e}", file=sys.stderr)
 
     print("[6/9] Running local supaBOT-compatible analyst core → Gemini...")
     try:
@@ -367,6 +380,23 @@ def run():
         print("✅ Sent to Telegram")
     except Exception as e:
         print(f"⚠️  Telegram send failed (data still saved to Supabase): {e}", file=sys.stderr)
+
+    if new_news_rows:
+        news_text = format_news_announcement([
+            type("NewsItemProxy", (), {"category": row.get("category"), "headline": row.get("headline"), "source": row.get("source"), "published_at": row.get("published_at"), "url": row.get("url")})()
+            for row in new_news_rows
+        ])
+        try:
+            telegram.send_news(news_text, chat_ids=chat_ids)
+            print("✅ Sent NEWS ANNOUNCEMENT to Telegram")
+        except Exception as e:
+            print(f"⚠️  Telegram news announcement failed: {e}", file=sys.stderr)
+        if os.environ.get("LINE_CHANNEL_ACCESS_TOKEN"):
+            try:
+                line.send_news(news_text)
+                print("✅ Sent NEWS ANNOUNCEMENT to LINE")
+            except Exception as e:
+                print(f"⚠️  LINE news announcement failed: {e}", file=sys.stderr)
 
     print("[9/9] Sending to LINE (broadcast to all OA friends)...")
     if os.environ.get("LINE_CHANNEL_ACCESS_TOKEN"):
