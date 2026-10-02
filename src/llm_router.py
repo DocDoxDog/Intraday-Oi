@@ -122,46 +122,46 @@ class GeminiRouter:
             raise LLMRouterError("GEMINI_EMPTY_TEXT")
         return text
 
-    def _gemini_response_schema(schema: dict[str, Any]) -> dict[str, Any]:
-    """Convert canonical JSON Schema to Gemini responseSchema dialect.
+def _gemini_response_schema(schema: dict[str, Any]) -> dict[str, Any]:
+        """Convert canonical JSON Schema to Gemini responseSchema dialect.
 
-    The canonical schema remains full JSON Schema for local validation. Gemini's
-    generateContent responseSchema is a narrower schema dialect and rejects
-    keywords such as additionalProperties. Strip unsupported validation-only
-    keywords at the provider boundary rather than weakening the canonical schema.
-    """
-    unsupported = {
-        "additionalProperties",
-        "$schema",
-        "$id",
-        "$ref",
-        "$defs",
-        "definitions",
-        "title",
-        "description",
-        "default",
-        "examples",
-        "pattern",
-        "format",
-        "minLength",
-        "maxLength",
-        "minimum",
-        "maximum",
-        "exclusiveMinimum",
-        "exclusiveMaximum",
-        "minItems",
-        "maxItems",
-        "uniqueItems",
-    }
+        The canonical schema remains full JSON Schema for local validation. Gemini's
+        generateContent responseSchema is a narrower schema dialect and rejects
+        keywords such as additionalProperties. Strip unsupported validation-only
+        keywords at the provider boundary rather than weakening the canonical schema.
+        """
+        unsupported = {
+            "additionalProperties",
+            "$schema",
+            "$id",
+            "$ref",
+            "$defs",
+            "definitions",
+            "title",
+            "description",
+            "default",
+            "examples",
+            "pattern",
+            "format",
+            "minLength",
+            "maxLength",
+            "minimum",
+            "maximum",
+            "exclusiveMinimum",
+            "exclusiveMaximum",
+            "minItems",
+            "maxItems",
+            "uniqueItems",
+        }
 
-    def clean(value: Any) -> Any:
-        if isinstance(value, dict):
-            return {k: clean(v) for k, v in value.items() if k not in unsupported}
-        if isinstance(value, list):
-            return [clean(v) for v in value]
-        return value
+        def clean(value: Any) -> Any:
+            if isinstance(value, dict):
+                return {k: clean(v) for k, v in value.items() if k not in unsupported}
+            if isinstance(value, list):
+                return [clean(v) for v in value]
+            return value
 
-    return clean(schema)
+        return clean(schema)
 
 
 def _call_once(
