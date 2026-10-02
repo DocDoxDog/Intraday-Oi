@@ -63,6 +63,8 @@ def format_message(parsed: dict, ai_result: dict) -> str:
 
     raw = parsed.get("raw_series") or {}
     gex = raw.get("gex") or {}
+    gamma_matrix = raw.get("multi_expiry_gamma") or {}
+    gamma_zones = raw.get("multi_expiry_gamma_zones") or {}
     levels = {
         "ต้านไกล": ai_result.get("resistance_far"),
         "ต้านหลัก": ai_result.get("resistance_main"),
@@ -98,6 +100,13 @@ def format_message(parsed: dict, ai_result: dict) -> str:
 
     for name, value in levels.items():
         lines.append(f"{name}: <b>{_escape(_compact(value, 220))}</b>")
+
+    if gamma_matrix.get("expiration_count"):
+        lines += [
+            "",
+            "<b>Gamma structure</b>",
+            _escape(f"{gamma_matrix.get('expiration_count')} expirations | highest +GEX {gamma_zones.get('highest_positive_gamma') or 'UNKNOWN'} | highest -GEX {gamma_zones.get('highest_negative_gamma') or 'UNKNOWN'}"),
+        ]
 
     lines += [
         "",
@@ -186,6 +195,7 @@ def send(
     parsed: dict,
     ai_result: dict,
     screenshot_url: str | None = None,
+    gamma_table_url: str | None = None,
     chat_ids: list[str] | None = None,
 ) -> None:
     token = os.environ.get("TELEGRAM_BOT_TOKEN")
@@ -203,14 +213,23 @@ def send(
     notification = format_notification(parsed, ai_result)
 
     for cid in chat_ids:
+        if gamma_table_url:
+            try:
+                _post_with_retry(
+                    TELEGRAM_PHOTO_API.format(token=token),
+                    {"chat_id": cid, "photo": gamma_table_url, "caption": "GOLD GAMMA TABLE — Multi-Expiration"},
+                )
+            except Exception as exc:
+                print(f"⚠️ Telegram Gamma Table failed for {cid}: {exc}")
+
         if screenshot_url:
             try:
                 _post_with_retry(
                     TELEGRAM_PHOTO_API.format(token=token),
-                    {"chat_id": cid, "photo": screenshot_url},
+                    {"chat_id": cid, "photo": screenshot_url, "caption": "QUIKSTRIKE OI — Source Screenshot"},
                 )
             except Exception as exc:
-                print(f"⚠️ Telegram photo failed for {cid}: {exc}")
+                print(f"⚠️ Telegram OI photo failed for {cid}: {exc}")
 
         for chunk in _chunk(detailed):
             _post_with_retry(
