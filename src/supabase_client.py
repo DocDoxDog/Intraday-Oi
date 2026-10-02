@@ -152,7 +152,9 @@ def insert_multi_expiry_options(parsed: dict, snapshot_id: int | None = None) ->
         return 0
 
     client = get_client()
-    product = str(parsed.get("product_symbol") or "GC").upper()
+    product = str(parsed.get("product_symbol") or "").upper().strip()
+    if not product:
+        raise RuntimeError("MULTI_EXPIRY_PRODUCT_IDENTITY_UNRESOLVED")
     observed_at = parsed.get("observed_at") or parsed.get("retrieved_at")
     if not observed_at:
         raise RuntimeError("MULTI_EXPIRY_OBSERVED_AT_REQUIRED")
