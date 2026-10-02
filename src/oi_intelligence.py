@@ -25,6 +25,9 @@ def classify_flow(row,price_change=None,iv_change=None):
 def delta_adjusted_exposure(rows,multiplier=100.0):
     out=[]; net=0.0; gross=0.0
     for r in rows:
+        if not isinstance(r, dict):
+            out.append({"call_delta_exposure":None,"put_delta_exposure":None,"net_delta_exposure":None,"gross_delta_exposure":None,"delta_exposure_status":"UNKNOWN"})
+            continue
         co=_f(r.get("oiCall")); po=_f(r.get("oiPut")); cd=_f(r.get("callDelta")); pd=_f(r.get("putDelta"))
         if co is None or po is None or cd is None or pd is None:
             x=dict(r)
@@ -40,12 +43,14 @@ def delta_adjusted_exposure(rows,multiplier=100.0):
 def build_flow_hypotheses(rows,future_change=None):
     events=[]
     for r in rows:
+        if not isinstance(r, dict):
+            continue
         f=classify_flow(r,future_change)
         if f["label"]!="UNKNOWN" or r.get("oi_delta_call") or r.get("oi_delta_put"):
             events.append({"strike":r.get("strike"),"call_oi":r.get("oiCall"),"put_oi":r.get("oiPut"),"delta_oi_call":r.get("oi_delta_call"),"delta_oi_put":r.get("oi_delta_put"),**f})
     return {"events":events,"unknown_rate":sum(e["label"]=="UNKNOWN" for e in events)/len(events) if events else 1.0}
 def oi_migration(previous_rows,current_rows):
-    prev={float(r["strike"]):r for r in (previous_rows or []) if r.get("strike") is not None}; cur={float(r["strike"]):r for r in current_rows if r.get("strike") is not None}; shifts=[]
+    prev={float(r["strike"]):r for r in (previous_rows or []) if isinstance(r, dict) and r.get("strike") is not None}; cur={float(r["strike"]):r for r in (current_rows or []) if isinstance(r, dict) and r.get("strike") is not None}; shifts=[]
     for side,field in (("call","oiCall"),("put","oiPut")):
         known_prev = {k: _f(v.get(field)) for k, v in prev.items() if _f(v.get(field)) is not None}
         known_cur = {k: _f(v.get(field)) for k, v in cur.items() if _f(v.get(field)) is not None}
