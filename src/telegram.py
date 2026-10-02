@@ -1,9 +1,4 @@
-"""Telegram delivery for the verified human-readable OI analyst narrative.
-
-Telegram is the proactive notification surface. It does not generate or invent
-trade execution levels locally; deterministic market data and supaBOT output
-remain the only sources of factual claims.
-"""
+"""Telegram delivery and presentation for the GOLD Market Analyst."""
 
 from __future__ import annotations
 
@@ -30,15 +25,24 @@ def _thai_datetime_str(dt: datetime | None = None) -> str:
     return f"วันที่ {dt.day} {months[dt.month]} {dt.year + 543} | เวลา {dt:%H:%M} น."
 
 
-def _compact(value: object, limit: int = 500) -> str:
-    text = " ".join(str(value or "-").split())
-    if len(text) <= limit:
-        return text
-    return text[:limit].rsplit(" ", 1)[0] + "..."
-
-
 def _escape(value: object) -> str:
     return html.escape(str(value or "-"), quote=False)
+
+
+def _show(value: object, digits: int = 2) -> str:
+    if value is None or value == "":
+        return "-"
+    if isinstance(value, (int, float)):
+        return f"{float(value):,.{digits}f}"
+    text = str(value).strip()
+    try:
+        return f"{float(text):,.{digits}f}"
+    except ValueError:
+        return text
+
+
+def _text(value: object) -> str:
+    return str(value or "-").strip()
 
 
 def _chunk(text: str, limit: int = MAX_MESSAGE_LEN) -> list[str]:
@@ -57,115 +61,65 @@ def _chunk(text: str, limit: int = MAX_MESSAGE_LEN) -> list[str]:
     return chunks
 
 
-def _format_source_message(parsed: dict) -> str:
-    raw = parsed.get("raw_series") or {}
-    window = raw.get("gold_series_window") or []
-    gamma = raw.get("multi_expiry_gamma") or {}
-    observed = sum(1 for c in (gamma.get("columns") or []) if c.get("status") == "OBSERVED")
-
-    lines = [
-        "<b>GOLD OPTIONS • 7-DAY TERM STRUCTURE</b>",
-        "Source: CME QuikStrike",
-        f"Observed: <b>{observed}/7</b> series",
-        "",
-    ]
-    for item in window[:7]:
-        code = item.get("code") or "UNKNOWN"
-        date = str(item.get("expiry_date") or "")
-        date_label = f"{date[8:10]}/{date[5:7]}" if len(date) >= 10 else "--/--"
-        status = "✓" if item.get("status") == "OBSERVED" else "—"
-        dte = item.get("dte")
-        dte_label = f"DTE {dte:.2f}" if isinstance(dte, (int, float)) else "DTE —"
-        lines.append(f"{status} {date_label} {item.get('weekday_short','')} · <b>{_escape(code)}</b> · {dte_label}")
-
-    lines += [
-        "",
-        "ราคาบนลงล่างใน Gamma Table • ช่องว่าง = ยังไม่มี source observation",
-    ]
-    return "\n".join(lines)
-
-
-def _format_news_context(items: list[dict]) -> str:
-    """Show current source-backed macro/news evidence inside the analyst bundle."""
-    if not items:
-        return "ไม่มีข่าว/ประกาศที่ผ่าน relevance filter ในรอบนี้"
-    lines = []
-    for item in items[:3]:
-        headline = _escape(item.get("headline") or "UNKNOWN")
-        source = _escape(item.get("source") or "UNKNOWN")
-        published = _escape(item.get("published_at") or "UNKNOWN")
-        category = _escape(item.get("category") or "OTHER")
-        lines.append(f"• <b>{category}</b> — {headline} | {source} | {published}")
-    return "\n".join(lines)
-
-
 def _format_analysis_message(parsed: dict, ai_result: dict) -> str:
-    """Readable analyst message with strong section hierarchy."""
-    def show(value, digits=2):
-        if value is None or value == "":
-            return "-"
-        if isinstance(value, (int, float)):
-            return f"{float(value):.{digits}f}"
-        text = str(value).strip()
-        try:
-            return f"{float(text):.{digits}f}"
-        except ValueError:
-            return text
-
     raw = parsed.get("raw_series") or {}
     totals = raw.get("totals") or {}
-    dex = raw.get("delta_exposure") or {}
-    flow = raw.get("flow_hypotheses") or {}
-    migration = raw.get("oi_migration") or {}
-    history_1h = raw.get("history_delta_1h") or {}
-    gamma = raw.get("gex") or {}
+    news = parsed.get("news_context") or []
+    status = str(ai_result.get("analysis_status") or "CONFIRMED").upper()
+    bias = str(ai_result.get("bias") or "WAIT").upper()
 
-    sections = [
-        f"<b>GOLD MARKET ANALYST V2</b>\n{_thai_datetime_str()}",
-        f"<b>Futures</b> {show(parsed.get('future_price'))}  |  <b>CFD</b> {show(parsed.get('cfd_price'))}  |  <b>Basis</b> {show(parsed.get('basis_diff'))} (FUTURES - CFD)  |  <b>DTE</b> {show(parsed.get('dte'))}",
-        f"<b>Status</b> {_escape(str(ai_result.get('analysis_status') or 'CONFIRMED').upper())}  |  <b>Bias</b> {_escape(str(ai_result.get('bias') or 'WAIT').upper())}",
+    lines = [
+        "<b>GOLD MARKET ANALYST V2</b>",
+        _thai_datetime_str(),
+        f"<b>Futures</b> {_show(parsed.get('future_price'))}  |  "
+        f"<b>CFD</b> {_show(parsed.get('cfd_price'))}  |  "
+        f"<b>Basis</b> {_show(parsed.get('basis_diff'))} (FUTURES - CFD)",
+        f"<b>DTE</b> {_show(parsed.get('dte'))}  |  "
+        f"<b>Status</b> {status}  |  <b>Bias</b> {bias}",
         "",
-        "<b>FLOW SNAPSHOT</b>",
-        f"OI  Put {_escape(show(totals.get('open_interest_view_put', totals.get('open_interest_put'))))}  |  Call {_escape(show(totals.get('open_interest_view_call', totals.get('open_interest_call'))))}",
-        f"ΔOI 1H Put {_escape(show(history_1h.get('oi_put')))}  |  Call {_escape(show(history_1h.get('oi_call')))}",
-        f"Churn 1H {_escape(show(history_1h.get('churn')))}  |  IV {_escape(show(parsed.get('vol')))}%  |  ΔIV {_escape(show(history_1h.get('vol_change')))}",
-        f"ΔOI Total {_escape(show(totals.get('oi_delta_total')))}  |  Net GEX {_escape(show(gamma.get('net_gex')))}",
-        f"Delta Exposure {_escape(show(dex.get('net_delta_exposure')))}  |  Flow UNKNOWN {_escape(show(flow.get('unknown_rate'), 2))}",
-        f"OI Migration {_escape(str(len(migration.get('shifts') or [])))} shifts",
-        f"TODAY ΔOI {_escape(show((raw.get('history_comparison') or {}).get('today_oi_change')))} | YDAY ΔOI {_escape(show((raw.get('history_comparison') or {}).get('yesterday_oi_change')))}",
-        f"1H ΔPrice {_escape(show(history_1h.get('future_price_change')))} | ΔGEX {_escape(show(history_1h.get('gex_change')))}",
-        "",
-        "<b>MARKET REGIME</b>",
-        _escape(ai_result.get("market_regime") or "UNKNOWN"),
-        "",
-        "<b>MACRO</b>",
-        _escape(ai_result.get("macro") or "UNKNOWN"),
-        "",
-        "<b>NEWS / MACRO CATALYST</b>",
-        _format_news_context(parsed.get("news_context") or []),
-        "",
-        "<b>FINANCIAL ENGINEERING</b>",
-        _escape(ai_result.get("financial_engineering") or "-"),
-        "",
-        "<b>MARKET MICROSTRUCTURE</b>",
-        _escape(ai_result.get("market_microstructure") or "-"),
-        "",
-        "<b>MARKET PSYCHOLOGY</b>",
-        _escape(ai_result.get("market_psychology") or "-"),
-        "",
-        "<b>WHAT</b>",
+        "<b>MARKET STATE</b>",
+        f"<b>Regime:</b> {_escape(ai_result.get('market_regime') or 'UNKNOWN')}",
         _escape(ai_result.get("what") or ai_result.get("market_overview") or "-"),
         "",
-        "<b>WHY</b>",
-        _escape(ai_result.get("why") or "-"),
+        "<b>DRIVERS</b>",
+        f"<b>Macro:</b> {_escape(ai_result.get('macro') or '-')}",
+        f"<b>Financial Engineering:</b> {_escape(ai_result.get('financial_engineering') or '-')}",
+        f"<b>Microstructure:</b> {_escape(ai_result.get('market_microstructure') or '-')}",
+        f"<b>Psychology:</b> {_escape(ai_result.get('market_psychology') or '-')}",
         "",
-        "<b>POSITIONING</b>",
+        "<b>WHY / POSITIONING</b>",
+        _escape(ai_result.get("why") or "-"),
         _escape(ai_result.get("positioning") or "-"),
         "",
-        "<b>HISTORY CHANGE</b>",
+        "<b>FLOW & HISTORY</b>",
+        f"OI  Put {_show(totals.get('open_interest_view_put', totals.get('open_interest_put')))}"
+        f"  |  Call {_show(totals.get('open_interest_view_call', totals.get('open_interest_call')))}"
+        f"  |  Total {_show(totals.get('open_interest_view_total', totals.get('open_interest_total')))}",
+        f"OI Change  Put {_show(totals.get('oi_change_put'))}"
+        f"  |  Call {_show(totals.get('oi_change_call'))}"
+        f"  |  Total {_show(totals.get('oi_change_total'))}",
+        f"ΔOI vs baseline  Put {_show(totals.get('oi_delta_put'))}"
+        f"  |  Call {_show(totals.get('oi_delta_call'))}"
+        f"  |  Total {_show(totals.get('oi_delta_total'))}",
+        f"Churn  Put {_show(totals.get('quikstrike_churn_put'))}"
+        f"  |  Call {_show(totals.get('quikstrike_churn_call'))}"
+        f"  |  Total {_show(totals.get('churn'))}",
+        f"IV {_show(parsed.get('vol'))}%  |  IV Δ {_show(parsed.get('vol_chg'))}%",
         _escape(ai_result.get("history_comparison") or "-"),
     ]
-    return "\n".join(sections)
+
+    if news:
+        lines += ["", "<b>NEWS CONTEXT</b>"]
+        for item in news[:2]:
+            headline = item.get("headline") or "-"
+            source = item.get("source") or "-"
+            published = item.get("published_at") or "-"
+            lines.append(
+                f"• <b>{_escape(headline)}</b>\n"
+                f"  {_escape(source)} | {_escape(published)}"
+            )
+
+    return "\n".join(lines)
 
 
 def _format_levels_message(parsed: dict, ai_result: dict) -> str:
@@ -176,67 +130,59 @@ def _format_levels_message(parsed: dict, ai_result: dict) -> str:
     scenarios = ai_result.get("scenarios") or {}
 
     def show(value):
-        if value is None or value == "":
-            return "-"
-        if isinstance(value, (int, float)):
-            return f"{float(value):.2f}"
-        text = str(value).strip()
-        try:
-            return f"{float(text):.2f}"
-        except ValueError:
-            return text
+        return _escape(_show(value))
 
-    return (
-        "<b>KEY LEVELS</b>\n"
-        f"🔴 ต้านไกล: <b>{show(levels.get('resistance_far'))}</b>\n"
-        f"🔴 ต้านหลัก: <b>{show(levels.get('resistance_main'))}</b>\n"
-        f"🟠 ต้านใกล้: <b>{show(levels.get('resistance_current'))}</b>\n"
-        f"🟢 รับใกล้: <b>{show(levels.get('support_current'))}</b>\n"
-        f"🟢 รับหลัก: <b>{show(levels.get('support_main'))}</b>\n"
-        f"🟢 รับลึก: <b>{show(levels.get('support_deep'))}</b>\n\n"
-        "<b>GAMMA TERM STRUCTURE</b>\n"
-        f"<b>{len(gamma.get('columns') or [])}</b> expirations | "
-        f"+GEX zone <b>{show(zones.get('highest_positive_gamma'))}</b> | "
-        f"-GEX zone <b>{show(zones.get('highest_negative_gamma'))}</b>\n\n"
-        "<b>SCENARIOS</b>\n"
-        f"🟢 <b>Bull</b> — {_escape(scenarios.get('bull') or '-')}\n"
-        f"🔴 <b>Bear</b> — {_escape(scenarios.get('bear') or '-')}\n"
-        f"🟡 <b>Sideway</b> — {_escape(scenarios.get('sideway') or '-')}\n\n"
-        "<b>CASE MAP</b>\n"
-        f"BASE: {_escape(ai_result.get('base_case') or '-')}\n"
-        f"ALT: {_escape(ai_result.get('alternative_case') or '-')}\n"
-        f"INVALIDATION: {_escape(ai_result.get('invalidation_case') or '-')}"
-    )
+    return "\n".join([
+        "<b>KEY LEVELS (CFD)</b>",
+        f"🔴 ต้านไกล: <b>{show(levels.get('resistance_far'))}</b>",
+        f"🔴 ต้านหลัก: <b>{show(levels.get('resistance_main'))}</b>",
+        f"🟠 ต้านใกล้: <b>{show(levels.get('resistance_current'))}</b>",
+        f"🟢 รับใกล้: <b>{show(levels.get('support_current'))}</b>",
+        f"🟢 รับหลัก: <b>{show(levels.get('support_main'))}</b>",
+        f"🟢 รับลึก: <b>{show(levels.get('support_deep'))}</b>",
+        "",
+        "<b>GAMMA TERM STRUCTURE</b>",
+        f"<b>{len(gamma.get('columns') or [])}</b> expirations"
+        f"  |  +GEX zone <b>{show(zones.get('highest_positive_gamma'))}</b>"
+        f"  |  -GEX zone <b>{show(zones.get('highest_negative_gamma'))}</b>",
+        "",
+        "<b>SCENARIOS</b>",
+        f"🟢 <b>Bull</b> — {_escape(scenarios.get('bull') or '-')}",
+        f"🔴 <b>Bear</b> — {_escape(scenarios.get('bear') or '-')}",
+        f"🟡 <b>Sideway</b> — {_escape(scenarios.get('sideway') or '-')}",
+        "",
+        "<b>CASE MAP</b>",
+        f"<b>BASE</b> — {_escape(ai_result.get('base_case') or '-')}",
+        f"<b>ALT</b> — {_escape(ai_result.get('alternative_case') or '-')}",
+        f"<b>INVALIDATION</b> — {_escape(ai_result.get('invalidation_case') or '-')}",
+    ])
 
 
 def _format_trade_plan_message(parsed: dict, ai_result: dict) -> str:
     trade = ai_result.get("trade_plan") or {}
-    return (
-        "<b>TRADE PLAN</b>\n"
-        f"Status: {_escape(str(trade.get('status') or 'CONDITIONAL').upper())}\n"
-        f"Direction: {_escape(trade.get('direction') or 'WAIT')}\n"
-        f"Entry: {_escape(trade.get('entry') or 'UNKNOWN')}\n"
-        f"Stop: {_escape(trade.get('stop_loss') or 'UNKNOWN')}\n"
-        f"TP1: {_escape(trade.get('take_profit_1') or 'UNKNOWN')}\n"
-        f"TP2: {_escape(trade.get('take_profit_2') or 'UNKNOWN')}\n"
-        f"Trigger: {_escape(trade.get('trigger') or 'UNKNOWN')}\n"
-        f"Invalidation: {_escape(trade.get('invalidation') or 'UNKNOWN')}\n"
-        f"Risk/Reward: {_escape(trade.get('risk_reward') or 'UNKNOWN')}\n"
-        f"Market Condition: {_escape(trade.get('market_condition') or 'UNKNOWN')}\n"
-        f"Position Risk: {_escape(trade.get('position_risk') or 'UNKNOWN')}\n"
-        f"Risk: {_escape(trade.get('risk_note') or 'UNKNOWN')}\n\n"
-        f"<b>FINAL TRADE IDEA</b>\n"
-        f"{_escape(ai_result.get('final_trade_idea') or trade.get('setup') or 'UNKNOWN')}"
-    )
+    return "\n".join([
+        "<b>TRADE PLAN</b>",
+        f"Status: {_escape(str(trade.get('status') or 'CONDITIONAL').upper())}",
+        f"<b>Direction:</b> {_escape(trade.get('direction') or 'WAIT')}",
+        f"<b>Entry:</b> {_escape(trade.get('entry') or 'UNKNOWN')}",
+        f"<b>Stop:</b> {_escape(trade.get('stop_loss') or 'UNKNOWN')}",
+        f"<b>TP1:</b> {_escape(trade.get('take_profit_1') or 'UNKNOWN')}",
+        f"<b>TP2:</b> {_escape(trade.get('take_profit_2') or 'UNKNOWN')}",
+        "",
+        f"<b>Trigger:</b> {_escape(trade.get('trigger') or 'UNKNOWN')}",
+        f"<b>Invalidation:</b> {_escape(trade.get('invalidation') or 'UNKNOWN')}",
+        f"<b>Risk/Reward:</b> {_escape(trade.get('risk_reward') or 'UNKNOWN')}",
+        f"<b>Market Condition:</b> {_escape(trade.get('market_condition') or 'UNKNOWN')}",
+        f"<b>Position Risk:</b> {_escape(trade.get('position_risk') or 'UNKNOWN')}",
+        f"<b>Risk:</b> {_escape(trade.get('risk_note') or 'UNKNOWN')}",
+        "",
+        "<b>FINAL TRADE IDEA</b>",
+        _escape(ai_result.get('final_trade_idea') or trade.get('setup') or 'UNKNOWN'),
+    ])
 
 
 def format_message(parsed: dict, ai_result: dict) -> str:
-    """Canonical single Telegram analyst message."""
-    return "\n\n".join([
-        _format_analysis_message(parsed, ai_result),
-        _format_levels_message(parsed, ai_result),
-        _format_trade_plan_message(parsed, ai_result),
-    ])
+    return _format_analysis_message(parsed, ai_result)
 
 
 def _post_with_retry(url: str, payload: dict, timeout: int = 20) -> None:
@@ -273,13 +219,11 @@ def send_news(news_text: str, *, chat_ids: list[str]) -> None:
     token = os.environ.get("TELEGRAM_BOT_TOKEN")
     if not token:
         raise RuntimeError("TELEGRAM_BOT_TOKEN ไม่ได้ตั้งค่า")
-    if not chat_ids:
-        return
     for cid in [str(x).strip() for x in chat_ids if str(x).strip()]:
         for chunk in _chunk(news_text):
             _post_with_retry(
                 TELEGRAM_API.format(token=token),
-                {"chat_id": cid, "text": chunk},
+                {"chat_id": cid, "text": chunk, "parse_mode": "HTML"},
             )
         print(f"✅ Telegram NEWS ANNOUNCEMENT sent to {cid}")
 
@@ -291,7 +235,6 @@ def send(
     chat_ids: list[str] | None = None,
     gamma_table_url: str | None = None,
     gamma_table_full_url: str | None = None,
-    news_text: str | None = None,
 ) -> None:
     token = os.environ.get("TELEGRAM_BOT_TOKEN")
     if not token:
@@ -302,10 +245,7 @@ def send(
     if not chat_ids:
         raise RuntimeError("ไม่มี authorized chat_ids ให้ส่ง")
 
-    messages = [format_message(parsed, ai_result)]
-
     for cid in chat_ids:
-        # Two Gamma views + source screenshot, then one consolidated analyst message.
         if gamma_table_url:
             _post_with_retry(
                 TELEGRAM_PHOTO_API.format(token=token),
@@ -321,19 +261,17 @@ def send(
                 TELEGRAM_PHOTO_API.format(token=token),
                 {"chat_id": cid, "photo": screenshot_url, "caption": "QUIKSTRIKE OI — Source Screenshot"},
             )
-        if news_text:
-            for chunk in _chunk(news_text):
-                _post_with_retry(
-                    TELEGRAM_API.format(token=token),
-                    {"chat_id": cid, "text": chunk, "parse_mode": "HTML"},
-                )
-                time.sleep(0.4)
 
-        for text_value in messages:
-            for chunk in _chunk(text_value):
+        for message in (
+            _format_analysis_message(parsed, ai_result),
+            _format_levels_message(parsed, ai_result),
+            _format_trade_plan_message(parsed, ai_result),
+        ):
+            for chunk in _chunk(message):
                 _post_with_retry(
                     TELEGRAM_API.format(token=token),
                     {"chat_id": cid, "text": chunk, "parse_mode": "HTML"},
                 )
-                time.sleep(0.4)
+                time.sleep(0.25)
+
         print(f"✅ Telegram analyst bundle sent to {cid}")
