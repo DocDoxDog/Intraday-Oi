@@ -796,6 +796,12 @@ def scrape_multi_expiration(url: str | None = None, limit: int = 7) -> dict:
                 chart_data = page.evaluate(EXTRACT_INTRADAY_JS)
                 if not chart_data.get("strike_rows"):
                     chart_data = page.evaluate(EXTRACT_HIGHCHARTS_JS)
+
+                # Secondary OI views are only needed for the primary expiry.
+                # This keeps the term-structure scrape fast while still giving
+                # the analyst real OI Change / Churn evidence.
+                secondary_views = _read_secondary_oi_views(page) if index == 0 else {}
+
                 if chart_data.get("error") or (
                     not chart_data.get("strike_rows") and not chart_data.get("charts")
                 ):
@@ -845,7 +851,7 @@ def scrape_multi_expiration(url: str | None = None, limit: int = 7) -> dict:
                         else "quikstrike_highcharts_fallback"
                     ),
                     "chart_data": chart_data,
-                    "secondary_views": {},
+                    "secondary_views": secondary_views,
                     "expiration_selection": {
                         "selected": candidate["code"],
                         "policy": "multi_expiry_term_structure",
