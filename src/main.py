@@ -24,7 +24,7 @@ load_dotenv()
 if __package__ in {None, ""}:
     sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from src.scraper import scrape, ScrapeError
+from src.scraper import scrape, scrape_multi_expiration, ScrapeError
 from src.parser import parse, ParseError
 from src.analyze import analyze
 from src.twelve_data import fetch_spot, enrich_with_basis, TwelveDataError
@@ -33,6 +33,7 @@ from src.oi_positioning import enrich as enrich_oi_positioning
 from src.supabase_client import insert_snapshot, insert_oi_intelligence, upload_screenshot, get_active_chat_ids
 from src.url_manager import UrlManager, UrlManagerError
 from src import history, telegram, line
+from src.multi_expiry import build_gamma_matrix, summarize_gamma_zones
 
 
 def run():
@@ -46,7 +47,12 @@ def run():
 
     print("[2/8] Scraping QuikStrike...")
     try:
-        raw = scrape(quikstrike_url)
+        max_expirations = max(1, int(os.environ.get("QUIKSTRIKE_MAX_EXPIRATIONS", "7")))
+        if max_expirations > 1:
+            raw = scrape_multi_expiration(quikstrike_url, limit=max_expirations)
+            print(f"    multi-expiration enabled: {len(raw.get('expiration_snapshots') or [])} expirations")
+        else:
+            raw = scrape(quikstrike_url)
     except ScrapeError as e:
         print(f"❌ Scrape failed: {e}", file=sys.stderr)
         sys.exit(1)
@@ -61,6 +67,13 @@ def run():
     parsed.setdefault("product_symbol", "GC")
     parsed["retrieved_at"] = datetime.now(timezone.utc).isoformat()
     parsed["observed_at"] = parsed["retrieved_at"]
+    expiry_snapshots = parsed.get("expiration_snapshots") or []
+    if expiry_snapshots:
+        gamma_matrix = build_gamma_matrix(expiry_snapshots, current_price=parsed.get("future_price"))
+        gamma_zones = summarize_gamma_zones(gamma_matrix)
+        parsed.setdefault("raw_series", {})["multi_expiry_gamma"] = gamma_matrix
+        parsed["raw_series"]["multi_expiry_gamma_zones"] = gamma_zones
+        print(f"    gamma matrix: {gamma_matrix['expiration_count']} expirations x {len(gamma_matrix['strikes'])} strikes")
     print(f"    product={parsed['product_symbol']} contract={parsed['contract']} future={parsed['future_price']} "
           f"dte={parsed.get('dte')} retrieved_at={parsed['retrieved_at']}")
     if parsed.get("dte_low_confidence"):
