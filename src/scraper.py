@@ -321,19 +321,55 @@ def _read_highcharts(page) -> dict:
 
 
 def _read_secondary_oi_views(page) -> dict:
-    """Read OI Change and Churn when QuikStrike exposes them in the free view."""
-    views = {
-        "oi_change": "MainContent_ucViewControl_IntegratedV2VExpectedRange_lbOIChg",
-        "churn": "MainContent_ucViewControl_IntegratedV2VExpectedRange_lbChurn",
+    """Read OI Change and Churn from the live QuikStrike UI when exposed."""
+    candidates = {
+        "oi_change": [
+            "#MainContent_ucViewControl_IntegratedV2VExpectedRange_lbOIChg",
+            "#MainContent_ucViewControl_IntegratedV2VExpectedRange_lbOIChange",
+        ],
+        "churn": [
+            "#MainContent_ucViewControl_IntegratedV2VExpectedRange_lbChurn",
+        ],
     }
     out = {}
-    for name, element_id in views.items():
-        link = page.locator(f"#{element_id}")
-        if not link.count():
+
+    for name, selectors in candidates.items():
+        link = None
+        for selector in selectors:
+            loc = page.locator(selector)
+            if loc.count():
+                link = loc.first
+                break
+
+        if link is None:
+            label = re.compile(
+                r"^\\s*(?:OI\\s*Change|Churn)\\s*$",
+                re.I,
+            )
+            loc = page.get_by_text(label)
+            if loc.count():
+                link = loc.first
+
+        if link is None:
+            # Last fallback: interactive elements whose visible text matches.
+            label_text = "OI Change" if name == "oi_change" else "Churn"
+            loc = page.locator("a,button,[role='tab'],[role='button']")
+            for i in range(min(loc.count(), 300)):
+                try:
+                    if " ".join((loc.nth(i).inner_text() or "").split()).lower() == label_text.lower():
+                        link = loc.nth(i)
+                        break
+                except Exception:
+                    continue
+
+        if link is None:
             continue
+
         try:
+            if not link.is_visible():
+                continue
             link.click(force=True, timeout=15_000)
-            page.wait_for_timeout(2_000)
+            page.wait_for_timeout(2_500)
 
             aux = page.evaluate(EXTRACT_AUX_IMAGE_MAP_JS)
             if aux.get("rows"):
@@ -345,6 +381,7 @@ def _read_secondary_oi_views(page) -> dict:
                 out[name] = data
         except Exception:
             continue
+
     return out
 
 
@@ -844,6 +881,14 @@ def scrape_multi_expiration(url: str | None = None, limit: int = 7) -> dict:
                 # Collect secondary source views only for the primary expiry,
                 # then return to the OI view before the next expiration.
                 secondary_views = _read_secondary_oi_views(page) if index == 0 else {}
+                if index == 0:
+                    print(
+                        "[scrape] secondary views: "
+                        + ", ".join(sorted(secondary_views.keys()))
+                        if secondary_views
+                        else "[scrape] secondary views: none exposed",
+                        flush=True,
+                    )
                 if index == 0 and secondary_views:
                     _load_oi_chart(page)
 
