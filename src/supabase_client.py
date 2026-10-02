@@ -86,11 +86,9 @@ def insert_snapshot(
 
 
 def get_active_chat_ids() -> list[str]:
-    """ดึงรายชื่อ chat_id ที่ active=true จากตาราง customers
-    เพิ่ม/ปิดลูกค้าใหม่ = แก้แถวในตารางนี้เท่านั้น ไม่ต้องแตะ GitHub Secret หรือโค้ด
-
-    คืน list ว่างถ้า query ไม่สำเร็จหรือไม่มีแถวเลย — ให้ main.py ตัดสินใจเองว่าจะ
-    fallback ไปใช้ TELEGRAM_CHAT_ID (env) แทนหรือไม่ (เผื่อยังไม่ได้รัน migration 005)
+    """Return active authorized Telegram chat IDs from the customer registry.
+    Empty is a valid "nobody authorized" state; registry errors propagate so
+    callers cannot mistake an authorization outage for an empty customer list.
     """
     try:
         client = get_client()
@@ -102,8 +100,7 @@ def get_active_chat_ids() -> list[str]:
         )
         return [row["chat_id"] for row in (result.data or []) if row.get("chat_id")]
     except Exception as e:
-        print(f"⚠️  ดึงรายชื่อ customers จาก Supabase ไม่สำเร็จ: {e}")
-        return []
+        raise RuntimeError("CUSTOMER_REGISTRY_UNAVAILABLE") from e
 
 def insert_oi_intelligence(parsed: dict, snapshot_id: int | None = None) -> None:
     """Persist structured OI intelligence; service-role only."""
