@@ -151,8 +151,15 @@ def _select_preferred_expiration(page) -> dict:
     for i in range(links.count()):
         link = links.nth(i)
         try:
-            code = (link.locator(".item-name").inner_text() or "").strip()
             text = link.inner_text() or ""
+            title = (link.get_attribute("title") or "").strip()
+            code = ""
+            item_name = link.locator(".item-name")
+            if item_name.count():
+                code = (item_name.first.inner_text(timeout=2_000) or "").strip()
+            if not code:
+                match = re.search(r"Option Symbol:\s*([A-Za-z0-9._-]+)", title, re.I)
+                code = match.group(1).strip() if match else ""
         except Exception:
             continue
         if not code.startswith("OG"):
@@ -522,7 +529,10 @@ def _discover_gold_expirations(page, limit: int = 7) -> list[dict]:
             continue
 
         try:
-            code = (link.locator(".item-name").inner_text() or "").strip()
+            code = ""
+            item_name = link.locator(".item-name")
+            if item_name.count():
+                code = (item_name.first.inner_text(timeout=2_000) or "").strip()
         except Exception:
             code = ""
         if not code:
@@ -601,7 +611,10 @@ def _activate_expiration(page, code: str) -> None:
         try:
             text = (link.inner_text() or "").strip()
             title = (link.get_attribute("title") or "").strip()
-            candidate = (link.locator(".item-name").inner_text() or "").strip()
+            candidate = ""
+            item_name = link.locator(".item-name")
+            if item_name.count():
+                candidate = (item_name.first.inner_text(timeout=2_000) or "").strip()
         except Exception:
             continue
         metadata = "\n".join(x for x in (text, title) if x)
