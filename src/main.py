@@ -34,7 +34,7 @@ from src.supabase_client import insert_snapshot, insert_oi_intelligence, insert_
 from src.url_manager import UrlManager, UrlManagerError
 from src import history, telegram, line
 from src.multi_expiry import build_gamma_matrix, summarize_gamma_zones, merge_expected_expirations, build_gold_weekly_series_window
-from src.gamma_chart import render_gamma_table
+from src.gamma_chart import render_gamma_table, render_gamma_table_full
 from src.news_announcement import collect_news, format_news_announcement
 
 
@@ -129,16 +129,28 @@ def run():
     screenshot_url = None
     gamma_table_path = None
     gamma_table_url = None
+    gamma_table_full_path = None
+    gamma_table_full_url = None
 
     gamma_matrix = (parsed.get("raw_series") or {}).get("multi_expiry_gamma")
     if gamma_matrix and gamma_matrix.get("status") == "VALID":
         try:
             gamma_bytes = render_gamma_table(gamma_matrix)
-            uploaded_gamma = upload_screenshot(gamma_bytes, contract=f"{parsed.get('contract')}_GAMMA_TABLE")
+            uploaded_gamma = upload_screenshot(
+                gamma_bytes, contract=f"{parsed.get('contract')}_GAMMA_COMPACT"
+            )
             if uploaded_gamma:
                 gamma_table_path = uploaded_gamma["path"]
                 gamma_table_url = uploaded_gamma["signed_url"]
-            print("    ✅ Gamma Table uploaded")
+
+            full_bytes = render_gamma_table_full(gamma_matrix)
+            uploaded_full = upload_screenshot(
+                full_bytes, contract=f"{parsed.get('contract')}_GAMMA_FULL"
+            )
+            if uploaded_full:
+                gamma_table_full_path = uploaded_full["path"]
+                gamma_table_full_url = uploaded_full["signed_url"]
+            print("    ✅ Gamma Table compact + full uploaded")
         except Exception as e:
             print(f"⚠️  Gamma Table upload failed (continuing): {e}", file=sys.stderr)
     if screenshot_bytes:
@@ -346,6 +358,8 @@ def run():
         screenshot_url=screenshot_url,
         gamma_table_path=gamma_table_path,
         gamma_table_url=gamma_table_url,
+        gamma_table_full_path=gamma_table_full_path,
+        gamma_table_full_url=gamma_table_full_url,
     )
     print(f"✅ Done. Row id={row.get('id')}")
     try:
@@ -377,7 +391,15 @@ def run():
         chat_ids = []
 
     try:
-        telegram.send(parsed, ai_result, screenshot_url=screenshot_url, gamma_table_url=gamma_table_url, chat_ids=chat_ids)
+        telegram.send(
+            parsed,
+            ai_result,
+            screenshot_url=screenshot_url,
+            gamma_table_url=gamma_table_url,
+            gamma_table_full_url=gamma_table_full_url,
+            news_text=format_news_announcement(new_news_rows or parsed.get("news_context") or []) if (new_news_rows or parsed.get("news_context")) else None,
+            chat_ids=chat_ids,
+        )
         print("✅ Sent to Telegram")
     except Exception as e:
         print(f"⚠️  Telegram send failed (data still saved to Supabase): {e}", file=sys.stderr)
@@ -399,7 +421,14 @@ def run():
     print("[9/9] Sending to LINE (broadcast to all OA friends)...")
     if os.environ.get("LINE_CHANNEL_ACCESS_TOKEN"):
         try:
-            line.send(parsed, ai_result, screenshot_url=screenshot_url, gamma_table_url=gamma_table_url)
+            line.send(
+            parsed,
+            ai_result,
+            screenshot_url=screenshot_url,
+            gamma_table_url=gamma_table_url,
+            gamma_table_full_url=gamma_table_full_url,
+            news_text=format_news_announcement(new_news_rows or parsed.get("news_context") or []) if (new_news_rows or parsed.get("news_context")) else None,
+        )
             print("✅ Sent to LINE")
         except Exception as e:
             print(f"⚠️  LINE send failed (data still saved to Supabase): {e}", file=sys.stderr)
