@@ -4,6 +4,17 @@
   "properties": {
     "analysis_status": {"type":"string","enum":["CONFIRMED","DEGRADED","INSUFFICIENT_EVIDENCE"]},
     "market_overview": {"type":"string"},
+    "market_regime":{"type":"string"},
+    "macro":{"type":"string"},
+    "financial_engineering":{"type":"string"},
+    "market_microstructure":{"type":"string"},
+    "market_psychology":{"type":"string"},
+    "history_comparison":{"type":"string"},
+    "base_case":{"type":"string"},
+    "alternative_case":{"type":"string"},
+    "invalidation_case":{"type":"string"},
+    "final_trade_idea":{"type":"string"},
+
     "what": {"type":"string"},
     "why": {"type":"string"},
     "positioning": {"type":"string"},
@@ -51,5 +62,5 @@
     "evidence_refs":{"type":"array","items":{"type":"string"}},
     "data_limitations":{"type":"array","items":{"type":"string"}}
   },
-  "required":["analysis_status","market_overview","what","why","positioning","levels","scenarios","bias","uncertainty","trade_plan","evidence_refs","data_limitations"]
+  "required":["analysis_status","market_overview","market_regime","macro","financial_engineering","market_microstructure","market_psychology","history_comparison","what","why","positioning","levels","scenarios","base_case","alternative_case","invalidation_case","bias","uncertainty","trade_plan","final_trade_idea","evidence_refs","data_limitations"]
 }
