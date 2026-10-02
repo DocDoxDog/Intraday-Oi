@@ -101,7 +101,7 @@ def render_gamma_table(gamma_matrix: dict[str, Any], title: str = "Gold Gamma Ta
         header.get_text().set_weight("bold")
 
     ax.set_title(
-        f"{title} — $M per 1% move | Multi-Expiration",
+        "GOLD GAMMA TABLE — Multi-Expiration",
         fontsize=16,
         weight="bold",
         pad=16,
