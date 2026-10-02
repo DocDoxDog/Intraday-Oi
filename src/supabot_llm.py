@@ -210,8 +210,16 @@ def _compact_history(parsed: dict[str, Any], history: dict[str, Any] | None) -> 
             "oi_put": totals.get("open_interest_view_put", totals.get("open_interest_put")),
             "oi_call": totals.get("open_interest_view_call", totals.get("open_interest_call")),
             "oi_total": totals.get("open_interest_view_total", totals.get("open_interest_total")),
-            "oi_change_put": totals.get("oi_delta_put", totals.get("oi_change_put")),
-            "oi_change_call": totals.get("oi_delta_call", totals.get("oi_change_call")),
+            "oi_change_put": (
+                totals.get("oi_delta_put")
+                if totals.get("oi_delta_put") is not None
+                else totals.get("oi_change_put")
+            ),
+            "oi_change_call": (
+                totals.get("oi_delta_call")
+                if totals.get("oi_delta_call") is not None
+                else totals.get("oi_change_call")
+            ),
             "oi_change_total": totals.get("oi_delta_total"),
             "churn": totals.get("churn"),
             "gex_net": gex.get("net_gex"),
@@ -229,9 +237,21 @@ def _compact_history(parsed: dict[str, Any], history: dict[str, Any] | None) -> 
         "oi_put": current_totals.get("open_interest_view_put", current_totals.get("open_interest_put")),
         "oi_call": current_totals.get("open_interest_view_call", current_totals.get("open_interest_call")),
         "oi_total": current_totals.get("open_interest_view_total", current_totals.get("open_interest_total")),
-        "oi_change_put": current_totals.get("oi_delta_put"),
-        "oi_change_call": current_totals.get("oi_delta_call"),
-        "oi_change_total": current_totals.get("oi_delta_total"),
+        "oi_change_put": (
+            current_totals.get("oi_delta_put")
+            if current_totals.get("oi_delta_put") is not None
+            else current_totals.get("oi_change_put")
+        ),
+        "oi_change_call": (
+            current_totals.get("oi_delta_call")
+            if current_totals.get("oi_delta_call") is not None
+            else current_totals.get("oi_change_call")
+        ),
+        "oi_change_total": (
+            current_totals.get("oi_delta_total")
+            if current_totals.get("oi_delta_total") is not None
+            else current_totals.get("oi_change_total")
+        ),
         "churn": current_totals.get("churn"),
         "gex_net": current_gex.get("net_gex"),
         "gamma_flip": current_gex.get("gamma_flip"),
