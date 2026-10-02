@@ -33,4 +33,6 @@ DEFAULT_SOURCE_POLICIES = (
     NewsSourcePolicy("Bloomberg", "licensed_data", RightsStatus.LICENSE_REQUIRED, False, False, True, None, date(2026, 1, 1)),
     NewsSourcePolicy("Federal Reserve", "official_public", RightsStatus.LEGAL_REVIEW_REQUIRED, False, False, True, None, date(2026, 1, 1)),
     NewsSourcePolicy("EIA", "official_api", RightsStatus.LEGAL_REVIEW_REQUIRED, False, False, True, None, date(2026, 1, 1)),
+    NewsSourcePolicy("GDELT", "public_api", RightsStatus.LEGAL_REVIEW_REQUIRED, False, False, True, 30, date(2026, 1, 1)),
+    NewsSourcePolicy("Forex Factory", "public_calendar_export", RightsStatus.LEGAL_REVIEW_REQUIRED, False, False, True, 30, date(2026, 1, 1)),
 )

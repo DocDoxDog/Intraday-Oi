@@ -51,6 +51,7 @@ jobs:
           - tests/test_api.py
           - tests/test_supabase_writer.py
           - tests/test_news_intelligence.py
+          - tests/test_free_news_providers.py
           - tests/test_scenario_and_entitlements.py
           - tests/test_ai_output_verifier.py
           - tests/test_customer_gateway.py

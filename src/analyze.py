@@ -33,6 +33,8 @@ Your edge is based on Market Microstructure, Vol2Vol, Volatility Smile/Skew, Opt
 5. **short_bias**: ฟันธง Bias (BUY/SELL/WAIT — ห้ามใช้คำว่า Long/Short เด็ดขาด), แผนเทรดฝั่ง BUY และฝั่ง SELL แยกกัน (Entry, SL, TP1-TP4, Trigger, Invalidation) ตามรูปแบบใน schema, และวิธีแก้ทาง
 
 เขียนรายงานเป็นภาษาไทย มืออาชีพ กระชับ ห้ามสมมติตัวเลขเอง ใช้ข้อมูลจริงเท่านั้น. ถ้า technical_context มี bias ไม่ตรงกัน, ไม่มีข้อมูลเพียงพอ, หรือ RR ไม่ผ่าน ให้ลดความมั่นใจและใช้ WAIT แทนการฟันธง. ใช้ระดับ CFD เมื่อพูดถึง Entry, Target, Stop และโซนสำคัญ เพราะผู้รับดูราคาสปอต/CFD. Indicator จาก technical_context ใช้คัดกรองภายในและไม่ต้องเพิ่มหัวข้อใหม่ในรูปแบบรายงานเดิม
+
+ข่าวจาก news_context เป็นหลักฐานประกอบเท่านั้น: ใช้เฉพาะรายการที่มี headline/source/url/published_at จริง. ให้ความสำคัญกับความสด, จำนวนแหล่งข่าวใน story cluster และ category ก่อนอธิบายผลกระทบ. ห้ามสร้างข่าว เหตุการณ์ ผู้เสียชีวิต ตัวเลข หรือ causal link ที่ไม่มีใน evidence. ข่าวสงคราม/ภูมิรัฐศาสตร์ให้รายงานว่าเป็น catalyst หรือ risk factor ก่อน และห้ามแปลงเป็น BUY/SELL โดยอัตโนมัติ; ต้องรอการยืนยันจากราคา/OI/GEX/volatility. Forex Factory เป็น event calendar ไม่ใช่แหล่งข่าว breaking news.
 """
 
 RESPONSE_SCHEMA = {
@@ -182,6 +184,7 @@ def analyze(parsed: dict, history: dict | None = None) -> dict:
         "raw_series_summary": raw_summary,
         "hour_ago": (history or {}).get("hour_ago"),
         "today_summary": (history or {}).get("today"),
+        "news_context": parsed.get("news_context", []),
     }
 
     payload = {
