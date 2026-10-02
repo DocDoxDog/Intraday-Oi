@@ -1,13 +1,7 @@
 name: One-shot GC GEX
 
 on:
-  push:
-    paths:
-      - ".github/workflows/gex_now.yml"
-      - "src/gex.py"
-      - "src/parser.py"
-      - "src/scraper.py"
-  workflow_dispatch:
+  workflow_dispatch: {}
 
 jobs:
   gex:
