@@ -188,38 +188,49 @@ def run():
 
     ai_failed = "error" in ai_result
     if ai_failed:
-        # Gemini can be temporarily unavailable. Keep delivery truthful by
-        # falling back to deterministic source facts only; never fabricate
-        # directional levels, entry, SL, TP, or an AI conclusion.
         raw = parsed.get("raw_series") or {}
-        totals = raw.get("totals") or {}
         gex = raw.get("gex") or {}
+        gamma = raw.get("multi_expiry_gamma") or {}
+        zones = raw.get("multi_expiry_gamma_zones") or {}
         ai_result = {
-            "bias": "WAIT",
-            "market_overview": (
-                "Gemini ยังไม่พร้อมใช้งานในรอบนี้ จึงส่งเฉพาะข้อมูล "
-                "QuikStrike/OI ที่ตรวจสอบได้ โดยไม่สรุปทิศทางจากโมเดล"
+            "analysis_status": "DEGRADED",
+            "market_overview": "รอบนี้ไม่มีผลจาก LLM ที่ผ่าน verification จึงแสดงเฉพาะ deterministic market state",
+            "what": "ระบบยืนยันได้เฉพาะข้อมูล QuikStrike/OI/GEX ที่เก็บได้ในรอบนี้",
+            "why": "ไม่มี analyst output ที่ผ่าน JSON/schema/verifier จึงไม่ควรสรุปทิศทางแทนโมเดล",
+            "positioning": (
+                f"GEX call wall={gex.get('call_wall') or 'UNKNOWN'} | "
+                f"put wall={gex.get('put_wall') or 'UNKNOWN'} | "
+                f"multi-expiry={gamma.get('expiration_count') or 0}"
             ),
-            "resistance_far": None,
-            "resistance_main": gex.get("call_wall"),
-            "resistance_current": None,
-            "support_current": None,
-            "support_main": gex.get("put_wall"),
-            "support_deep": None,
-            "bull_case": "ยังไม่มี AI confirmation",
-            "bear_case": "ยังไม่มี AI confirmation",
-            "sideway_case": "รอการวิเคราะห์จาก Gemini รอบถัดไป",
+            "levels": {
+                "resistance_far": None,
+                "resistance_main": gex.get("call_wall"),
+                "resistance_current": None,
+                "support_current": None,
+                "support_main": gex.get("put_wall"),
+                "support_deep": None,
+            },
+            "scenarios": {
+                "bull": "รอ confirmation จาก price/technical evidence",
+                "bear": "รอ confirmation จาก price/technical evidence",
+                "sideway": "ข้อมูลยังไม่พอสำหรับยืนยัน scenario",
+            },
+            "bias": "WAIT",
+            "uncertainty": 1.0,
+            "trade_plan": {
+                "status": "NO_TRADE",
+                "setup": "ยังไม่เปิด setup เพราะ analyst output ไม่ผ่าน verification",
+                "confirmation": "ต้องมี analyst output + technical confirmation ที่ผ่าน gate",
+                "invalidation": "ยังไม่มี setup ที่อนุมัติ",
+                "risk_note": "ห้ามสร้าง Entry/SL/TP จาก OI เพียงอย่างเดียว",
+            },
             "data_limitations": [
-                "Gemini unavailable; this message contains deterministic market data only.",
-                "OI baseline unavailable; ΔOI and churn are UNKNOWN."
-                if not totals.get("oi_baseline_available")
-                else "AI narrative unavailable in this run.",
+                "LLM output rejected before delivery: " + str(ai_result.get("error")),
+                "ไม่มี news evidence ในรอบนี้",
             ],
-            "analysis_mode": "DEGRADED_DETERMINISTIC",
-            "ai_error_internal": ai_result.get("error"),
             "evidence_refs": ["itb:oi:deterministic"],
         }
-        print("    ⚠️ ใช้ DEGRADED_DETERMINISTIC เพื่อไม่ให้ delivery หายทั้งรอบ")
+        print("    ⚠️ ใช้ DEGRADED V2: ไม่สร้าง bias/levels/trade plan จากข้อมูลที่ไม่มีหลักฐาน")
 
     print("[7/9] Inserting into Supabase...")
     import json
