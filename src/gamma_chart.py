@@ -11,7 +11,7 @@ def render_gamma_table(gamma_matrix: dict[str, Any], title: str = "Gold Gamma Ta
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
 
-    columns = gamma_matrix.get("columns") or []
+    columns = [c for c in (gamma_matrix.get("columns") or []) if c.get("status") == "OBSERVED"] or (gamma_matrix.get("columns") or [])
     rows = gamma_matrix.get("matrix") or []
     if not columns or not rows:
         raise ValueError("GAMMA_MATRIX_EMPTY")
@@ -110,7 +110,7 @@ def render_gamma_table(gamma_matrix: dict[str, Any], title: str = "Gold Gamma Ta
     fig.text(
         0.5,
         0.025,
-        "เรียงราคาสูง → ต่ำ | ช่องว่าง = ยังไม่มี source observation | ตัวเลข = $M ต่อการขยับ 1% | แสดง 31 strike ใกล้ราคาปัจจุบัน",
+        "เรียงราคาสูง → ต่ำ | ช่องว่างใน cell = ไม่มี observation ของ series นั้น | ตัวเลข = $M ต่อการขยับ 1% | แสดง 31 strike ใกล้ราคาปัจจุบัน",
         ha="center",
         fontsize=8,
     )
