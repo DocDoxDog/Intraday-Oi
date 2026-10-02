@@ -20,13 +20,14 @@ def test_gamma_table_renderer_produces_png():
 
 
 def test_telegram_mentions_multi_expiry_gamma():
+    from src import telegram
     parsed = {
         "future_price": 4605,
         "cfd_price": 4601,
         "dte": 1.38,
         "raw_series": {
             "gex": {"status": "ok"},
-            "multi_expiry_gamma": {"expiration_count": 7},
+            "multi_expiry_gamma": {"columns": [{"code": f"E{i}"} for i in range(7)]},
             "multi_expiry_gamma_zones": {
                 "highest_positive_gamma": 4600,
                 "highest_negative_gamma": 4550,
@@ -34,17 +35,17 @@ def test_telegram_mentions_multi_expiry_gamma():
         },
     }
     ai = {
+        "analysis_status": "CONFIRMED",
         "market_overview": "test",
-        "bull_case": "test",
-        "bear_case": "test",
-        "sideway_case": "test",
         "bias": "WAIT",
-        "evidence_refs": [],
-        "data_limitations": [],
+        "levels": {"resistance_far":"-", "resistance_main":"-", "resistance_current":"-", "support_current":"-", "support_main":"-", "support_deep":"-"},
+        "scenarios": {"bull":"test","bear":"test","sideway":"test"},
     }
-    message = format_message(parsed, ai)
-    assert "GOLD MARKET ANALYST V2" in message
-    assert "7" in message  # expiry count is rendered in the dedicated levels/scenario message
+    message = telegram._format_levels_message(parsed, ai)
+    assert "7 expirations" in message
+    assert "4600" in message
+
+
 
 
 def test_gamma_table_uses_millions_per_one_percent_move():
