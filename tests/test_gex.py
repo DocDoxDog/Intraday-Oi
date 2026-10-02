@@ -30,3 +30,16 @@ def test_gex_derives_gamma_from_iv_when_missing():
     assert result["status"] == "ok"
     assert result["derived_gamma_count"] == 1
     assert result["rows"][0]["gamma_source"] == "black76_from_iv"
+
+
+def test_gex_does_not_treat_missing_oi_as_zero():
+    result = calculate_gex(
+        [{"strike": 4300, "gamma": 0.001, "oiCall": None, "oiPut": 50}],
+        4300,
+        dte_days=3,
+    )
+    row = result["rows"][0]
+    assert row["call_gex"] is None
+    assert row["put_gex"] < 0
+    assert row["net_gex"] is None
+    assert result["net_gex"] is None
