@@ -202,6 +202,21 @@ def _post_with_retry(url: str, payload: dict, timeout: int = 20) -> None:
     raise RuntimeError("TELEGRAM_SEND_FAILED")
 
 
+def send_news(news_text: str, *, chat_ids: list[str]) -> None:
+    token = os.environ.get("TELEGRAM_BOT_TOKEN")
+    if not token:
+        raise RuntimeError("TELEGRAM_BOT_TOKEN ไม่ได้ตั้งค่า")
+    if not chat_ids:
+        return
+    for cid in [str(x).strip() for x in chat_ids if str(x).strip()]:
+        for chunk in _chunk(news_text):
+            _post_with_retry(
+                TELEGRAM_API.format(token=token),
+                {"chat_id": cid, "text": chunk},
+            )
+        print(f"✅ Telegram NEWS ANNOUNCEMENT sent to {cid}")
+
+
 def send(
     parsed: dict,
     ai_result: dict,
