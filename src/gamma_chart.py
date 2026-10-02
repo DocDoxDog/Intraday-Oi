@@ -35,7 +35,7 @@ def _render(gamma_matrix: dict[str, Any], *, full: bool) -> bytes:
             key=lambda row: abs(
                 float(row.get("strike", 0)) - float(current_price)
             ),
-        )[:31]
+        )[:25]
 
     rows = sorted(rows, key=lambda row: float(row["strike"]), reverse=True)
 
@@ -44,7 +44,7 @@ def _render(gamma_matrix: dict[str, Any], *, full: bool) -> bytes:
     row_count = len(rows) + 1
     fig_height = max(
         7.0 if not full else 9.0,
-        2.0 + 0.255 * min(row_count, 145),
+        2.0 + 0.245 * min(row_count, 145),
     )
 
     fig, ax = plt.subplots(
@@ -111,17 +111,17 @@ def _render(gamma_matrix: dict[str, Any], *, full: bool) -> bytes:
         colLabels=headers,
         cellColours=cell_colors,
         cellLoc="center",
-        bbox=[0.01, 0.05, 0.98, 0.86 if not full else 0.90],
+        bbox=[0.01, 0.035, 0.98, 0.90 if not full else 0.925],
         colWidths=[0.12] + [0.88 / ncols] * ncols,
     )
     table.auto_set_font_size(False)
     table.set_fontsize(8.5 if full else 9)
-    table.scale(1, 1.18)
+    table.scale(1, 1.28 if not full else 1.12)
 
     for (row_index, _col_index), cell in table.get_celld().items():
         cell.set_edgecolor("#333333")
         if row_index == 0:
-            cell.set_height(0.075 if full else 0.115)
+            cell.set_height(0.115 if full else 0.17)
             cell.get_text().set_weight("bold")
             cell.get_text().set_color("white")
             cell.get_text().set_fontsize(10.5 if full else 13)
@@ -147,7 +147,7 @@ def _render(gamma_matrix: dict[str, Any], *, full: bool) -> bytes:
     fig.text(0.5, 0.015, subtitle, ha="center", fontsize=8)
 
     fig.tight_layout(
-        rect=(0.015, 0.035, 0.985, 0.96 if full else 0.955)
+        rect=(0.015, 0.025, 0.985, 0.955 if full else 0.96)
     )
 
     out = BytesIO()
