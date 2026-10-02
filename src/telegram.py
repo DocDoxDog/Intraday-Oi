@@ -223,6 +223,8 @@ def send(
     screenshot_url: str | None = None,
     chat_ids: list[str] | None = None,
     gamma_table_url: str | None = None,
+    gamma_table_full_url: str | None = None,
+    news_text: str | None = None,
 ) -> None:
     token = os.environ.get("TELEGRAM_BOT_TOKEN")
     if not token:
@@ -238,25 +240,37 @@ def send(
         _format_levels_message(parsed, ai_result),
         _format_trade_plan_message(parsed, ai_result),
     ]
-    bias_message = f"🎯 Bias ฟันธง!\n{str(ai_result.get('bias', ai_result.get('short_bias', 'WAIT')))}"
 
     for cid in chat_ids:
+        # Message 1: compact table, Message 2: full available observed data.
         if gamma_table_url:
             _post_with_retry(
                 TELEGRAM_PHOTO_API.format(token=token),
                 {"chat_id": cid, "photo": gamma_table_url, "caption": "GOLD GAMMA TABLE — Multi-Expiration"},
+            )
+        if gamma_table_full_url:
+            _post_with_retry(
+                TELEGRAM_PHOTO_API.format(token=token),
+                {"chat_id": cid, "photo": gamma_table_full_url, "caption": "GOLD GAMMA TABLE — FULL DATA"},
             )
         if screenshot_url:
             _post_with_retry(
                 TELEGRAM_PHOTO_API.format(token=token),
                 {"chat_id": cid, "photo": screenshot_url, "caption": "QUIKSTRIKE OI — Source Screenshot"},
             )
-        # Exact 5-message delivery: 2 images + analyst + levels/scenarios + trade plan.
-        for text in messages:
-            for chunk in _chunk(text):
+        if news_text:
+            for chunk in _chunk(news_text):
                 _post_with_retry(
                     TELEGRAM_API.format(token=token),
                     {"chat_id": cid, "text": chunk, "parse_mode": "HTML"},
                 )
                 time.sleep(0.4)
-        print(f"✅ Telegram 5-message analyst bundle sent to {cid}")
+
+        for text_value in messages:
+            for chunk in _chunk(text_value):
+                _post_with_retry(
+                    TELEGRAM_API.format(token=token),
+                    {"chat_id": cid, "text": chunk, "parse_mode": "HTML"},
+                )
+                time.sleep(0.4)
+        print(f"✅ Telegram analyst bundle sent to {cid}")
