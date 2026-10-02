@@ -35,7 +35,7 @@ def test_builds_governed_envelope(monkeypatch):
     assert envelope["task"]=="market.narrative"
     assert envelope["product"]=="GC"
     assert envelope["data_status"]=="VALID"
-    assert envelope["output_schema_version"]=="market-narrative.v1"
+    assert envelope["output_schema_version"]=="market-analyst.v2"
     assert envelope["input_refs"]==["itb:oi:deterministic","itb:oi:history"]
     assert "deterministic_levels" in envelope["input_payload"]
     assert result["short_bias"]=="WAIT"
