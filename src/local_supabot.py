@@ -55,12 +55,50 @@ def generate_market_narrative(
             schema=schema,
         )
     except LLMVerificationError as exc:
-        result["status"] = "VERIFICATION_FAILED"
-        result["error_code"] = str(exc)
-        _persist_non_blocking(result, envelope, None)
-        raise LocalSupaBOTError(
-            f"LLM_VERIFICATION_FAILED:{exc}"
-        ) from exc
+        # One governed repair pass: keep verification strict, but let the same
+        # LLM correct unsupported numeric claims instead of immediately falling
+        # back to DEGRADED. The repair sees the exact evidence again.
+        repair_prompt = (
+            static_prefix.strip()
+            + "\n\nCORRECTION PASS — the previous JSON was rejected by the verifier."
+            + f"\nVerifier error: {exc}"
+            + "\nRewrite the full JSON contract."
+            + "\nRemove or replace every unsupported numeric price with an exact value from "
+              "input_payload.deterministic_levels/current/history/news evidence."
+            + "\nDo not calculate new prices. Do not round into new values; the renderer handles display formatting."
+            + "\nKeep all analysis sections and make trade_plan CONDITIONAL when a trigger has not occurred."
+            + "\nPrevious JSON:\n"
+            + __import__("json").dumps(claims, ensure_ascii=False, default=str)
+        )
+        try:
+            repaired = gateway.generate(
+                envelope,
+                static_prefix=repair_prompt,
+                dynamic_suffix=dynamic,
+            )
+            claims = repaired.get("claims")
+            if not isinstance(claims, (dict, list)):
+                raise LocalSupaBOTError("GATEWAY_CLAIMS_INVALID_AFTER_REPAIR")
+            result = repaired
+            verification = verify_output(
+                envelope=envelope,
+                output=claims,
+                schema=schema,
+            )
+        except LLMVerificationError as repair_exc:
+            result["status"] = "VERIFICATION_FAILED"
+            result["error_code"] = f"{exc};REPAIR:{repair_exc}"
+            _persist_non_blocking(result, envelope, None)
+            raise LocalSupaBOTError(
+                f"LLM_VERIFICATION_FAILED:{repair_exc}"
+            ) from repair_exc
+        except Exception as repair_exc:
+            result["status"] = "VERIFICATION_FAILED"
+            result["error_code"] = f"{exc};REPAIR:{repair_exc}"
+            _persist_non_blocking(result, envelope, None)
+            raise LocalSupaBOTError(
+                f"LLM_VERIFICATION_FAILED:{repair_exc}"
+            ) from repair_exc
 
     result["verification"] = verification
     _persist_non_blocking(result, envelope, verification)
