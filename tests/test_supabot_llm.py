@@ -86,6 +86,41 @@ def test_gemini_38_flash_omits_legacy_temperature_config(monkeypatch):
     assert captured["url"].endswith("/models/gemini-3.8-flash:generateContent")
 
 
+def test_gemini_call_sends_provider_schema_without_additional_properties(monkeypatch):
+    from src.llm_router import GeminiRouter
+
+    router = GeminiRouter(api_key="test")
+    captured = {}
+
+    class Response:
+        def raise_for_status(self):
+            return None
+        def json(self):
+            return {"candidates": [{"content": {"parts": [{"text": "{}"}]}}]}
+
+    monkeypatch.setattr(
+        "src.llm_router.requests.post",
+        lambda url, **kwargs: (captured.update(body=kwargs["json"]) or Response()),
+    )
+    router._call_once(
+        router._route("standard"),
+        router.task("market.narrative"),
+        system_instruction="test",
+        user_payload={"ok": True},
+        response_schema={
+            "type": "object",
+            "additionalProperties": False,
+            "properties": {"bias": {"type": "string"}},
+            "required": ["bias"],
+        },
+    )
+    generation = captured["body"]["generationConfig"]
+    assert generation["responseMimeType"] == "application/json"
+    assert "additionalProperties" not in generation["responseSchema"]
+    assert generation["responseSchema"]["type"] == "object"
+
+
+
 def test_gemini_schema_strips_jsonschema_only_keywords():
     from src.llm_router import _gemini_response_schema
 
