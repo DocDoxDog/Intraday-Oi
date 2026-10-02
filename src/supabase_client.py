@@ -134,6 +134,49 @@ def insert_news_announcements(items: list[dict]) -> list[dict]:
     result = client.table("news_announcements").insert(new_items).execute()
     return result.data or []
 
+def can_notify(channel: str, cooldown_minutes: int = 30) -> tuple[bool, float | None]:
+    """Return whether a channel is outside its notification cooldown."""
+    channel = str(channel or "").strip().lower()
+    if not channel:
+        raise ValueError("DELIVERY_CHANNEL_REQUIRED")
+    client = get_client()
+    result = (
+        client.table("bot_delivery_state")
+        .select("last_sent_at")
+        .eq("channel", channel)
+        .limit(1)
+        .execute()
+    )
+    rows = result.data or []
+    if not rows or not rows[0].get("last_sent_at"):
+        return True, None
+
+    from datetime import datetime, timezone
+    last = datetime.fromisoformat(
+        str(rows[0]["last_sent_at"]).replace("Z", "+00:00")
+    ).astimezone(timezone.utc)
+    elapsed = (datetime.now(timezone.utc) - last).total_seconds()
+    remaining = float(cooldown_minutes * 60) - elapsed
+    return remaining <= 0, max(0.0, remaining)
+
+
+def mark_notified(channel: str) -> None:
+    """Record a successful channel delivery timestamp."""
+    from datetime import datetime, timezone
+    channel = str(channel or "").strip().lower()
+    if not channel:
+        raise ValueError("DELIVERY_CHANNEL_REQUIRED")
+    client = get_client()
+    client.table("bot_delivery_state").upsert(
+        {
+            "channel": channel,
+            "last_sent_at": datetime.now(timezone.utc).isoformat(),
+            "updated_at": datetime.now(timezone.utc).isoformat(),
+        },
+        on_conflict="channel",
+    ).execute()
+
+
 def get_active_chat_ids() -> list[str]:
     """Return active authorized Telegram chat IDs from the customer registry.
     Empty is a valid "nobody authorized" state; registry errors propagate so
