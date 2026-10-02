@@ -133,9 +133,13 @@ def run():
         dex = intel.get("delta_exposure") or {}
         flow = intel.get("flow_hypotheses") or {}
         migration = intel.get("oi_migration") or {}
-        print(f"    net_delta={dex.get('net_delta_exposure', 0):,.0f} "
-              f"gross_delta={dex.get('gross_delta_exposure', 0):,.0f} "
-              f"flow_unknown={flow.get('unknown_rate', 1):.0%} "
+        def _fmt_num(value):
+            return f"{value:,.0f}" if isinstance(value, (int, float)) else "UNKNOWN"
+        def _fmt_pct(value):
+            return f"{value:.0%}" if isinstance(value, (int, float)) else "UNKNOWN"
+        print(f"    net_delta={_fmt_num(dex.get('net_delta_exposure'))} "
+              f"gross_delta={_fmt_num(dex.get('gross_delta_exposure'))} "
+              f"flow_unknown={_fmt_pct(flow.get('unknown_rate'))} "
               f"migrations={len(migration.get('shifts', []))}")
     except Exception as e:
         print(f"⚠️  OI intelligence failed (raw OI remains available): {e}", file=sys.stderr)
@@ -155,6 +159,39 @@ def run():
         print(f"    market_overview: {ai_result.get('market_overview', '')[:80]}...")
 
     ai_failed = "error" in ai_result
+    if ai_failed:
+        # Gemini can be temporarily unavailable. Keep delivery truthful by
+        # falling back to deterministic source facts only; never fabricate
+        # directional levels, entry, SL, TP, or an AI conclusion.
+        raw = parsed.get("raw_series") or {}
+        totals = raw.get("totals") or {}
+        gex = raw.get("gex") or {}
+        ai_result = {
+            "bias": "WAIT",
+            "market_overview": (
+                "Gemini ยังไม่พร้อมใช้งานในรอบนี้ จึงส่งเฉพาะข้อมูล "
+                "QuikStrike/OI ที่ตรวจสอบได้ โดยไม่สรุปทิศทางจากโมเดล"
+            ),
+            "resistance_far": None,
+            "resistance_main": gex.get("call_wall"),
+            "resistance_current": None,
+            "support_current": None,
+            "support_main": gex.get("put_wall"),
+            "support_deep": None,
+            "bull_case": "ยังไม่มี AI confirmation",
+            "bear_case": "ยังไม่มี AI confirmation",
+            "sideway_case": "รอการวิเคราะห์จาก Gemini รอบถัดไป",
+            "data_limitations": [
+                "Gemini unavailable; this message contains deterministic market data only.",
+                "OI baseline unavailable; ΔOI and churn are UNKNOWN."
+                if not totals.get("oi_baseline_available")
+                else "AI narrative unavailable in this run.",
+            ],
+            "analysis_mode": "DEGRADED_DETERMINISTIC",
+            "ai_error_internal": ai_result.get("error"),
+            "evidence_refs": ["itb:oi:deterministic"],
+        }
+        print("    ⚠️ ใช้ DEGRADED_DETERMINISTIC เพื่อไม่ให้ delivery หายทั้งรอบ")
 
     print("[7/9] Inserting into Supabase...")
     import json
@@ -175,13 +212,6 @@ def run():
         print(f"⚠️  Structured OI persistence failed (snapshot remains saved): {e}", file=sys.stderr)
 
     print("[8/9] Sending to Telegram...")
-    if ai_failed:
-        # ห้ามส่ง error message ไปให้ลูกค้าเด็ดขาด — retry ใน analyze.py ล้มเหลวครบทุกรอบแล้วจริงๆ
-        # ข้อมูลถูก insert ลง Supabase ไปแล้วสำหรับ debug ทีหลัง แค่ข้าม step ส่ง Telegram รอบนี้ไปเลย
-        print("    ⏭️  ข้าม Telegram send รอบนี้ (AI analysis ล้มเหลว — ไม่ส่ง error ให้ลูกค้าเห็น)",
-              file=sys.stderr)
-        return
-
     # Authorization is fail-closed: Supabase customer registry is the source of truth.
     # Never fall back to TELEGRAM_CHAT_ID, because an unavailable/empty registry
     # must not become an authorization bypass.
