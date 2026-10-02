@@ -69,16 +69,34 @@ def _level_candidates(parsed: dict[str, Any]) -> list[dict[str, Any]]:
     rows = raw.get("strike_rows") or []
     levels: list[dict[str, Any]] = []
 
+    def to_display_price(price: Any) -> Any:
+        if not isinstance(price, (int, float)) or price <= 0:
+            return None
+        future_price = parsed.get("future_price")
+        cfd_price = parsed.get("cfd_price")
+        if isinstance(future_price, (int, float)) and isinstance(cfd_price, (int, float)):
+            return float(price) - float(future_price) + float(cfd_price)
+        return float(price)
+
     def add(level_id: str, price: Any, reason: str, source: str) -> None:
-        if isinstance(price, (int, float)) and price > 0:
+        display_price = to_display_price(price)
+        if display_price is not None:
             levels.append({
                 "id": level_id,
-                "price": float(price),
+                "price": display_price,
                 "reason": reason,
                 "source": source,
             })
 
-    add("price:current", parsed.get("cfd_price", parsed.get("future_price")), "current reference price", "parsed.current")
+    current_price = parsed.get("cfd_price", parsed.get("future_price"))
+    if isinstance(current_price, (int, float)) and current_price > 0:
+        levels.append({
+            "id": "price:current",
+            "price": float(current_price),
+            "reason": "current reference price",
+            "source": "parsed.current",
+        })
+
     add("gex:gamma_flip", gex.get("gamma_flip"), "cumulative GEX crossing", "raw_series.gex")
     add("gex:call_wall", gex.get("call_wall"), "largest positive call GEX strike", "raw_series.gex")
     add("gex:put_wall", gex.get("put_wall"), "largest negative put GEX strike", "raw_series.gex")
@@ -94,9 +112,7 @@ def _level_candidates(parsed: dict[str, Any]) -> list[dict[str, Any]]:
         slug = ("%.8f" % strike).rstrip("0").rstrip(".").replace("-", "m").replace(".", "p")
         add(
             f"gex:strike:{slug}",
-            parsed.get("cfd_price") is not None and (
-                strike - float(parsed.get("future_price") or 0) + float(parsed.get("cfd_price") or 0)
-            ) or strike,
+            strike,
             "deterministic net GEX strike",
             "raw_series.gex.rows",
         )
@@ -198,6 +214,8 @@ analysis_status, market_overview, what, why, positioning, levels, scenarios, bia
 
 กติกา:
 - deterministic market facts มีอำนาจเหนือ LLM
+- ให้อ่าน price/technical context ก่อน แล้วใช้ news/macro evidence และ OI/ΔOI เป็นบริบท; GEX ใช้เพื่อบอกโครงสร้างระดับราคาและความเสี่ยง ไม่ใช่ตัวตัดสินทิศทางเพียงอย่างเดียว
+- ห้ามสรุปว่า dealer long/short gamma หรือคาดว่าตลาดจะวิ่งแรงเพียงจากเครื่องหมายของ GEX
 - OI, GEX, DEX และ multi-expiry ใช้เฉพาะค่าที่มีจริง
 - NULL/UNKNOWN ห้ามแปลงเป็น 0 หรือคาดเดา
 - ถ้าไม่มี ΔOI baseline ให้ระบุว่า UNKNOWN
@@ -206,7 +224,10 @@ analysis_status, market_overview, what, why, positioning, levels, scenarios, bia
 - scenarios ต้องเป็นเงื่อนไข confirmation/invalidation ไม่ใช่คำทำนาย
 - bias ใช้ BUY/SELL/WAIT เท่านั้น และถ้าหลักฐานขัดกันให้ WAIT
 - trade_plan.status ต้องเป็น NO_TRADE เมื่อหลักฐานไม่พอ
-- trade_plan ห้ามสั่ง execute order และห้ามสร้าง Entry/SL/TP ที่ไม่มีหลักฐาน
+- trade_plan ต้องมีแผนที่ใช้งานได้ทันทีเมื่อมี current price และ price levels เพียงพอ แม้ analysis bias จะ WAIT
+- trade_plan ใช้ Entry/Stop/TP จาก deterministic_levels เท่านั้น และต้องอยู่ในหน่วยราคาเดียวกับ current price
+- ห้ามสั่ง execute order แต่ให้ระบุทิศทาง, entry, stop, TP1, TP2, trigger และ invalidation สำหรับผู้ใช้ตัดสินใจเอง
+- อย่าสร้างตัวเลขราคาใหม่ที่ไม่มีใน evidence
 - ใช้ evidence_refs เฉพาะ input_refs ที่ได้รับ
 - ห้ามอ้างข่าวหากไม่มี news evidence ใน input
 - หากไม่มี news ให้ data_limitations ระบุว่าไม่มี news evidence ในรอบนี้
