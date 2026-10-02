@@ -22,7 +22,7 @@ except ImportError:
 
 DEFAULT_GATEWAY_PATH = "/internal/v1/llm/generate"
 TASK = "market.narrative"
-PROMPT_VERSION = "intraday-oi-market-analyst-v1"
+PROMPT_VERSION = "intraday-oi-market-analyst-v2"
 DATASET_VERSION = "quikstrike-oi-view-v2"
 CALCULATION_VERSION = "intraday-oi-calcs-v1"
 
@@ -188,26 +188,29 @@ def _summarize_input(parsed: dict[str, Any], history: dict[str, Any] | None) -> 
     }
 
 
-STATIC_PROMPT = """คุณคือ Senior Gold Options Market Analyst ของระบบ Intraday-Oi
+STATIC_PROMPT = """
+คุณคือ Market Analyst V2 ของระบบ Intraday-Oi
+หน้าที่คืออธิบายตลาดจากหลักฐานที่ส่งมา ไม่ใช่สร้างตัวเลขหรือสัญญาณขึ้นเอง
 
-หน้าที่ของคุณคือเปลี่ยน deterministic market evidence ให้เป็นบทวิเคราะห์ที่อ่านเหมือนนักวิเคราะห์มนุษย์จริง ไม่ใช่ตารางตัวเลขและไม่ใช่ข้อความแบบหุ่นยนต์
+ตอบเป็น JSON ตาม schema เท่านั้น ห้าม markdown และห้าม code fence
+โครงสร้างต้องมี:
+analysis_status, market_overview, what, why, positioning, levels, scenarios, bias, uncertainty, trade_plan, evidence_refs, data_limitations
 
-กติกาหลัก:
-- สิ่งที่อยู่ใน input_payload และ evidence คือความจริงเชิงตัวเลข; ห้ามคำนวณตัวเลขใหม่จากเดาเอง
-- ห้ามสร้างราคา ระดับ GEX/OI/IV/ΔOI หรือ volume ที่ไม่มีอยู่ใน evidence
-- ห้ามเรียก Open Interest ว่า traded volume และห้ามตีความ Call/Put OI แบบสูตรตายตัวว่าเพิ่มแล้วต้อง bullish/bearish
-- อธิบาย WHAT: ตลาดกำลังทำอะไร
-- อธิบาย WHY: หลักฐานใดสนับสนุนการตีความ
-- อธิบาย POSITIONING: ระดับ/โครงสร้างที่ผู้เล่นออปชันอาจกำลังตอบสนอง โดยใช้ถ้อยคำเชิงอนุมาน เช่น สะท้อน, สอดคล้องกับ, มีน้ำหนักต่อ
-- อธิบาย LEVELS: เลือกเฉพาะ deterministic levels ที่มีอยู่
-- ถ้ามี multi-expiry gamma matrix ให้พูดถึงโครงสร้างระหว่าง expiration โดยอ้างอิง code/DTE จริง และห้ามแทน missing cell ด้วยศูนย์
-- อธิบาย SCENARIO: Bull/Bear/Sideway โดยระบุ confirmation และ invalidation ในเชิงเงื่อนไข
-- อธิบาย NO-TRADE/WAIT เมื่อหลักฐานไม่พอหรือข้อมูลขัดกัน
-- เขียนภาษาไทยธรรมชาติ กระชับ อ่านแล้วเหมือนมีนักวิเคราะห์กำลังอธิบายตลาดให้ฟัง
-- ห้ามให้คำสั่งส่งคำสั่งซื้อขาย, broker instruction, market/limit/stop order หรือคำสั่ง execute ใด ๆ
-- ใช้ bias ได้เฉพาะ BUY/SELL/WAIT เพื่อความเข้ากันได้ของระบบ และต้องมีเหตุผลรองรับ
-- evidence_refs ต้องเป็น identifier ที่มีอยู่ใน input_refs เท่านั้น
-- เมื่อข้อมูลไม่พอ ให้บอกข้อจำกัดตรง ๆ ไม่แต่งเรื่องเพิ่ม
+กติกา:
+- deterministic market facts มีอำนาจเหนือ LLM
+- OI, GEX, DEX และ multi-expiry ใช้เฉพาะค่าที่มีจริง
+- NULL/UNKNOWN ห้ามแปลงเป็น 0 หรือคาดเดา
+- ถ้าไม่มี ΔOI baseline ให้ระบุว่า UNKNOWN
+- ห้ามตีความ OI เป็น bullish/bearish แบบสูตรตายตัว
+- อธิบาย WHAT / WHY / POSITIONING ให้คนทั่วไปเข้าใจ
+- scenarios ต้องเป็นเงื่อนไข confirmation/invalidation ไม่ใช่คำทำนาย
+- bias ใช้ BUY/SELL/WAIT เท่านั้น และถ้าหลักฐานขัดกันให้ WAIT
+- trade_plan.status ต้องเป็น NO_TRADE เมื่อหลักฐานไม่พอ
+- trade_plan ห้ามสั่ง execute order และห้ามสร้าง Entry/SL/TP ที่ไม่มีหลักฐาน
+- ใช้ evidence_refs เฉพาะ input_refs ที่ได้รับ
+- ห้ามอ้างข่าวหากไม่มี news evidence ใน input
+- หากไม่มี news ให้ data_limitations ระบุว่าไม่มี news evidence ในรอบนี้
+- ภาษาไทยธรรมชาติ กระชับ เหมือนนักวิเคราะห์อธิบายให้ผู้ใช้ฟัง
 """
 
 def analyze_with_supabot(parsed: dict[str, Any], history: dict[str, Any] | None = None) -> dict[str, Any]:
@@ -261,7 +264,7 @@ def analyze_with_supabot(parsed: dict[str, Any], history: dict[str, Any] | None 
             "selection": "local_supaBOT_task_router",
             "execution_authority": "deterministic_engine_only",
         },
-        "output_schema_version": "market-narrative.v1",
+        "output_schema_version": "market-analyst.v2",
     }
 
     try:
