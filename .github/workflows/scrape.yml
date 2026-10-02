@@ -7,6 +7,10 @@ on:
         description: "ส่ง Telegram/LINE แม้อยู่ใน cooldown (true/false)"
         required: false
         default: "false"
+      force_analysis:
+        description: "รัน analysis แม้อยู่ใน analysis cooldown (true/false)"
+        required: false
+        default: "false"
   repository_dispatch:
     types: [run-analysis]
 
@@ -26,19 +30,75 @@ jobs:
         with:
           python-version: "3.11"
 
+      - name: Analysis cooldown gate
+        id: analysis_gate
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          OI_BOT_ANALYSIS_COOLDOWN_MINUTES: "10"
+          OI_BOT_FORCE_ANALYSIS: ${{ inputs.force_analysis }}
+        run: |
+          python - <<'PY'
+          import json
+          import os
+          import sys
+          from datetime import datetime, timezone
+          from urllib.parse import urlencode
+          from urllib.request import Request, urlopen
+
+          force = os.getenv("OI_BOT_FORCE_ANALYSIS", "").lower() in {"1", "true", "yes"}
+          if force:
+              print("✅ Analysis gate forced")
+              print("allowed=true")
+              with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as fh:
+                  fh.write("allowed=true\n")
+              raise SystemExit(0)
+
+          base = os.getenv("SUPABASE_URL", "").rstrip("/")
+          key = os.getenv("SUPABASE_SERVICE_ROLE_KEY", "")
+          if not base or not key:
+              print("❌ Analysis gate unavailable: missing Supabase credentials", file=sys.stderr)
+              with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as fh:
+                  fh.write("allowed=false\n")
+              raise SystemExit(1)
+
+          params = urlencode({"select": "last_sent_at", "channel": "eq.analysis", "limit": "1"})
+          req = Request(
+              f"{base}/rest/v1/bot_delivery_state?{params}",
+              headers={"apikey": key, "Authorization": f"Bearer {key}"},
+          )
+          with urlopen(req, timeout=15) as response:
+              rows = json.loads(response.read().decode("utf-8"))
+
+          allowed = True
+          remaining = 0.0
+          if rows and rows[0].get("last_sent_at"):
+              last = datetime.fromisoformat(str(rows[0]["last_sent_at"]).replace("Z", "+00:00"))
+              elapsed = (datetime.now(timezone.utc) - last.astimezone(timezone.utc)).total_seconds()
+              cooldown = max(0, int(os.getenv("OI_BOT_ANALYSIS_COOLDOWN_MINUTES", "10"))) * 60
+              remaining = max(0.0, cooldown - elapsed)
+              allowed = remaining <= 0
+
+          print(f"analysis_allowed={allowed} remaining_seconds={remaining:.0f}")
+          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as fh:
+              fh.write(f"allowed={'true' if allowed else 'false'}\n")
+
       - name: Install Intraday-Oi dependencies
+        if: steps.analysis_gate.outputs.allowed == 'true'
         run: |
           python -m pip install -r requirements.txt
           playwright install --with-deps chromium
           python -m pip install pytest
 
       - name: Smoke-test package imports and local supaBOT core
+        if: steps.analysis_gate.outputs.allowed == 'true'
         run: |
           python -m compileall -q src
           python -c "import src.main; from src.local_supabot import generate_market_narrative; print('✅ Intraday-Oi package imports OK')"
           python -m pytest -q tests/test_supabot_llm.py tests/test_telegram_analyst.py tests/test_parser_expected_ranges.py
 
       - name: Run live Intraday-Oi pipeline with local supaBOT core
+        if: steps.analysis_gate.outputs.allowed == 'true'
         env:
           QUIKSTRIKE_URL: ${{ secrets.QUIKSTRIKE_URL }}
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
@@ -52,5 +112,7 @@ jobs:
           TWELVEDATA_SYMBOL: XAU/USD
           SUPABOT_LLM_TIMEOUT_SECONDS: "60"
           OI_BOT_NOTIFICATION_COOLDOWN_MINUTES: "30"
+          OI_BOT_ANALYSIS_COOLDOWN_MINUTES: "10"
           OI_BOT_FORCE_NOTIFY: ${{ inputs.force_notify }}
+          OI_BOT_FORCE_ANALYSIS: ${{ inputs.force_analysis }}
         run: python -m src.main
