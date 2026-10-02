@@ -64,6 +64,7 @@ def _product(parsed: dict[str, Any]) -> str:
 
 
 def _level_candidates(parsed: dict[str, Any]) -> list[dict[str, Any]]:
+    """Build the finite set of price references the analyst is allowed to use."""
     raw = parsed.get("raw_series") or {}
     gex = raw.get("gex") or {}
     rows = raw.get("strike_rows") or []
@@ -75,7 +76,7 @@ def _level_candidates(parsed: dict[str, Any]) -> list[dict[str, Any]]:
         future_price = parsed.get("future_price")
         cfd_price = parsed.get("cfd_price")
         if isinstance(future_price, (int, float)) and isinstance(cfd_price, (int, float)):
-            return float(price) - float(future_price) + float(cfd_price)
+            return round(float(price) - float(future_price) + float(cfd_price), 5)
         return float(price)
 
     def add(level_id: str, price: Any, reason: str, source: str) -> None:
@@ -92,22 +93,45 @@ def _level_candidates(parsed: dict[str, Any]) -> list[dict[str, Any]]:
     if isinstance(current_price, (int, float)) and current_price > 0:
         levels.append({
             "id": "price:current",
-            "price": float(current_price),
+            "price": round(float(current_price), 5),
             "reason": "current reference price",
             "source": "parsed.current",
         })
 
+    # Options/GEX references.
     add("gex:gamma_flip", gex.get("gamma_flip"), "cumulative GEX crossing", "raw_series.gex")
     add("gex:call_wall", gex.get("call_wall"), "largest positive call GEX strike", "raw_series.gex")
     add("gex:put_wall", gex.get("put_wall"), "largest negative put GEX strike", "raw_series.gex")
     add("gex:max_abs_net", gex.get("max_abs_gex_strike"), "largest absolute net GEX strike", "raw_series.gex")
 
+    gamma = raw.get("multi_expiry_gamma") or {}
+    zones = raw.get("multi_expiry_gamma_zones") or {}
+    add("gamma:highest_positive", zones.get("highest_positive_gamma"), "highest aggregate positive gamma concentration", "raw_series.multi_expiry_gamma")
+    add("gamma:highest_negative", zones.get("highest_negative_gamma"), "highest aggregate negative gamma concentration", "raw_series.multi_expiry_gamma")
+    for prefix, items in (
+        ("gamma:positive", zones.get("positive_concentrations") or []),
+        ("gamma:negative", zones.get("negative_concentrations") or []),
+    ):
+        for item in items[:10]:
+            if isinstance(item, dict):
+                strike = item.get("strike")
+                slug = str(strike).replace(".", "p")
+                add(
+                    f"{prefix}:{slug}",
+                    strike,
+                    "multi-expiry GEX concentration",
+                    "raw_series.multi_expiry_gamma",
+                )
+
     ranked = sorted(
-        (row for row in rows if isinstance(row, dict) and isinstance(row.get("strike"), (int, float))),
+        (
+            row for row in rows
+            if isinstance(row, dict) and isinstance(row.get("strike"), (int, float))
+        ),
         key=lambda row: abs(float(row.get("net_gex") or 0)),
         reverse=True,
     )
-    for row in ranked[:12]:
+    for row in ranked[:20]:
         strike = float(row["strike"])
         slug = ("%.8f" % strike).rstrip("0").rstrip(".").replace("-", "m").replace(".", "p")
         add(
@@ -116,6 +140,48 @@ def _level_candidates(parsed: dict[str, Any]) -> list[dict[str, Any]]:
             "deterministic net GEX strike",
             "raw_series.gex.rows",
         )
+
+    # Technical prices are deterministic Twelve Data evidence and live in CFD
+    # coordinates already. They are references, not automatic support/resistance.
+    technical = parsed.get("technical_context") or {}
+    timeframes = technical.get("timeframes") or {}
+    technical_keys = (
+        "ema50", "ema200", "previous_close", "prior_high", "prior_low",
+        "swing_high", "swing_low",
+    )
+    for tf, context in timeframes.items():
+        if not isinstance(context, dict):
+            continue
+        for key in technical_keys:
+            add(
+                f"technical:{tf}:{key}",
+                context.get(key),
+                f"{tf.upper()} {key.replace('_', ' ')}",
+                f"technical_context.{tf}",
+            )
+        fib = context.get("fibonacci") or {}
+        for key in ("retracement_62", "retracement_79"):
+            add(
+                f"technical:{tf}:fib:{key}",
+                fib.get(key),
+                f"{tf.upper()} Fibonacci {key}",
+                f"technical_context.{tf}.fibonacci",
+            )
+        fvg = context.get("fvg") or {}
+        if isinstance(fvg, dict):
+            add(
+                f"technical:{tf}:fvg_low",
+                fvg.get("low"),
+                f"{tf.upper()} FVG low",
+                f"technical_context.{tf}.fvg",
+            )
+            add(
+                f"technical:{tf}:fvg_high",
+                fvg.get("high"),
+                f"{tf.upper()} FVG high",
+                f"technical_context.{tf}.fvg",
+            )
+
     return levels
 
 
