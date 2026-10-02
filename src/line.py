@@ -184,6 +184,11 @@ def send_news(news_text: str) -> None:
     print("✅ ส่ง LINE NEWS ANNOUNCEMENT สำเร็จ")
 
 
+def _is_monthly_limit_error(exc: Exception) -> bool:
+    text = str(exc).lower()
+    return "monthly limit" in text or "monthly_limit" in text
+
+
 def send(
     parsed: dict,
     ai_result: dict,
@@ -209,24 +214,33 @@ def send(
     ])
 
     errors: list[str] = []
+    quota_exhausted = False
     for i in range(0, len(messages), MAX_MESSAGES_PER_REQUEST):
         chunk = messages[i:i + MAX_MESSAGES_PER_REQUEST]
         try:
             _post_broadcast(token, chunk)
             print(f"✅ ส่ง LINE broadcast สำเร็จ ({len(chunk)} ข้อความ)")
         except Exception as exc:
+            if _is_monthly_limit_error(exc):
+                print("⏭️ ข้าม LINE ที่เหลือ: LINE OA monthly message limit reached")
+                quota_exhausted = True
+                break
             print(f"❌ ส่ง LINE broadcast ล้มเหลว: {exc}")
             errors.append(str(exc))
         time.sleep(0.5)
 
     group_id = os.environ.get("LINE_GROUP_ID", "").strip()
-    if group_id:
+    if group_id and not quota_exhausted:
         for i in range(0, len(messages), MAX_MESSAGES_PER_REQUEST):
             chunk = messages[i:i + MAX_MESSAGES_PER_REQUEST]
             try:
                 _post_push(token, group_id, chunk)
                 print(f"✅ ส่ง LINE group push สำเร็จ ({len(chunk)} ข้อความ)")
             except Exception as exc:
+                if _is_monthly_limit_error(exc):
+                    print("⏭️ ข้าม LINE group push: LINE OA monthly message limit reached")
+                    quota_exhausted = True
+                    break
                 print(f"❌ ส่ง LINE group push ล้มเหลว: {exc}")
                 errors.append(str(exc))
             time.sleep(0.5)
