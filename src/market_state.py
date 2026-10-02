@@ -392,6 +392,8 @@ def enrich_market_state(parsed: dict[str, Any], history: dict[str, Any] | None =
                 "relevance": item.get("relevance"),
                 "priority": "HIGH" if item.get("relevance") == "HIGH" else "MEDIUM",
                 "category": item.get("category"),
+                "market_channels": item.get("market_channels") or [],
+                "freshness": item.get("freshness") or "UNKNOWN",
             }
             for item in (parsed.get("news_context") or [])[:8]
             if isinstance(item, dict)
