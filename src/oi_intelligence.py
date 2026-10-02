@@ -1,18 +1,22 @@
 """Deterministic OI exposure, flow hypotheses and migration analysis."""
 from __future__ import annotations
 from typing import Any
-def _f(v:Any,d=0.0)->float:
+def _f(v:Any,d=None):
     try:return float(v)
-    except(TypeError,ValueError):return d
+    except (TypeError,ValueError):return d
 def classify_flow(row,price_change=None,iv_change=None):
     dc=_f(row.get("oi_delta_call")); dp=_f(row.get("oi_delta_put")); evidence=[]
-    if dc>0:evidence.append("call_oi_increase")
-    elif dc<0:evidence.append("call_oi_decrease")
-    if dp>0:evidence.append("put_oi_increase")
-    elif dp<0:evidence.append("put_oi_decrease")
+    if dc is not None:
+        if dc>0:evidence.append("call_oi_increase")
+        elif dc<0:evidence.append("call_oi_decrease")
+    if dp is not None:
+        if dp>0:evidence.append("put_oi_increase")
+        elif dp<0:evidence.append("put_oi_decrease")
     if price_change is not None:evidence.append("underlying_price_change")
     if iv_change is not None:evidence.append("iv_change")
     label="UNKNOWN"; confidence=0.0
+    if dc is None or dp is None:
+        return {"label":"UNKNOWN","confidence":0.0,"evidence":evidence,"limitations":["OI baseline unavailable; ΔOI is unknown","OI change alone does not identify aggressor side"]}
     if price_change is not None and dc>0 and price_change>0: label,confidence="NEW_LONG",0.35
     elif price_change is not None and dc<0 and price_change>0: label,confidence="SHORT_COVER",0.35
     elif price_change is not None and dp>0 and price_change<0: label,confidence="NEW_LONG",0.30
@@ -21,11 +25,18 @@ def classify_flow(row,price_change=None,iv_change=None):
 def delta_adjusted_exposure(rows,multiplier=100.0):
     out=[]; net=0.0; gross=0.0
     for r in rows:
-        co=_f(r.get("oiCall")); po=_f(r.get("oiPut")); cd=_f(r.get("callDelta")); pd=_f(r.get("putDelta"))
+        co=_f(r.get("oiCall"),0.0); po=_f(r.get("oiPut"),0.0); cd=_f(r.get("callDelta")); pd=_f(r.get("putDelta"))
+        if cd is None or pd is None:
+            x=dict(r)
+            x.update({"call_delta_exposure":None,"put_delta_exposure":None,"net_delta_exposure":None,"gross_delta_exposure":None,"delta_exposure_status":"UNKNOWN"})
+            out.append(x)
+            continue
         ce=co*cd*multiplier; pe=po*pd*multiplier; ne=ce+pe
         net+=ne; gross+=abs(ce)+abs(pe); x=dict(r)
-        x.update({"call_delta_exposure":ce,"put_delta_exposure":pe,"net_delta_exposure":ne,"gross_delta_exposure":abs(ce)+abs(pe)}); out.append(x)
-    return {"contract_multiplier":multiplier,"net_delta_exposure":net,"gross_delta_exposure":gross,"rows":out}
+        x.update({"call_delta_exposure":ce,"put_delta_exposure":pe,"net_delta_exposure":ne,"gross_delta_exposure":abs(ce)+abs(pe),"delta_exposure_status":"VALID"}); out.append(x)
+    valid_rows=[x for x in out if x.get("delta_exposure_status")=="VALID"]
+    status="VALID" if len(valid_rows)==len(out) and out else "PARTIAL" if valid_rows else "UNKNOWN"
+    return {"contract_multiplier":multiplier,"net_delta_exposure":net if valid_rows else None,"gross_delta_exposure":gross if valid_rows else None,"status":status,"rows":out}
 def build_flow_hypotheses(rows,future_change=None):
     events=[]
     for r in rows:
