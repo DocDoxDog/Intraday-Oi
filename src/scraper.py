@@ -464,13 +464,23 @@ def _discover_gold_expirations(page, limit: int = 7) -> list[dict]:
 
 def _activate_expiration(page, code: str) -> None:
     links = page.locator(EXPIRATION_LINK_SELECTOR)
+    if links.count() == 0:
+        links = page.locator("a")
     target = None
     for i in range(links.count()):
         link = links.nth(i)
         try:
+            text = (link.inner_text() or "").strip()
             candidate = (link.locator(".item-name").inner_text() or "").strip()
         except Exception:
             continue
+        if not candidate and text:
+            # Same fallback identity rule used during discovery.
+            match = re.search(r"\(([0-9]+(?:\.[0-9]+)?)\s*DTE\)", text, re.I)
+            if match:
+                prefix = text[:match.start()].strip()
+                tokens = re.findall(r"[A-Za-z0-9._-]+", prefix)
+                candidate = tokens[-1] if tokens else ""
         if candidate == code:
             target = link
             break
