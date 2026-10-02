@@ -193,11 +193,11 @@ def send(
         raise RuntimeError("TELEGRAM_BOT_TOKEN ไม่ได้ตั้งค่า")
 
     if chat_ids is None:
-        raw_ids = os.environ.get("TELEGRAM_CHAT_ID", "")
-        chat_ids = [cid.strip() for cid in raw_ids.split(",") if cid.strip()]
+        raise RuntimeError("ต้องระบุ chat_ids ที่ผ่านการอนุมัติจาก customer registry")
 
+    chat_ids = [str(cid).strip() for cid in chat_ids if str(cid).strip()]
     if not chat_ids:
-        raise RuntimeError("ไม่มี chat_ids ให้ส่ง")
+        raise RuntimeError("ไม่มี authorized chat_ids ให้ส่ง")
 
     detailed = format_message(parsed, ai_result)
     notification = format_notification(parsed, ai_result)
