@@ -204,29 +204,85 @@ def run():
         raw = parsed.get("raw_series") or {}
         gex = raw.get("gex") or {}
         gamma = raw.get("multi_expiry_gamma") or {}
-        zones = raw.get("multi_expiry_gamma_zones") or {}
+
+        future_price = parsed.get("future_price")
+        cfd_price = parsed.get("cfd_price")
+
+        def to_cfd(strike):
+            if not isinstance(strike, (int, float)):
+                return None
+            if isinstance(future_price, (int, float)) and isinstance(cfd_price, (int, float)):
+                return float(strike) - float(future_price) + float(cfd_price)
+            return float(strike)
+
+        strikes = sorted({
+            float(row.get("strike"))
+            for row in (gex.get("rows") or [])
+            if isinstance(row, dict) and isinstance(row.get("strike"), (int, float))
+        })
+
+        def nearest_above(value, fallback=None):
+            if not isinstance(value, (int, float)):
+                return fallback
+            candidates = [x for x in strikes if x > float(value)]
+            return candidates[0] if candidates else fallback
+
+        def nearest_below(value, fallback=None):
+            if not isinstance(value, (int, float)):
+                return fallback
+            candidates = [x for x in strikes if x < float(value)]
+            return candidates[-1] if candidates else fallback
+
+        current_fut = future_price if isinstance(future_price, (int, float)) else None
+        call_wall_fut = gex.get("call_wall")
+        put_wall_fut = gex.get("put_wall")
+        resistance_main_fut = call_wall_fut
+        support_main_fut = put_wall_fut
+        resistance_current_fut = nearest_above(current_fut, call_wall_fut)
+        support_current_fut = nearest_below(current_fut, put_wall_fut)
+        resistance_far_fut = nearest_above(call_wall_fut, resistance_current_fut)
+        support_deep_fut = nearest_below(put_wall_fut, support_current_fut)
+
+        resistance_current = to_cfd(resistance_current_fut)
+        resistance_main = to_cfd(resistance_main_fut)
+        resistance_far = to_cfd(resistance_far_fut)
+        support_current = to_cfd(support_current_fut)
+        support_main = to_cfd(support_main_fut)
+        support_deep = to_cfd(support_deep_fut)
+
+        fmt = lambda v: f"{v:.5f}" if isinstance(v, (int, float)) else "UNKNOWN"
+
         ai_result = {
             "analysis_status": "DEGRADED",
             "market_overview": "รอบนี้ไม่มีผลจาก LLM ที่ผ่าน verification จึงแสดงเฉพาะ deterministic market state",
             "what": "ระบบยืนยันได้เฉพาะข้อมูล QuikStrike/OI/GEX ที่เก็บได้ในรอบนี้",
             "why": "ไม่มี analyst output ที่ผ่าน JSON/schema/verifier จึงไม่ควรสรุปทิศทางแทนโมเดล",
             "positioning": (
-                f"GEX call wall={gex.get('call_wall') or 'UNKNOWN'} | "
-                f"put wall={gex.get('put_wall') or 'UNKNOWN'} | "
+                f"GEX call wall={fmt(resistance_main)} | "
+                f"put wall={fmt(support_main)} | "
                 f"multi-expiry={gamma.get('expiration_count') or 0}"
             ),
             "levels": {
-                "resistance_far": None,
-                "resistance_main": gex.get("call_wall"),
-                "resistance_current": None,
-                "support_current": None,
-                "support_main": gex.get("put_wall"),
-                "support_deep": None,
+                "resistance_far": resistance_far,
+                "resistance_main": resistance_main,
+                "resistance_current": resistance_current,
+                "support_current": support_current,
+                "support_main": support_main,
+                "support_deep": support_deep,
             },
             "scenarios": {
-                "bull": "รอ confirmation จาก price/technical evidence",
-                "bear": "รอ confirmation จาก price/technical evidence",
-                "sideway": "ข้อมูลยังไม่พอสำหรับยืนยัน scenario",
+                "bull": (
+                    f"รอราคายืนเหนือ {fmt(resistance_current)} แล้ว Break/Hold เหนือ "
+                    f"{fmt(resistance_main)}; Retest ต้องไม่เสียระดับ breakout"
+                ),
+                "bear": (
+                    f"รอราคาหลุด {fmt(support_main)} แล้ว Retest ไม่ผ่าน; "
+                    f"จึงติดตาม {fmt(support_current)} → {fmt(support_deep)}"
+                ),
+                "sideway": (
+                    f"ถ้าราคายังอยู่ระหว่าง {fmt(support_main)} และ {fmt(resistance_main)} "
+                    "โดยไม่มี trigger ชัดเจน ให้มองเป็น range"
+                ),
             },
             "bias": "WAIT",
             "uncertainty": 1.0,
@@ -234,29 +290,27 @@ def run():
                 "status": "CONDITIONAL",
                 "direction": "WAIT",
                 "entry": (
-                    f"LONG: รอ Break + Hold/Retest เหนือ {gex.get('call_wall') or 'UNKNOWN'} | "
-                    f"SHORT: รอ Break + Retest ต่ำกว่า {gex.get('put_wall') or 'UNKNOWN'}"
+                    f"LONG: Break + Hold/Retest {fmt(resistance_current)} → {fmt(resistance_main)} | "
+                    f"SHORT: Break + Retest Fail {fmt(support_main)}"
                 ),
                 "stop_loss": (
-                    f"LONG invalidation: ต่ำกว่า {gex.get('put_wall') or 'UNKNOWN'} | "
-                    f"SHORT invalidation: เหนือ {gex.get('call_wall') or 'UNKNOWN'}"
+                    f"LONG invalidation: ต่ำกว่า {fmt(support_current)} | "
+                    f"SHORT invalidation: เหนือ {fmt(resistance_current)}"
                 ),
                 "take_profit_1": (
-                    f"LONG: {gex.get('call_wall') or 'UNKNOWN'} | "
-                    f"SHORT: {gex.get('put_wall') or 'UNKNOWN'}"
+                    f"LONG: {fmt(resistance_main)} | SHORT: {fmt(support_current)}"
                 ),
                 "take_profit_2": (
-                    f"LONG: next deterministic resistance | "
-                    f"SHORT: next deterministic support"
+                    f"LONG: {fmt(resistance_far)} | SHORT: {fmt(support_deep)}"
                 ),
-                "setup": "Conditional plan: ใช้สำหรับเฝ้ารอ trigger ไม่ใช่คำสั่งเปิดสถานะทันที",
-                "trigger": "Break + Hold/Retest success ฝั่งขึ้น หรือ Break + Retest failure ฝั่งลง",
+                "setup": "Conditional plan จาก deterministic price levels; รอ price action/technical confirmation ก่อนเข้า",
+                "trigger": "LONG = Break + Hold/Retest success; SHORT = Break + Retest failure",
                 "confirmation": "ต้องมี price action/technical confirmation; ΔOI/OI baseline ที่ไม่มีให้ถือเป็น UNKNOWN",
-                "invalidation": "เมื่อ trigger ไม่เกิดหรือราคากลับผ่าน level ที่กำหนดใน scenario",
-                "risk_reward": "คำนวณหลัง trigger ยืนยันโดยใช้ Entry/Stop/TP ที่มาจาก deterministic levels เท่านั้น",
+                "invalidation": "เมื่อ breakout ไม่สามารถ hold/retest ได้ตามเงื่อนไข หรือราคากลับผ่าน invalidation",
+                "risk_reward": "คำนวณจาก Entry/Stop/TP หลัง trigger ยืนยัน",
                 "market_condition": "DEGRADED / PRICE-TRIGGER REQUIRED",
-                "position_risk": "กำหนดขนาดสถานะหลัง trigger และ invalidation ชัดเจน",
-                "risk_note": "ห้ามเพิ่มขนาด Position เพราะความมั่นใจ และห้ามสร้างตัวเลขนอก deterministic evidence",
+                "position_risk": "จำกัดความเสี่ยงต่อสถานะตามกติกาพอร์ตของผู้ใช้หลัง trigger ชัดเจน",
+                "risk_note": "แผนนี้เป็น conditional roadmap ไม่ใช่คำสั่ง execute และไม่สร้างตัวเลขนอก deterministic evidence",
             },
             "data_limitations": [
                 "LLM output rejected before delivery: " + str(ai_result.get("error")),
@@ -264,7 +318,7 @@ def run():
             ],
             "evidence_refs": ["itb:oi:deterministic"],
         }
-        print("    ⚠️ ใช้ DEGRADED V2: ไม่สร้าง bias/levels/trade plan จากข้อมูลที่ไม่มีหลักฐาน")
+        print("    ⚠️ ใช้ DEGRADED V2: มี conditional trade roadmap จาก deterministic levels")
 
     print("[7/9] Inserting into Supabase...")
     import json
