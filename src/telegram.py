@@ -174,37 +174,6 @@ def _format_levels_message(parsed: dict, ai_result: dict) -> str:
     )
 
 
-def _format_levels_message(parsed: dict, ai_result: dict) -> str:
-    raw = parsed.get("raw_series") or {}
-    gamma = raw.get("multi_expiry_gamma") or {}
-    zones = raw.get("multi_expiry_gamma_zones") or {}
-    levels = ai_result.get("levels") or {}
-
-    def show(value):
-        return "-" if value is None or value == "" else str(value)
-
-    columns = gamma.get("columns") or []
-    expiration_count = len(columns)
-    positive = zones.get("highest_positive_gamma")
-    negative = zones.get("highest_negative_gamma")
-
-    return (
-        "<b>KEY LEVELS</b>\n"
-        f"ต้านไกล: {show(levels.get('resistance_far'))}\n"
-        f"ต้านหลัก: {show(levels.get('resistance_main'))}\n"
-        f"ต้านใกล้: {show(levels.get('resistance_current'))}\n"
-        f"รับใกล้: {show(levels.get('support_current'))}\n"
-        f"รับหลัก: {show(levels.get('support_main'))}\n"
-        f"รับลึก: {show(levels.get('support_deep'))}\n\n"
-        "<b>GAMMA TERM STRUCTURE</b>\n"
-        f"{expiration_count} expirations | +GEX zone {show(positive)} | -GEX zone {show(negative)}\n\n"
-        "<b>SCENARIOS</b>\n"
-        f"🟢 <b>Bull</b> — {_escape((ai_result.get('scenarios') or {}).get('bull') or '-')}\n"
-        f"🔴 <b>Bear</b> — {_escape((ai_result.get('scenarios') or {}).get('bear') or '-')}\n"
-        f"🟡 <b>Sideway</b> — {_escape((ai_result.get('scenarios') or {}).get('sideway') or '-')}"
-    )
-
-
 def _format_trade_plan_message(parsed: dict, ai_result: dict) -> str:
     trade = ai_result.get("trade_plan") or {}
     return (
@@ -220,7 +189,9 @@ def _format_trade_plan_message(parsed: dict, ai_result: dict) -> str:
         f"Risk/Reward: {_escape(trade.get('risk_reward') or 'UNKNOWN')}\n"
         f"Market Condition: {_escape(trade.get('market_condition') or 'UNKNOWN')}\n"
         f"Position Risk: {_escape(trade.get('position_risk') or 'UNKNOWN')}\n"
-        f"Risk: {_escape(trade.get('risk_note') or 'UNKNOWN')}"
+        f"Risk: {_escape(trade.get('risk_note') or 'UNKNOWN')}\n\n"
+        f"<b>FINAL TRADE IDEA</b>\n"
+        f"{_escape(ai_result.get('final_trade_idea') or trade.get('setup') or 'UNKNOWN')}"
     )
 
 
