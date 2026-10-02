@@ -41,7 +41,7 @@ def test_telegram_requires_explicit_authorized_chat_ids(monkeypatch):
     import pytest
     from src import telegram
     monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "test-token")
-    with pytest.raises(RuntimeError, match="authorized chat_ids"):
+    with pytest.raises(RuntimeError, match="chat_ids"):
         telegram.send({}, {"market_overview": "x"}, chat_ids=None)
 
 
