@@ -30,7 +30,7 @@ from src.analyze import analyze
 from src.twelve_data import fetch_spot, enrich_with_basis, TwelveDataError
 from src.technical_analysis import build_context
 from src.oi_positioning import enrich as enrich_oi_positioning
-from src.supabase_client import insert_snapshot, insert_oi_intelligence, upload_screenshot, get_active_chat_ids
+from src.supabase_client import insert_snapshot, insert_oi_intelligence, insert_multi_expiry_options, upload_screenshot, get_active_chat_ids
 from src.url_manager import UrlManager, UrlManagerError
 from src import history, telegram, line
 from src.multi_expiry import build_gamma_matrix, summarize_gamma_zones
@@ -240,6 +240,13 @@ def run():
         print("    ✅ Structured OI intelligence persisted")
     except Exception as e:
         print(f"⚠️  Structured OI persistence failed (snapshot remains saved): {e}", file=sys.stderr)
+
+    if parsed.get("expiration_snapshots"):
+        try:
+            written = insert_multi_expiry_options(parsed, snapshot_id=row.get("id"))
+            print(f"    ✅ Multi-expiry option observations persisted: {written} rows")
+        except Exception as e:
+            print(f"⚠️  Multi-expiry persistence failed (snapshot remains saved): {e}", file=sys.stderr)
 
     print("[8/9] Sending to Telegram...")
     # Authorization is fail-closed: Supabase customer registry is the source of truth.
