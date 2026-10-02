@@ -98,8 +98,16 @@ def _compact_raw_summary(raw: dict) -> dict:
         "oi_put": totals.get("open_interest_view_put", totals.get("open_interest_put")),
         "oi_call": totals.get("open_interest_view_call", totals.get("open_interest_call")),
         "oi_total": totals.get("open_interest_view_total", totals.get("open_interest_total")),
-        "oi_change_put": totals.get("oi_delta_put", totals.get("oi_change_put")),
-        "oi_change_call": totals.get("oi_delta_call", totals.get("oi_change_call")),
+        "oi_change_put": (
+            totals.get("oi_delta_put")
+            if totals.get("oi_delta_put") is not None
+            else totals.get("oi_change_put")
+        ),
+        "oi_change_call": (
+            totals.get("oi_delta_call")
+            if totals.get("oi_delta_call") is not None
+            else totals.get("oi_change_call")
+        ),
         "oi_change_total": totals.get("oi_delta_total"),
         "churn": totals.get("churn"),
         "quikstrike_churn_put": totals.get("quikstrike_churn_put"),
