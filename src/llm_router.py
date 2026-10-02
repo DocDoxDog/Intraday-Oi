@@ -164,90 +164,90 @@ def _gemini_response_schema(schema: dict[str, Any]) -> dict[str, Any]:
         return clean(schema)
 
 
-def _call_once(
-        self,
-        route: RouteConfig,
-        task: TaskConfig,
-        *,
-        system_instruction: str,
-        user_payload: dict[str, Any],
-        response_schema: dict[str, Any] | None,
-    ) -> dict[str, Any]:
-        body: dict[str, Any] = {
-            "systemInstruction": {"parts": [{"text": system_instruction}]},
-            "contents": [{"role": "user", "parts": [{"text": json.dumps(user_payload, ensure_ascii=False, default=str)}]}],
-            "generationConfig": {
-                "maxOutputTokens": task.max_output_tokens,
-            },
-        }
-        # Gemini 3.8 Flash rejects legacy sampling parameters such as
-        # temperature/top_p/top_k. Its default thinking level is valid for
-        # production; keep temperature for older Gemini routes only.
-        if not route.model.startswith("gemini-3."):
-            body["generationConfig"]["temperature"] = task.temperature
-
-        if response_schema:
-            # generateContent structured output uses responseMimeType + responseSchema.
-            # Keep this compatible with Gemini 3.x while preserving the governed schema.
-            body["generationConfig"]["responseMimeType"] = "application/json"
-            body["generationConfig"]["responseSchema"] = _gemini_response_schema(response_schema)
-        if route.model.startswith("gemini-3.8-"):
-            body["generationConfig"]["thinkingConfig"] = {"thinkingLevel": "medium"}
-
-        started_at = datetime.now(timezone.utc).isoformat()
-        timer = time.perf_counter()
-        try:
-            response = requests.post(
-                f"{self.base_url}/models/{route.model}:generateContent",
-                headers={"x-goog-api-key": self.api_key or "", "Content-Type": "application/json"},
-                json=body,
-                timeout=self.timeout_seconds,
-            )
-            response.raise_for_status()
-            data = response.json()
-            output_text = self._text(data)
-        except requests.HTTPError as exc:
-            status = getattr(getattr(exc, "response", None), "status_code", None)
-            detail = ""
-            response = getattr(exc, "response", None)
-            if response is not None:
-                try:
-                    detail = response.text.replace("\n", " ").strip()[:600]
-                except Exception:
-                    detail = ""
-            suffix = f":HTTP_{status}" if status is not None else ""
-            if detail:
-                suffix += f":{detail}"
-            err = LLMRouterError(f"GEMINI_HTTP_ERROR{suffix}")
-            # Preserve the provider response so the router can still classify
-            # 408/409/425/429/5xx as transient and use the configured fallback.
-            err.response = response
-            raise err from exc
-        except (requests.Timeout, requests.ConnectionError):
-            # Keep the native exception type so transient retry logic remains intact.
-            raise
-        except requests.RequestException as exc:
-            raise LLMRouterError(f"GEMINI_REQUEST_ERROR:{type(exc).__name__}:{exc}") from exc
-        except Exception as exc:
-            raise LLMRouterError(f"GEMINI_RESPONSE_ERROR:{type(exc).__name__}:{exc}") from exc
-        completed_at = datetime.now(timezone.utc).isoformat()
-        usage = data.get("usageMetadata") or {}
-        return {
-            "run_id": str(uuid.uuid4()),
-            "status": "OK",
-            "route": route.key,
-            "model": route.model,
-            "model_version": data.get("modelVersion"),
-            "response_id": data.get("responseId"),
-            "started_at": started_at,
-            "completed_at": completed_at,
-            "latency_ms": int((time.perf_counter() - timer) * 1000),
-            "input_tokens": usage.get("promptTokenCount"),
-            "output_tokens": usage.get("candidatesTokenCount"),
-            "cached_tokens": usage.get("cachedContentTokenCount"),
-            "text": output_text,
-        }
-
+    def _call_once(
+            self,
+            route: RouteConfig,
+            task: TaskConfig,
+            *,
+            system_instruction: str,
+            user_payload: dict[str, Any],
+            response_schema: dict[str, Any] | None,
+        ) -> dict[str, Any]:
+            body: dict[str, Any] = {
+                "systemInstruction": {"parts": [{"text": system_instruction}]},
+                "contents": [{"role": "user", "parts": [{"text": json.dumps(user_payload, ensure_ascii=False, default=str)}]}],
+                "generationConfig": {
+                    "maxOutputTokens": task.max_output_tokens,
+                },
+            }
+            # Gemini 3.8 Flash rejects legacy sampling parameters such as
+            # temperature/top_p/top_k. Its default thinking level is valid for
+            # production; keep temperature for older Gemini routes only.
+            if not route.model.startswith("gemini-3."):
+                body["generationConfig"]["temperature"] = task.temperature
+    
+            if response_schema:
+                # generateContent structured output uses responseMimeType + responseSchema.
+                # Keep this compatible with Gemini 3.x while preserving the governed schema.
+                body["generationConfig"]["responseMimeType"] = "application/json"
+                body["generationConfig"]["responseSchema"] = _gemini_response_schema(response_schema)
+            if route.model.startswith("gemini-3.8-"):
+                body["generationConfig"]["thinkingConfig"] = {"thinkingLevel": "medium"}
+    
+            started_at = datetime.now(timezone.utc).isoformat()
+            timer = time.perf_counter()
+            try:
+                response = requests.post(
+                    f"{self.base_url}/models/{route.model}:generateContent",
+                    headers={"x-goog-api-key": self.api_key or "", "Content-Type": "application/json"},
+                    json=body,
+                    timeout=self.timeout_seconds,
+                )
+                response.raise_for_status()
+                data = response.json()
+                output_text = self._text(data)
+            except requests.HTTPError as exc:
+                status = getattr(getattr(exc, "response", None), "status_code", None)
+                detail = ""
+                response = getattr(exc, "response", None)
+                if response is not None:
+                    try:
+                        detail = response.text.replace("\n", " ").strip()[:600]
+                    except Exception:
+                        detail = ""
+                suffix = f":HTTP_{status}" if status is not None else ""
+                if detail:
+                    suffix += f":{detail}"
+                err = LLMRouterError(f"GEMINI_HTTP_ERROR{suffix}")
+                # Preserve the provider response so the router can still classify
+                # 408/409/425/429/5xx as transient and use the configured fallback.
+                err.response = response
+                raise err from exc
+            except (requests.Timeout, requests.ConnectionError):
+                # Keep the native exception type so transient retry logic remains intact.
+                raise
+            except requests.RequestException as exc:
+                raise LLMRouterError(f"GEMINI_REQUEST_ERROR:{type(exc).__name__}:{exc}") from exc
+            except Exception as exc:
+                raise LLMRouterError(f"GEMINI_RESPONSE_ERROR:{type(exc).__name__}:{exc}") from exc
+            completed_at = datetime.now(timezone.utc).isoformat()
+            usage = data.get("usageMetadata") or {}
+            return {
+                "run_id": str(uuid.uuid4()),
+                "status": "OK",
+                "route": route.key,
+                "model": route.model,
+                "model_version": data.get("modelVersion"),
+                "response_id": data.get("responseId"),
+                "started_at": started_at,
+                "completed_at": completed_at,
+                "latency_ms": int((time.perf_counter() - timer) * 1000),
+                "input_tokens": usage.get("promptTokenCount"),
+                "output_tokens": usage.get("candidatesTokenCount"),
+                "cached_tokens": usage.get("cachedContentTokenCount"),
+                "text": output_text,
+            }
+    
     def generate(
         self,
         task_key: str,
