@@ -11,11 +11,11 @@
       "type":"object","additionalProperties":false,
       "properties":{
         "resistance_far":{"type":"string"},
-        "resistance_main":{"type":["string","number","null"]},
-        "resistance_current":{"type":["string","number","null"]},
-        "support_current":{"type":["string","number","null"]},
-        "support_main":{"type":["string","number","null"]},
-        "support_deep":{"type":["string","number","null"]}
+        "resistance_main":{"type":"string"},
+        "resistance_current":{"type":"string"},
+        "support_current":{"type":"string"},
+        "support_main":{"type":"string"},
+        "support_deep":{"type":"string"}
       },
       "required":["resistance_far","resistance_main","resistance_current","support_current","support_main","support_deep"]
     },
