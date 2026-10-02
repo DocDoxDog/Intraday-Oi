@@ -192,6 +192,20 @@ def _summarize_input(parsed: dict[str, Any], history: dict[str, Any] | None) -> 
             for row in rows[:120]
         ],
     }
+    current["news_context"] = [
+        {
+            "source": item.get("source"),
+            "headline": item.get("headline"),
+            "summary": item.get("summary"),
+            "url": item.get("url"),
+            "published_at": item.get("published_at"),
+            "category": item.get("category"),
+            "relevance": item.get("relevance"),
+            "rights_status": item.get("rights_status"),
+        }
+        for item in (parsed.get("news_context") or [])[:10]
+        if isinstance(item, dict)
+    ]
     return {
         "current": _json_safe(current),
         "history": _json_safe(history or {}),
@@ -327,6 +341,7 @@ def analyze_with_supabot(parsed: dict[str, Any], history: dict[str, Any] | None 
     input_refs = [
         "itb:oi:deterministic",
         "itb:oi:history",
+        "itb:news:latest",
     ]
     evidence = {
         "itb:oi:deterministic": {
@@ -343,6 +358,12 @@ def analyze_with_supabot(parsed: dict[str, Any], history: dict[str, Any] | None 
             "observed_at": as_of,
             "ingestion_time": as_of,
             "payload": payload["history"],
+        },
+        "itb:news:latest": {
+            "source": "governed_macro_news_feeds",
+            "observed_at": as_of,
+            "ingestion_time": as_of,
+            "payload": {"items": payload["current"].get("news_context") or []},
         },
     }
 
