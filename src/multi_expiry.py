@@ -241,53 +241,69 @@ def merge_expected_expirations(
     as_of: str | None = None,
     count: int = 7,
 ) -> dict[str, Any]:
-    """Pad the display matrix with expected weekly expiries, preserving missing cells as NULL."""
+    """Keep the display focused on real observed expirations.
+
+    Expected calendar identities are retained separately for the analyst and
+    future collection, but the user-facing Gamma Table never allocates wide
+    empty columns for unobserved series.
+    """
     expected = build_gold_weekly_series_window(as_of=as_of, count=count)
-    existing = {str(col.get("code")).upper(): col for col in (gamma_matrix.get("columns") or [])}
-    codes = set(existing)
-    for item in expected:
-        codes.add(item["code"])
+    existing = {
+        str(col.get("code")).upper(): dict(col)
+        for col in (gamma_matrix.get("columns") or [])
+        if str(col.get("code") or "").strip()
+    }
 
-    columns: list[dict[str, Any]] = []
-    for item in expected:
-        code = item["code"]
-        actual = existing.get(code)
-        columns.append({
-            "code": code,
-            "dte": actual.get("dte") if actual else None,
-            "observed_at": actual.get("observed_at") if actual else None,
-            "expiry_date": item["expiry_date"],
-            "weekday": item["weekday"],
-            "weekday_short": item["weekday_short"],
-            "week_number": item["week_number"],
-            "calendar_days_from_as_of": item["calendar_days_from_as_of"],
-            "status": "OBSERVED" if actual else "NOT_OBSERVED",
-        })
-    for code, actual in existing.items():
-        if code not in {item["code"] for item in expected}:
-            columns.append(dict(actual, status="OBSERVED"))
+    ordered_existing = sorted(
+        existing.values(),
+        key=lambda col: (
+            col.get("dte") is None,
+            col.get("dte") if isinstance(col.get("dte"), (int, float)) else float("inf"),
+            str(col.get("code") or ""),
+        ),
+    )
+    observed_columns = [
+        dict(col, status="OBSERVED")
+        for col in ordered_existing[: max(1, int(count))]
+    ]
 
-    row_values = {str(int(float(r["strike"]))) if float(r["strike"]).is_integer() else str(float(r["strike"])): r for r in (gamma_matrix.get("matrix") or [])}
+    observed_codes = [str(col["code"]).upper() for col in observed_columns]
+    row_values = {
+        str(int(float(r["strike"]))) if float(r["strike"]).is_integer() else str(float(r["strike"])): r
+        for r in (gamma_matrix.get("matrix") or [])
+    }
     matrix: list[dict[str, Any]] = []
     for strike_key in sorted(row_values, key=float, reverse=True):
         base = dict(row_values[strike_key])
-        for col in columns:
+        for col in observed_columns:
             base.setdefault(col["code"], None)
         matrix.append(base)
 
     totals: dict[str, float | None] = {}
-    for col in columns:
-        values = [row.get(col["code"]) for row in matrix if isinstance(row.get(col["code"]), (int, float))]
+    for col in observed_columns:
+        values = [
+            row.get(col["code"]) for row in matrix
+            if isinstance(row.get(col["code"]), (int, float))
+        ]
         totals[col["code"]] = sum(values) if values else None
+
+    expected_missing = [
+        item for item in expected
+        if item["code"].upper() not in observed_codes
+    ]
 
     out = dict(gamma_matrix)
     out.update({
-        "columns": columns,
+        "columns": observed_columns,
         "matrix": matrix,
         "totals": totals,
+        "expected_expirations": expected,
+        "missing_expected_expirations": expected_missing,
         "expected_expiration_count": len(expected),
-        "expiration_count": len(columns),
-        "display_complete": len(columns) >= count and all(c.get("status") == "OBSERVED" for c in columns[:count]),
-        "status": "VALID" if matrix and columns else "PARTIAL",
+        "observed_expiration_count": len(observed_columns),
+        "expiration_count": len(observed_columns),
+        "display_complete": len(observed_columns) >= count,
+        "status": "VALID" if matrix and observed_columns else "PARTIAL",
     })
     return out
+
