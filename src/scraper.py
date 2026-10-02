@@ -532,6 +532,23 @@ def scrape_multi_expiration(url: str | None = None, limit: int = 7) -> dict:
                     if heading_locator.count()
                     else ""
                 )
+                if candidate["code"] not in heading:
+                    raise ScrapeError(
+                        f"expiration identity mismatch: requested={candidate['code']} heading={heading!r}"
+                    )
+
+                source_screenshot = None
+                if index == 0:
+                    try:
+                        chart_image = page.locator("img.chart")
+                        if chart_image.count():
+                            source_screenshot = chart_image.screenshot(type="png")
+                        else:
+                            chart_container = page.locator("#chart")
+                            source_screenshot = chart_container.screenshot(type="png")
+                    except Exception:
+                        source_screenshot = None
+
                 snapshot = {
                     "source": (
                         "quikstrike_open_interest_image_map"
@@ -547,19 +564,9 @@ def scrape_multi_expiration(url: str | None = None, limit: int = 7) -> dict:
                     },
                     "page_heading": heading,
                     "page_text": page.locator("body").inner_text(),
-                    "screenshot": None,
+                    "screenshot": source_screenshot,
+                    "source_screenshot": source_screenshot,
                 }
-
-                if index == 0:
-                    try:
-                        chart_image = page.locator("img.chart")
-                        if chart_image.count():
-                            snapshot["screenshot"] = chart_image.screenshot(type="png")
-                        else:
-                            chart_container = page.locator("#chart")
-                            snapshot["screenshot"] = chart_container.screenshot(type="png")
-                    except Exception:
-                        snapshot["screenshot"] = None
 
                 snapshots.append(snapshot)
 
