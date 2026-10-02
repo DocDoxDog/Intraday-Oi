@@ -94,6 +94,9 @@ def _format_analysis_message(parsed: dict, ai_result: dict) -> str:
             return f"{float(value):.{digits}f}"
         return str(value)
 
+    raw = parsed.get("raw_series") or {}
+    totals = raw.get("totals") or {}
+
     sections = [
         f"<b>GOLD MARKET ANALYST V2</b>\n{_thai_datetime_str()}",
         f"<b>Futures</b> {show(parsed.get('future_price'))}  |  <b>CFD</b> {show(parsed.get('cfd_price'))}  |  <b>DTE</b> {show(parsed.get('dte'))}",
