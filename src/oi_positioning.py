@@ -19,12 +19,12 @@ def enrich(current: dict, baseline: dict | None) -> dict:
         if strike is None:
             continue
         before = old.get(float(strike))
-        put = float(row.get("oiPut") or 0)
-        call = float(row.get("oiCall") or 0)
-        old_put = float(before.get("oiPut") or 0) if before else None
-        old_call = float(before.get("oiCall") or 0) if before else None
-        put_delta = put - old_put if before and old_put is not None else None
-        call_delta = call - old_call if before and old_call is not None else None
+        put = float(row.get("oiPut")) if isinstance(row.get("oiPut"), (int, float)) else None
+        call = float(row.get("oiCall")) if isinstance(row.get("oiCall"), (int, float)) else None
+        old_put = float(before.get("oiPut")) if before and isinstance(before.get("oiPut"), (int, float)) else None
+        old_call = float(before.get("oiCall")) if before and isinstance(before.get("oiCall"), (int, float)) else None
+        put_delta = put - old_put if before and put is not None and old_put is not None else None
+        call_delta = call - old_call if before and call is not None and old_call is not None else None
         # Churn is a positioning-activity proxy, not traded volume.
         churn = (abs(put_delta) + abs(call_delta)) if put_delta is not None and call_delta is not None else None
         item = dict(row)
