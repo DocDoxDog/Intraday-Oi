@@ -152,11 +152,18 @@ def _format_trade_plan_message(parsed: dict, ai_result: dict) -> str:
     trade = ai_result.get("trade_plan") or {}
     return (
         "<b>TRADE PLAN</b>\n"
-        f"Status: {_escape(str(trade.get('status') or 'NO_TRADE').upper())}\n"
-        f"{_escape(trade.get('setup') or '-')}\n"
-        f"Confirmation: {_escape(trade.get('confirmation') or '-')}\n"
-        f"Invalidation: {_escape(trade.get('invalidation') or '-')}\n"
-        f"Risk: {_escape(trade.get('risk_note') or '-')}"
+        f"Status: <b>{_escape(str(trade.get('status') or 'CONDITIONAL').upper())}</b>\n"
+        f"Direction: {_escape(trade.get('direction') or 'WAIT')}\n"
+        f"Entry: {_escape(trade.get('entry') or 'UNKNOWN')}\n"
+        f"Stop: {_escape(trade.get('stop_loss') or 'UNKNOWN')}\n"
+        f"TP1: {_escape(trade.get('take_profit_1') or 'UNKNOWN')}\n"
+        f"TP2: {_escape(trade.get('take_profit_2') or 'UNKNOWN')}\n"
+        f"Trigger: {_escape(trade.get('trigger') or 'UNKNOWN')}\n"
+        f"Invalidation: {_escape(trade.get('invalidation') or 'UNKNOWN')}\n"
+        f"Risk/Reward: {_escape(trade.get('risk_reward') or 'UNKNOWN')}\n"
+        f"Market Condition: {_escape(trade.get('market_condition') or 'UNKNOWN')}\n"
+        f"Position Risk: {_escape(trade.get('position_risk') or 'UNKNOWN')}\n"
+        f"Risk: {_escape(trade.get('risk_note') or 'UNKNOWN')}"
     )
 
 
