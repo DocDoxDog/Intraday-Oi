@@ -35,6 +35,31 @@ jobs:
           from src.scraper import scrape_multi_expiration
 
           url = UrlManager().get_url()
+
+          # Diagnostic only: discover the current CME expiration control shape
+          # before the canonical scraper runs.
+          from playwright.sync_api import sync_playwright
+          with sync_playwright() as p:
+              browser = p.chromium.launch(headless=True, args=["--no-sandbox", "--disable-dev-shm-usage"])
+              page = browser.new_page(
+                  viewport={"width": 1600, "height": 1000},
+                  extra_http_headers={"Referer": "https://www.cmegroup.com/tools-information/quikstrike/vol2vol-expected-range.html"},
+              )
+              page.goto(url, wait_until="domcontentloaded", timeout=60000)
+              page.wait_for_timeout(2000)
+              print("\n=== EXPIRATION DOM DIAGNOSTIC ===")
+              elems = page.locator("a,button,[role='button'],[role='option'],[role='menuitem'],[role='combobox'],[aria-haspopup]")
+              for i in range(min(elems.count(), 500)):
+                  el = elems.nth(i)
+                  try:
+                      txt = " ".join((el.inner_text() or "").split())
+                      attrs = el.evaluate("(e) => ({id:e.id, cls:e.className, aria:e.getAttribute('aria-label'), title:e.getAttribute('title'), role:e.getAttribute('role')})")
+                  except Exception:
+                      continue
+                  if txt and ("EXPIRATION" in txt.upper() or "OG1V6" in txt.upper() or "DTE" in txt.upper()):
+                      print({"text": txt[:300], **attrs})
+              browser.close()
+
           raw = scrape_multi_expiration(url, limit=7)
           snaps = raw.get("expiration_snapshots") or []
           print(json.dumps({
