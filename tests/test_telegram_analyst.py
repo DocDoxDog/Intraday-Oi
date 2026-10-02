@@ -99,7 +99,7 @@ def test_telegram_renders_five_message_sections():
     assert "WHAT text" in m3 and "WHY text" in m3 and "POSITIONING text" in m3 and "FLOW & HISTORY" in m3
     assert "4,232.49" in m4 and "GAMMA TERM STRUCTURE" in m4 and "7" in m4 and "🟢" in m4 and "🔴" in m4 and "🟡" in m4
     assert "Status: CONDITIONAL" in m5
-    assert "Direction: WAIT" in m5
+    assert "<b>Direction:</b> WAIT" in m5
     assert "Entry:" in m5
     assert "Stop:" in m5
     assert "TP1:" in m5
