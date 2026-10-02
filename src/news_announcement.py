@@ -44,6 +44,8 @@ class NewsItem:
     category: str
     relevance: str
     rights_status: str
+    market_channels: tuple[str, ...] = ()
+    freshness: str = "UNKNOWN"
 
     def as_dict(self) -> dict:
         return {
@@ -57,6 +59,8 @@ class NewsItem:
             "category": self.category,
             "relevance": self.relevance,
             "rights_status": self.rights_status,
+            "market_channels": list(self.market_channels),
+            "freshness": self.freshness,
         }
 
 
@@ -117,6 +121,43 @@ def _parse_time(value: str | None) -> str | None:
         return parsedate_to_datetime(text).astimezone(timezone.utc).isoformat()
     except (TypeError, ValueError):
         return None
+
+
+def _market_channels(text: str) -> list[str]:
+    haystack = text.lower()
+    channels: list[str] = []
+    rules = {
+        "RATES": ("interest rate", "policy rate", "fomc", "fed ", "rate cut", "rate hike"),
+        "REAL_YIELD": ("real yield", "tips", "real rate"),
+        "USD": ("dollar", "dxy", "usd", "exchange rate"),
+        "INFLATION": ("cpi", "ppi", "pce", "inflation", "prices"),
+        "LABOR": ("employment", "payroll", "unemployment", "jolts", "wages"),
+        "GROWTH": ("gdp", "growth", "consumer spending", "personal income"),
+        "LIQUIDITY": ("liquidity", "balance sheet", "treasury", "yield curve"),
+        "RISK_SENTIMENT": ("geopolit", "sanctions", "war", "crisis", "recession", "financial stability"),
+        "GOLD_DEMAND": ("gold", "central bank", "reserve", "etf"),
+    }
+    for channel, keywords in rules.items():
+        if any(keyword in haystack for keyword in keywords):
+            channels.append(channel)
+    return channels
+
+
+def _freshness(published_at: str | None, detected_at: datetime) -> str:
+    if not published_at:
+        return "UNKNOWN"
+    try:
+        published = datetime.fromisoformat(published_at.replace("Z", "+00:00"))
+        age_hours = max(0.0, (detected_at.astimezone(timezone.utc) - published.astimezone(timezone.utc)).total_seconds() / 3600.0)
+    except (TypeError, ValueError):
+        return "UNKNOWN"
+    if age_hours <= 6:
+        return "FRESH"
+    if age_hours <= 24:
+        return "RECENT"
+    if age_hours <= 72:
+        return "AGING"
+    return "STALE"
 
 
 def _category(text: str) -> str:
@@ -188,6 +229,8 @@ def _to_item(source: NewsSource, row: dict, detected_at: datetime) -> NewsItem |
         category=_category(text),
         relevance=_relevance(text),
         rights_status=source.rights_status,
+        market_channels=tuple(_market_channels(text)),
+        freshness=_freshness(_parse_time(row.get("pubdate") or row.get("published") or row.get("updated")), detected_at),
     )
 
 
