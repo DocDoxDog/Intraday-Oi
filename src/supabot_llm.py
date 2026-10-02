@@ -488,7 +488,15 @@ TRADE PLAN — ต้องมีทุกครั้ง
 Entry / Stop / TP1 / TP2 ต้องอ้างอิง deterministic levels หรือ current CFD price เท่านั้น
 ห้ามสร้างราคาใหม่และห้ามเดาตัวเลข
 ถ้ามี level ที่ valid ให้ระบุราคา Entry/Stop/TP เป็นตัวเลข 2 ตำแหน่ง พร้อมบอกว่าเป็น CONDITIONAL ENTRY/STOP/TP
+ห้ามใช้ข้อความ “คำนวณเมื่อ trigger” แทนตัวเลข หาก deterministic level ที่เหมาะกับ conditional plan มีอยู่แล้ว
 Risk/Reward ให้คำนวณเมื่อมีตัวเลข Entry/Stop/TP ครบ; ถ้ายังไม่ครบให้ระบุ UNKNOWN อย่างตรงไปตรงมา
+
+OUTPUT DISCIPLINE
+แต่ละ narrative field ให้สรุป 1–3 ประโยคที่มีสาระจริง หลีกเลี่ยงการกล่าวซ้ำข้าม section
+รวม Macro + GEX + Microstructure + Psychology เป็น causal chain เดียวกันเมื่อเหตุผลเชื่อมโยงกันได้
+รวม OI + OI Change + Churn + IV + History เป็น flow/change story เดียวกัน
+ห้ามใส่หัวข้อยาวหรือคำนำซ้ำ เพราะ Telegram renderer จะจัดรูปแบบให้เอง
+ตัวเลขราคา/CFD/GEX/OI/Change/Churn/IV ที่ใส่ใน output ให้ปัดเป็นทศนิยม 2 ตำแหน่งเฉพาะค่าที่เป็น market price/ratio; ห้ามเปลี่ยนค่าหลักฐานสาระสำคัญ
 
 OUTPUT JSON
 ต้องมี fields:
