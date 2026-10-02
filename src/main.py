@@ -182,14 +182,19 @@ def run():
               file=sys.stderr)
         return
 
-    # อ่านรายชื่อผู้รับจากตาราง customers ใน Supabase ก่อน (เพิ่ม/ปิดคนได้โดยไม่ต้องแก้ Secret)
-    # ถ้ายังไม่ได้รัน migration 005 หรือตารางว่างเปล่า -> fallback ไปใช้ TELEGRAM_CHAT_ID (env) แบบเดิม
-    chat_ids = get_active_chat_ids()
+    # Authorization is fail-closed: Supabase customer registry is the source of truth.
+    # Never fall back to TELEGRAM_CHAT_ID, because an unavailable/empty registry
+    # must not become an authorization bypass.
+    try:
+        chat_ids = get_active_chat_ids()
+    except Exception as e:
+        print(f"    ❌ Telegram authorization registry unavailable: {e}", file=sys.stderr)
+        chat_ids = []
     if chat_ids:
         print(f"    ผู้รับจาก Supabase customers table: {len(chat_ids)} คน")
     else:
-        print("    ⚠️  ไม่มีรายชื่อใน customers table (หรือยังไม่ได้รัน migration) — fallback ไปใช้ TELEGRAM_CHAT_ID (env)")
-        chat_ids = None  # ให้ telegram.send() ไป fallback อ่าน env เอง
+        print("    ⏭️  ไม่มีผู้รับที่ active ใน Supabase customers — ข้าม Telegram", file=sys.stderr)
+        chat_ids = []
 
     try:
         telegram.send(parsed, ai_result, screenshot_url=screenshot_url, chat_ids=chat_ids)
