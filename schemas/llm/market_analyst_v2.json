@@ -41,9 +41,12 @@
         "trigger":{"type":"string"},
         "confirmation":{"type":"string"},
         "invalidation":{"type":"string"},
+        "risk_reward":{"type":"string"},
+        "market_condition":{"type":"string"},
+        "position_risk":{"type":"string"},
         "risk_note":{"type":"string"}
       },
-      "required":["status","direction","entry","stop_loss","take_profit_1","take_profit_2","setup","trigger","confirmation","invalidation","risk_note"]
+      "required":["status","direction","entry","stop_loss","take_profit_1","take_profit_2","setup","trigger","confirmation","invalidation","risk_reward","market_condition","position_risk","risk_note"]
     },
     "evidence_refs":{"type":"array","items":{"type":"string"}},
     "data_limitations":{"type":"array","items":{"type":"string"}}
