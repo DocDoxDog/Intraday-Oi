@@ -218,15 +218,27 @@ def collect_news(
     return output
 
 
-def format_news_announcement(items: list[NewsItem], *, limit: int = 3) -> str:
+def format_news_announcement(items: list[NewsItem | dict], *, limit: int = 3) -> str:
+    """Render source-only news announcements; no market-direction inference."""
     rows = items[: max(1, int(limit))]
     lines = ["🚨 NEWS ANNOUNCEMENT", ""]
-    for item in rows:
-        published = item.published_at or "UNKNOWN"
+    for row in rows:
+        if isinstance(row, dict):
+            category = row.get("category") or "OTHER"
+            headline = row.get("headline") or "UNKNOWN"
+            source = row.get("source") or "UNKNOWN"
+            published = row.get("published_at") or "UNKNOWN"
+            url = row.get("url") or ""
+        else:
+            category = row.category
+            headline = row.headline
+            source = row.source
+            published = row.published_at or "UNKNOWN"
+            url = row.url
         lines.extend([
-            f"• [{item.category}] {item.headline}",
-            f"Source: {item.source} | {published}",
-            item.url,
+            f"• [{category}] {headline}",
+            f"Source: {source} | {published}",
+            url,
             "",
         ])
     lines.append("หมายเหตุ: เป็นประกาศจาก source โดยตรง ยังไม่ใช่ข้อสรุปทิศทางตลาด")
