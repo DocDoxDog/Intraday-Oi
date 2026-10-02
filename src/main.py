@@ -232,10 +232,16 @@ def run():
             "uncertainty": 1.0,
             "trade_plan": {
                 "status": "NO_TRADE",
+                "direction": "WAIT",
+                "entry": "UNKNOWN",
+                "stop_loss": "UNKNOWN",
+                "take_profit_1": "UNKNOWN",
+                "take_profit_2": "UNKNOWN",
                 "setup": "ยังไม่เปิด setup เพราะ analyst output ไม่ผ่าน verification",
+                "trigger": "ต้องมี analyst output ที่ผ่าน verification",
                 "confirmation": "ต้องมี analyst output + technical confirmation ที่ผ่าน gate",
                 "invalidation": "ยังไม่มี setup ที่อนุมัติ",
-                "risk_note": "ห้ามสร้าง Entry/SL/TP จาก OI เพียงอย่างเดียว",
+                "risk_note": "รอบ DEGRADED ห้ามสร้าง Entry/SL/TP จาก OI เพียงอย่างเดียว",
             },
             "data_limitations": [
                 "LLM output rejected before delivery: " + str(ai_result.get("error")),
