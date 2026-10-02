@@ -75,3 +75,20 @@ def test_line_renders_canonical_analysis_without_local_trade_plan():
     assert "Entry" not in message
     assert "TP1" not in message
     assert "SL" not in message
+
+
+def test_degraded_v2_has_no_trade_levels():
+    parsed = {"future_price": 4300, "raw_series": {"gex": {"call_wall": 4400, "put_wall": 4200}}}
+    ai = {
+        "analysis_status": "DEGRADED", "bias": "WAIT",
+        "what": "ไม่มี analyst output ที่ผ่าน verification",
+        "why": "จึงไม่ควรสร้างระดับเพิ่ม", "positioning": "UNKNOWN",
+        "levels": {"resistance_far": None, "resistance_main": 4400, "resistance_current": None, "support_current": None, "support_main": 4200, "support_deep": None},
+        "scenarios": {"bull": "รอ confirmation", "bear": "รอ confirmation", "sideway": "ข้อมูลไม่พอ"},
+        "trade_plan": {"status": "NO_TRADE", "setup": "ไม่มี", "confirmation": "ไม่มี", "invalidation": "ไม่มี", "risk_note": "ห้ามสร้าง Entry/SL/TP จาก OI เพียงอย่างเดียว"},
+        "evidence_refs": ["itb:oi:deterministic"], "data_limitations": ["LLM rejected"],
+    }
+    message = format_message(parsed, ai)
+    assert "GOLD MARKET ANALYST V2" in message
+    assert "GOLD OI UPDATE" not in message
+    assert "NO_TRADE" in message
