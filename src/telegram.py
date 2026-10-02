@@ -152,44 +152,12 @@ def _format_trade_plan_message(parsed: dict, ai_result: dict) -> str:
     trade = ai_result.get("trade_plan") or {}
     return (
         "<b>TRADE PLAN</b>\n"
-        f"Status: <b>{_escape(str(trade.get('status') or 'NO_TRADE').upper())}</b>\n"
+        f"Status: {_escape(str(trade.get('status') or 'NO_TRADE').upper())}\n"
         f"{_escape(trade.get('setup') or '-')}\n"
         f"Confirmation: {_escape(trade.get('confirmation') or '-')}\n"
         f"Invalidation: {_escape(trade.get('invalidation') or '-')}\n"
         f"Risk: {_escape(trade.get('risk_note') or '-')}"
     )
-
-
-def _format_trade_plan_message(parsed: dict, ai_result: dict) -> str:
-    trade = ai_result.get("trade_plan") or {}
-    direction = str(trade.get("direction") or "WAIT").upper()
-    status = str(trade.get("status") or "NO_TRADE").upper()
-
-    lines = [
-        "<b>🎯 GOLD • TRADE PLAN</b>",
-        f"สถานะ: <b>{_escape(status)}</b> · ทิศทาง: <b>{_escape(direction)}</b>",
-        "",
-        f"<b>Entry</b>   {_escape(trade.get('entry') or 'UNKNOWN')}",
-        f"<b>SL</b>      {_escape(trade.get('stop_loss') or 'UNKNOWN')}",
-        f"<b>TP1</b>     {_escape(trade.get('take_profit_1') or 'UNKNOWN')}",
-        f"<b>TP2</b>     {_escape(trade.get('take_profit_2') or 'UNKNOWN')}",
-        "",
-        "<b>Setup</b>",
-        _escape(_compact(trade.get("setup"), 650)),
-        "",
-        "<b>Trigger</b>",
-        _escape(_compact(trade.get("trigger"), 650)),
-        "",
-        "<b>Invalidation</b>",
-        _escape(_compact(trade.get("invalidation"), 650)),
-        "",
-        "<b>เหตุผล</b>",
-        _escape(_compact(trade.get("confirmation"), 650)),
-        "",
-        "<b>Risk</b>",
-        _escape(_compact(trade.get("risk_note"), 500)),
-    ]
-    return "\n".join(lines)
 
 
 def format_message(parsed: dict, ai_result: dict) -> str:
