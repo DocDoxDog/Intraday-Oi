@@ -64,12 +64,29 @@ def _chunk(text: str, limit: int = MAX_MESSAGE_LEN) -> list[str]:
 def _format_analysis_message(parsed: dict, ai_result: dict) -> str:
     status = str(ai_result.get("analysis_status") or "CONFIRMED").upper()
     bias = str(ai_result.get("bias") or "WAIT").upper()
+    news = parsed.get("news_context") or []
+
+    news_lines = []
+    for item in news[:2]:
+        if not isinstance(item, dict):
+            continue
+        headline = item.get("headline") or "-"
+        source = item.get("source") or "-"
+        freshness = item.get("freshness") or "UNKNOWN"
+        news_lines.append(
+            f"• {_escape(headline)} "
+            f"<i>({_escape(source)} | {_escape(freshness)})</i>"
+        )
+
     return "\n".join([
         "<b>GOLD MARKET</b>",
         _thai_datetime_str(),
-        f"<b>Futures</b> {_show(parsed.get('future_price'))} | <b>CFD</b> {_show(parsed.get('cfd_price'))}",
-        f"<b>Basis</b> {_show(parsed.get('basis_diff'))} | <b>DTE</b> {_show(parsed.get('dte'))} | "
-        f"<b>{_escape(ai_result.get('market_regime') or 'UNKNOWN')}</b> | IV {_show(parsed.get('vol'))}%",
+        "",
+        "<b>PRICE / REGIME</b>",
+        f"Futures {_show(parsed.get('future_price'))} | CFD {_show(parsed.get('cfd_price'))}",
+        f"Basis {_show(parsed.get('basis_diff'))} | DTE {_show(parsed.get('dte'))} | "
+        f"<b>{_escape(ai_result.get('market_regime') or 'UNKNOWN')}</b> | "
+        f"IV {_show(parsed.get('vol'))}%",
         "",
         "────────────────────────",
         "",
@@ -78,15 +95,20 @@ def _format_analysis_message(parsed: dict, ai_result: dict) -> str:
         _escape(ai_result.get("why") or "-"),
         _escape(ai_result.get("positioning") or "-"),
         "",
-        f"→ <b>{_escape(ai_result.get('final_trade_idea') or ai_result.get('uncertainty') or ('Bias: ' + bias))}</b>",
+        f"→ {_escape(ai_result.get('uncertainty') or ai_result.get('final_trade_idea') or ('Bias: ' + bias))}",
         "",
         "────────────────────────",
         "",
         "<b>WHY NOW</b>",
-        "• " + _escape(ai_result.get("financial_engineering") or "-"),
-        "• " + _escape(ai_result.get("market_microstructure") or "-"),
-        "• " + _escape(ai_result.get("macro") or "-"),
-        "• " + _escape(ai_result.get("market_psychology") or "-"),
+        _escape(ai_result.get("financial_engineering") or "-"),
+        _escape(ai_result.get("market_microstructure") or "-"),
+        "",
+        "<b>TECHNICAL</b>",
+        _escape(ai_result.get("market_microstructure") or "-"),
+        "",
+        "<b>MACROECONOMIC / NEWS</b>",
+        _escape(ai_result.get("macro") or "-"),
+        *(news_lines or ["• ไม่มีข่าวสำคัญจากข้อมูลที่ได้รับ"]),
         "",
         "────────────────────────",
     ])
