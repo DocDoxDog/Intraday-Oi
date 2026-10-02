@@ -585,15 +585,24 @@ def _discover_gold_expirations(page, limit: int = 7) -> list[dict]:
 
 
 def _expiration_target(page, code: str):
-    """Find the exact QuikStrike expiration entry, preferring its Option Symbol title."""
-    exact_title = page.locator(f"a[title*='Option Symbol: {code}' i]")
-    if exact_title.count():
-        return exact_title.first
-
-    if code:
-        exact_id = page.locator(f"a#{code}")
-        if exact_id.count():
-            return exact_id.first
+    """Find the exact visible QuikStrike expiration control, never a hidden duplicate."""
+    exact = page.locator(
+        f"a[title*='Option Symbol: {code}' i], "
+        f"button[title*='Option Symbol: {code}' i], "
+        f"[role='option'][title*='Option Symbol: {code}' i]"
+    )
+    visible_targets = []
+    for i in range(exact.count()):
+        candidate = exact.nth(i)
+        try:
+            if candidate.is_visible():
+                visible_targets.append(candidate)
+        except Exception:
+            continue
+    if visible_targets:
+        return visible_targets[0]
+    if exact.count():
+        return exact.first
 
     links = page.locator(EXPIRATION_LINK_SELECTOR)
     if links.count() == 0:
@@ -601,6 +610,7 @@ def _expiration_target(page, code: str):
     if links.count() == 0:
         links = page.locator("a")
 
+    matches = []
     for i in range(links.count()):
         link = links.nth(i)
         try:
@@ -617,9 +627,16 @@ def _expiration_target(page, code: str):
         if not candidate:
             match = re.search(r"Option Symbol:\s*([A-Za-z0-9._-]+)", metadata, re.I)
             candidate = match.group(1).strip() if match else ""
-        if candidate == code:
-            return link
-    return None
+        if candidate.upper() == code.upper():
+            matches.append(link)
+
+    for link in matches:
+        try:
+            if link.is_visible():
+                return link
+        except Exception:
+            continue
+    return matches[0] if matches else None
 
 
 def _activate_expiration(page, code: str) -> None:
@@ -668,6 +685,7 @@ def _activate_expiration(page, code: str) -> None:
             # dropdown and resolve the exact Option Symbol before retrying.
             if attempt == 0:
                 _open_expiration_menu(page)
+                page.wait_for_timeout(750)
                 target = _expiration_target(page, code)
                 if target is None:
                     break
