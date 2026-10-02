@@ -68,7 +68,7 @@ def test_parser_resolves_product_without_fabricating_volume():
     raw = {
         "chart_data": {"strike_rows": [{"coords": "0,0,1,1", "templateid": "x", "fields": {"title": "4600 Strike", "oiPut": "10", "oiCall": "20", "oiTotal": "30"}}], "future_markers": ["Future: 4605"], "expected_ranges": []},
         "expiration_selection": {"selected": "G4RQ6", "dte_hint": 2.38},
-        "page_heading": "Gold (G4RQ6) (2.38 DTE) vs 4605", "page_text": "", "screenshot": None,
+        "page_heading": "Gold (OG|GC) G4RQ6 (2.38 DTE) vs 4605", "page_text": "", "screenshot": None,
     }
     result = parse(raw)
     assert result["product_symbol"] == "GC"
