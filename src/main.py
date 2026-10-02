@@ -34,6 +34,7 @@ from src.supabase_client import insert_snapshot, insert_oi_intelligence, upload_
 from src.url_manager import UrlManager, UrlManagerError
 from src import history, telegram, line
 from src.multi_expiry import build_gamma_matrix, summarize_gamma_zones
+from src.gamma_chart import render_gamma_table
 
 
 def run():
@@ -109,10 +110,24 @@ def run():
     else:
         print("    ⏭️  ข้าม technical confirmation (ไม่มี Twelve Data key)")
 
-    print("[4/8] Uploading screenshot to Supabase Storage...")
+    print("[4/8] Uploading Gamma Table + OI screenshot to Supabase Storage...")
     screenshot_bytes = parsed.pop("screenshot", None)
     screenshot_path = None
     screenshot_url = None
+    gamma_table_path = None
+    gamma_table_url = None
+
+    gamma_matrix = (parsed.get("raw_series") or {}).get("multi_expiry_gamma")
+    if gamma_matrix and gamma_matrix.get("status") == "VALID":
+        try:
+            gamma_bytes = render_gamma_table(gamma_matrix)
+            uploaded_gamma = upload_screenshot(gamma_bytes, contract=f"{parsed.get('contract')}_GAMMA_TABLE")
+            if uploaded_gamma:
+                gamma_table_path = uploaded_gamma["path"]
+                gamma_table_url = uploaded_gamma["signed_url"]
+            print("    ✅ Gamma Table uploaded")
+        except Exception as e:
+            print(f"⚠️  Gamma Table upload failed (continuing): {e}", file=sys.stderr)
     if screenshot_bytes:
         try:
             uploaded = upload_screenshot(screenshot_bytes, contract=parsed.get("contract"))
@@ -216,6 +231,8 @@ def run():
         ai_summary=json.dumps(ai_result, ensure_ascii=False),
         screenshot_path=screenshot_path,
         screenshot_url=screenshot_url,
+        gamma_table_path=gamma_table_path,
+        gamma_table_url=gamma_table_url,
     )
     print(f"✅ Done. Row id={row.get('id')}")
     try:
