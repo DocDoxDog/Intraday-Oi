@@ -249,7 +249,22 @@ class LLMGateway:
 
         output: dict[str, Any] | list[Any] | None
         try:
-            output = json.loads(result["text"])
+            raw_text = str(result.get("text") or "").strip()
+            # Gemini occasionally wraps valid JSON in markdown fences or adds a
+            # short preamble even when structured output is requested. Recover
+            # only a complete JSON object/array; never invent fields.
+            if raw_text.startswith("\u0060\u0060\u0060"):
+                raw_text = raw_text.split("\n", 1)[1] if "\n" in raw_text else raw_text
+                if raw_text.endswith("\u0060\u0060\u0060"):
+                    raw_text = raw_text[:-3].rstrip()
+            try:
+                output = json.loads(raw_text)
+            except (TypeError, ValueError):
+                start = next((i for i, ch in enumerate(raw_text) if ch in "[{"), None)
+                end = max(raw_text.rfind("]"), raw_text.rfind("}"))
+                if start is None or end <= start:
+                    raise
+                output = json.loads(raw_text[start:end + 1])
         except (TypeError, ValueError) as exc:
             raise LLMGatewayError("REJECTED_JSON_OUTPUT") from exc
 

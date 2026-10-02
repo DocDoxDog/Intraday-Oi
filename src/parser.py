@@ -121,16 +121,24 @@ def _parse_image_map(raw):
     future = future or _extract_float(r"\bvs\s*(%s)"%_NUM,heading)
     vols=[_iv_percent(r["vol"]) for r in rows if isinstance(r.get("vol"),(int,float))]
     raw_series={"mode":"open_interest","dte":dte,"expiration_selection":sel,"heading":heading,"strike_rows":rows,"oi_positioning_rows":rows,"expected_ranges":chart.get("expected_ranges") or [],"totals":{"open_interest_view_put":sum(r.get("oiPut") or 0 for r in rows),"open_interest_view_call":sum(r.get("oiCall") or 0 for r in rows),"open_interest_view_total":sum(r.get("oiTotal") or 0 for r in rows),"open_interest_put":sum(r.get("oiPut") or 0 for r in rows),"open_interest_call":sum(r.get("oiCall") or 0 for r in rows),"open_interest_total":sum(r.get("oiTotal") or 0 for r in rows)},"series":_build_series(rows,[])}
-    chart_png=None
-    try:
-        try:
-            from .oi_chart import render_oi_positioning
-        except ImportError:
-            from oi_chart import render_oi_positioning
-        chart_png=render_oi_positioning(rows,title=heading or "Gold")
-    except Exception:
-        pass
-    parsed = {"contract":heading,"dte":dte,"dte_low_confidence":low,"future_price":future,"future_chg":None,"put_volume":0,"call_volume":0,"vol":sum(vols)/len(vols) if vols else None,"vol_chg":None,"delta_levels":{},"raw_series":raw_series,"screenshot":chart_png or raw.get("screenshot")}
+    # IMPORTANT: screenshot means the actual QuikStrike source image.
+    # Never replace it with a locally rendered OI chart. The old implementation
+    # did exactly that, so Telegram labeled a synthetic chart as "Source Screenshot".
+    parsed = {
+        "contract": heading,
+        "expiration_code": sel.get("selected"),
+        "dte": dte,
+        "dte_low_confidence": low,
+        "future_price": future,
+        "future_chg": None,
+        "put_volume": 0,
+        "call_volume": 0,
+        "vol": sum(vols) / len(vols) if vols else None,
+        "vol_chg": None,
+        "delta_levels": {},
+        "raw_series": raw_series,
+        "screenshot": raw.get("source_screenshot") or raw.get("screenshot"),
+    }
     return _attach_gex(parsed)
 
 def _parse_legacy(raw):
@@ -160,20 +168,40 @@ def _parse_legacy(raw):
     dte,low=_extract_dte(heading,raw.get("page_text"))
     totals={"open_interest_view_put":sum(r["oiPut"] or 0 for r in rows),"open_interest_view_call":sum(r["oiCall"] or 0 for r in rows),"open_interest_view_total":sum(r["oiTotal"] or 0 for r in rows),"open_interest_put":sum(r["oiPut"] or 0 for r in rows),"open_interest_call":sum(r["oiCall"] or 0 for r in rows),"open_interest_total":sum(r["oiTotal"] or 0 for r in rows),"oi_change_put":sum(r.get("oiPutChange") or 0 for r in rows),"oi_change_call":sum(r.get("oiCallChange") or 0 for r in rows),"quikstrike_churn_put":sum(r.get("churnPut") or 0 for r in rows),"quikstrike_churn_call":sum(r.get("churnCall") or 0 for r in rows)}
     raw_series={"mode":"open_interest","dte":dte,"heading":heading,"strike_rows":rows,"oi_positioning_rows":rows,"expected_ranges":c.get("expected_ranges") or [],"secondary_views":list(secondary),"totals":totals,"series":[{"name":"Put OI","data":[{"x":r["strike"],"y":r["oiPut"]} for r in rows]},{"name":"Call OI","data":[{"x":r["strike"],"y":r["oiCall"]} for r in rows]},{"name":"Put OI Change","data":[{"x":r["strike"],"y":r.get("oiPutChange")} for r in rows if r.get("oiPutChange") is not None]},{"name":"Call OI Change","data":[{"x":r["strike"],"y":r.get("oiCallChange")} for r in rows if r.get("oiCallChange") is not None]},{"name":"Vol Settle","data":[{"x":r["strike"],"y":r.get("vol")} for r in rows if r.get("vol") is not None]}]}
-    chart_png=None
-    try:
-        try:
-            from .oi_chart import render_oi_positioning
-        except ImportError:
-            from oi_chart import render_oi_positioning
-        chart_png=render_oi_positioning(rows,title=heading or "Gold")
-    except Exception:
-        pass
     iv_values = [r.get("vol") for r in rows if isinstance(r.get("vol"), (int, float))]
-    parsed = {"contract":heading,"dte":dte,"dte_low_confidence":low,"future_price":future,"future_chg":None,"put_volume":0,"call_volume":0,"vol":sum(iv_values) / len(iv_values) if iv_values else None,"vol_chg":None,"delta_levels":{},"raw_series":raw_series,"screenshot":chart_png or raw.get("screenshot")}
+    parsed = {
+        "contract": heading,
+        "expiration_code": (raw.get("expiration_selection") or {}).get("selected"),
+        "dte": dte,
+        "dte_low_confidence": low,
+        "future_price": future,
+        "future_chg": None,
+        "put_volume": 0,
+        "call_volume": 0,
+        "vol": sum(iv_values) / len(iv_values) if iv_values else None,
+        "vol_chg": None,
+        "delta_levels": {},
+        "raw_series": raw_series,
+        "screenshot": raw.get("source_screenshot") or raw.get("screenshot"),
+    }
     return _attach_gex(parsed)
 
 def parse(raw):
+    if raw.get("expiration_snapshots"):
+        snapshots = []
+        for item in raw["expiration_snapshots"]:
+            parsed_item = parse(item)
+            parsed_item.pop("screenshot", None)
+            snapshots.append(parsed_item)
+        primary_raw = {k: v for k, v in raw.items() if k != "expiration_snapshots"}
+        primary = parse(primary_raw)
+        primary["expiration_snapshots"] = snapshots
+        primary["multi_expiration"] = {
+            "enabled": True,
+            "count": len(snapshots),
+            "codes": [item.get("expiration_code") for item in snapshots],
+        }
+        return primary
     if (raw.get("chart_data") or {}).get("strike_rows"): return _parse_image_map(raw)
     return _parse_legacy(raw)
 

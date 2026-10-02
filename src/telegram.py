@@ -58,98 +58,67 @@ def _chunk(text: str, limit: int = MAX_MESSAGE_LEN) -> list[str]:
 
 
 def format_message(parsed: dict, ai_result: dict) -> str:
-    if "error" in ai_result:
-        return f"<b>OI ANALYST</b>\n{_escape(_compact(ai_result['error'], 700))}"
-
     raw = parsed.get("raw_series") or {}
-    gex = raw.get("gex") or {}
-    levels = {
-        "ต้านไกล": ai_result.get("resistance_far"),
-        "ต้านหลัก": ai_result.get("resistance_main"),
-        "ต้านใกล้": ai_result.get("resistance_current"),
-        "รับใกล้": ai_result.get("support_current"),
-        "รับหลัก": ai_result.get("support_main"),
-        "รับลึก": ai_result.get("support_deep"),
-    }
-
-    bias = str(ai_result.get("bias") or ai_result.get("short_bias") or "WAIT").upper()
-    uncertainty = ai_result.get("uncertainty")
-    uncertainty_text = f" | uncertainty {_escape(uncertainty)}" if uncertainty is not None else ""
+    gamma = raw.get("multi_expiry_gamma") or {}
+    zones = raw.get("multi_expiry_gamma_zones") or {}
+    levels = ai_result.get("levels") or {}
+    scenarios = ai_result.get("scenarios") or {}
+    trade = ai_result.get("trade_plan") or {}
+    status = str(ai_result.get("analysis_status") or ("DEGRADED" if ai_result.get("error") else "CONFIRMED")).upper()
+    bias = str(ai_result.get("bias") or "WAIT").upper()
 
     lines = [
-        f"<b>GOLD OI ANALYST</b>  •  {_thai_datetime_str()}",
-        f"Futures <b>{_escape(parsed.get('future_price', '-'))}</b>"
-        f"  |  CFD <b>{_escape(parsed.get('cfd_price', parsed.get('future_price', '-')))}</b>"
-        f"  |  DTE {_escape(parsed.get('dte', '-'))}",
+        f"<b>GOLD MARKET ANALYST V2</b> • {_thai_datetime_str()}",
+        f"Futures <b>{_escape(parsed.get('future_price', '-'))}</b> | CFD <b>{_escape(parsed.get('cfd_price', parsed.get('future_price', '-')))}</b> | DTE {_escape(parsed.get('dte', '-'))}",
+        f"Status: <b>{_escape(status)}</b> | Bias: <b>{_escape(bias)}</b>",
         "",
-        "<b>Market read</b>",
-        _escape(_compact(ai_result.get("market_overview"), 850)),
+        "<b>WHAT</b>",
+        _escape(_compact(ai_result.get("what") or ai_result.get("market_overview"), 700)),
         "",
-        "<b>Why it matters</b>",
-        _escape(
-            _compact(
-                ai_result.get("bull_case"),
-                420,
-            )
-        ),
+        "<b>WHY</b>",
+        _escape(_compact(ai_result.get("why"), 700)),
         "",
-        "<b>Key levels</b>",
+        "<b>POSITIONING</b>",
+        _escape(_compact(ai_result.get("positioning"), 700)),
+        "",
+        "<b>KEY LEVELS</b>",
     ]
+    for key, label in (
+        ("resistance_far","ต้านไกล"),("resistance_main","ต้านหลัก"),
+        ("resistance_current","ต้านใกล้"),("support_current","รับใกล้"),
+        ("support_main","รับหลัก"),("support_deep","รับลึก")
+    ):
+        value = levels.get(key)
+        lines.append(f"{label}: <b>{_escape(value if value is not None else 'UNKNOWN')}</b>")
 
-    for name, value in levels.items():
-        lines.append(f"{name}: <b>{_escape(_compact(value, 220))}</b>")
+    if gamma.get("expiration_count"):
+        lines += [
+            "",
+            "<b>GAMMA TERM STRUCTURE</b>",
+            _escape(f"{gamma.get('expiration_count')} expirations | +GEX zone {zones.get('highest_positive_gamma') or 'UNKNOWN'} | -GEX zone {zones.get('highest_negative_gamma') or 'UNKNOWN'}"),
+        ]
 
     lines += [
         "",
-        "<b>Scenarios</b>",
-        f"🟢 Bull — {_escape(_compact(ai_result.get('bull_case'), 520))}",
-        f"🔴 Bear — {_escape(_compact(ai_result.get('bear_case'), 520))}",
-        f"🟡 Sideway — {_escape(_compact(ai_result.get('sideway_case'), 520))}",
+        "<b>SCENARIOS</b>",
+        f"🟢 Bull — {_escape(_compact(scenarios.get('bull'), 500))}",
+        f"🔴 Bear — {_escape(_compact(scenarios.get('bear'), 500))}",
+        f"🟡 Sideway — {_escape(_compact(scenarios.get('sideway'), 500))}",
         "",
-        f"<b>Bias:</b> <b>{bias}</b>{uncertainty_text}",
+        "<b>TRADE PLAN</b>",
+        f"Status: <b>{_escape(trade.get('status') or 'NO_TRADE')}</b>",
+        _escape(_compact(trade.get('setup'), 500)),
+        f"Confirmation: {_escape(_compact(trade.get('confirmation'), 500))}",
+        f"Invalidation: {_escape(_compact(trade.get('invalidation'), 500))}",
+        f"Risk: {_escape(_compact(trade.get('risk_note'), 500))}",
     ]
-
     limitations = ai_result.get("data_limitations") or []
     if limitations:
-        lines += [
-            "",
-            "<b>ข้อมูลที่ต้องระวัง</b>",
-            "• " + "\n• ".join(_escape(_compact(x, 260)) for x in limitations[:3]),
-        ]
-
+        lines += ["", "<b>DATA LIMITATIONS</b>"] + ["• " + _escape(_compact(x, 260)) for x in limitations[:4]]
     refs = ai_result.get("evidence_refs") or []
     if refs:
         lines += ["", f"<i>Evidence: {_escape(', '.join(map(str, refs)))}</i>"]
-
-    # Mention deterministic GEX state without dumping the entire strike table.
-    if gex.get("status") == "ok":
-        gex_state = []
-        if gex.get("gamma_flip") is not None:
-            gex_state.append(f"gamma flip {_escape(gex['gamma_flip'])}")
-        if gex.get("call_wall") is not None:
-            gex_state.append(f"call wall {_escape(gex['call_wall'])}")
-        if gex.get("put_wall") is not None:
-            gex_state.append(f"put wall {_escape(gex['put_wall'])}")
-        if gex_state:
-            lines.insert(7, "<i>" + " • ".join(gex_state) + "</i>")
-
     return "\n".join(lines)
-
-
-def format_notification(parsed: dict, ai_result: dict) -> str:
-    if "error" in ai_result:
-        return f"⚠️ OI ANALYST\n{_compact(ai_result['error'], 500)}"
-
-    bias = str(ai_result.get("bias") or ai_result.get("short_bias") or "WAIT").upper()
-    headline = _compact(ai_result.get("market_overview"), 900)
-    watch = _compact(ai_result.get("sideway_case"), 420)
-
-    return (
-        f"🟡 <b>GOLD OI UPDATE</b>  •  {_thai_datetime_str()}\n"
-        f"Bias: <b>{_escape(bias)}</b>\n\n"
-        f"{_escape(headline)}\n\n"
-        f"<b>Next watch</b>\n{_escape(watch)}"
-    )
 
 
 def _post_with_retry(url: str, payload: dict, timeout: int = 20) -> None:
@@ -187,40 +156,33 @@ def send(
     ai_result: dict,
     screenshot_url: str | None = None,
     chat_ids: list[str] | None = None,
+    gamma_table_url: str | None = None,
 ) -> None:
     token = os.environ.get("TELEGRAM_BOT_TOKEN")
     if not token:
         raise RuntimeError("TELEGRAM_BOT_TOKEN ไม่ได้ตั้งค่า")
-
     if chat_ids is None:
         raise RuntimeError("ต้องระบุ chat_ids ที่ผ่านการอนุมัติจาก customer registry")
-
     chat_ids = [str(cid).strip() for cid in chat_ids if str(cid).strip()]
     if not chat_ids:
         raise RuntimeError("ไม่มี authorized chat_ids ให้ส่ง")
 
     detailed = format_message(parsed, ai_result)
-    notification = format_notification(parsed, ai_result)
-
     for cid in chat_ids:
+        if gamma_table_url:
+            _post_with_retry(
+                TELEGRAM_PHOTO_API.format(token=token),
+                {"chat_id": cid, "photo": gamma_table_url, "caption": "GOLD GAMMA TABLE — Multi-Expiration"},
+            )
         if screenshot_url:
-            try:
-                _post_with_retry(
-                    TELEGRAM_PHOTO_API.format(token=token),
-                    {"chat_id": cid, "photo": screenshot_url},
-                )
-            except Exception as exc:
-                print(f"⚠️ Telegram photo failed for {cid}: {exc}")
-
+            _post_with_retry(
+                TELEGRAM_PHOTO_API.format(token=token),
+                {"chat_id": cid, "photo": screenshot_url, "caption": "QUIKSTRIKE OI — Source Screenshot"},
+            )
         for chunk in _chunk(detailed):
             _post_with_retry(
                 TELEGRAM_API.format(token=token),
                 {"chat_id": cid, "text": chunk, "parse_mode": "HTML"},
             )
             time.sleep(0.4)
-
-        _post_with_retry(
-            TELEGRAM_API.format(token=token),
-            {"chat_id": cid, "text": notification, "parse_mode": "HTML"},
-        )
         print(f"✅ Telegram analyst update sent to {cid}")

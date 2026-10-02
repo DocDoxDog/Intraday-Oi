@@ -72,6 +72,9 @@ def verify_output(
 
     claim_fields = {
         "market_overview",
+        "what",
+        "why",
+        "positioning",
         "resistance_far",
         "resistance_main",
         "resistance_current",
@@ -84,6 +87,10 @@ def verify_output(
         "reasoning",
         "summary_th",
         "headline",
+        "setup",
+        "confirmation",
+        "invalidation",
+        "risk_note",
     }
     if isinstance(output, dict):
         claim_payload: Any = {

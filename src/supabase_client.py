@@ -24,7 +24,7 @@ SNAPSHOT_COLUMNS = {
     "put_volume", "call_volume", "vol", "vol_chg", "delta_levels",
     "raw_series", "spot_price", "basis_diff", "cfd_price",
     "price_conversion", "technical_context", "ai_summary",
-    "screenshot_path", "screenshot_url",
+    "screenshot_path", "screenshot_url", "gamma_table_path", "gamma_table_url",
 }
 
 
@@ -73,6 +73,8 @@ def insert_snapshot(
     ai_summary: str | None = None,
     screenshot_path: str | None = None,
     screenshot_url: str | None = None,
+    gamma_table_path: str | None = None,
+    gamma_table_url: str | None = None,
 ) -> dict:
     client = get_client()
     row = {
@@ -80,6 +82,8 @@ def insert_snapshot(
         "ai_summary": ai_summary,
         "screenshot_path": screenshot_path,
         "screenshot_url": screenshot_url,
+        "gamma_table_path": gamma_table_path,
+        "gamma_table_url": gamma_table_url,
     }
     result = client.table("options_flow_snapshots").insert(row).execute()
     return result.data[0] if result.data else {}
@@ -139,3 +143,87 @@ def insert_oi_intelligence(parsed: dict, snapshot_id: int | None = None) -> None
             "from_strike": e.get("from_strike"), "to_strike": e.get("to_strike"),
             "estimated_oi": e.get("estimated_oi"), "confidence": "low",
         } for e in shifts]).execute()
+
+
+def insert_multi_expiry_options(parsed: dict, snapshot_id: int | None = None) -> int:
+    """Persist normalized multi-expiry observations; missing values remain NULL."""
+    snapshots = parsed.get("expiration_snapshots") or []
+    if not snapshots:
+        return 0
+
+    client = get_client()
+    product = str(parsed.get("product_symbol") or "GC").upper()
+    observed_at = parsed.get("observed_at") or parsed.get("retrieved_at")
+    if not observed_at:
+        raise RuntimeError("MULTI_EXPIRY_OBSERVED_AT_REQUIRED")
+
+    written = 0
+    for item in snapshots:
+        raw = item.get("raw_series") or {}
+        selection = raw.get("expiration_selection") or {}
+        code = item.get("expiration_code") or selection.get("selected")
+        if not code:
+            raise RuntimeError("MULTI_EXPIRY_EXPIRATION_CODE_REQUIRED")
+
+        expiry_row = {
+            "product_symbol": product,
+            "expiry_code": str(code),
+            "expiry_date": item.get("expiry_date"),
+            "observed_at": observed_at,
+            "dte": item.get("dte"),
+            "source": "cme_quikstrike",
+            "source_snapshot_id": snapshot_id,
+        }
+        expiry_result = (
+            client.table("option_expirations")
+            .upsert(
+                expiry_row,
+                on_conflict="product_symbol,expiry_code,observed_at",
+            )
+            .execute()
+        )
+        expiry_id = None
+        if expiry_result.data:
+            expiry_id = expiry_result.data[0].get("id")
+        if expiry_id is None:
+            lookup = (
+                client.table("option_expirations")
+                .select("id")
+                .eq("product_symbol", product)
+                .eq("expiry_code", str(code))
+                .eq("observed_at", observed_at)
+                .single()
+                .execute()
+            )
+            expiry_id = (lookup.data or {}).get("id")
+        if expiry_id is None:
+            raise RuntimeError(f"MULTI_EXPIRY_ID_LOOKUP_FAILED:{code}")
+
+        rows = []
+        for row in raw.get("strike_rows") or []:
+            strike = row.get("strike")
+            if not isinstance(strike, (int, float)):
+                continue
+            rows.append({
+                "expiration_id": expiry_id,
+                "strike": strike,
+                "call_oi": row.get("oiCall"),
+                "put_oi": row.get("oiPut"),
+                "call_iv": row.get("callIV") if row.get("callIV") is not None else row.get("callImpliedVol"),
+                "put_iv": row.get("putIV") if row.get("putIV") is not None else row.get("putImpliedVol"),
+                "call_delta": row.get("callDelta"),
+                "put_delta": row.get("putDelta"),
+                "gamma": row.get("gamma"),
+                "call_gex": row.get("call_gex"),
+                "put_gex": row.get("put_gex"),
+                "net_gex": row.get("net_gex"),
+                "observed_at": observed_at,
+            })
+        if rows:
+            client.table("option_strike_observations").upsert(
+                rows,
+                on_conflict="expiration_id,strike",
+            ).execute()
+            written += len(rows)
+
+    return written

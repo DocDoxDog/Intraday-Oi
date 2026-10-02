@@ -1,0 +1,46 @@
+{
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "analysis_status": {"type":"string","enum":["CONFIRMED","DEGRADED","INSUFFICIENT_EVIDENCE"]},
+    "market_overview": {"type":"string"},
+    "what": {"type":"string"},
+    "why": {"type":"string"},
+    "positioning": {"type":"string"},
+    "levels": {
+      "type":"object","additionalProperties":false,
+      "properties":{
+        "resistance_far":{"type":"string"},
+        "resistance_main":{"type":"string"},
+        "resistance_current":{"type":"string"},
+        "support_current":{"type":"string"},
+        "support_main":{"type":"string"},
+        "support_deep":{"type":"string"}
+      },
+      "required":["resistance_far","resistance_main","resistance_current","support_current","support_main","support_deep"]
+    },
+    "scenarios": {
+      "type":"object","additionalProperties":false,
+      "properties":{
+        "bull":{"type":"string"},"bear":{"type":"string"},"sideway":{"type":"string"}
+      },
+      "required":["bull","bear","sideway"]
+    },
+    "bias":{"type":"string","enum":["BUY","SELL","WAIT"]},
+    "uncertainty":{"type":"number","minimum":0,"maximum":1},
+    "trade_plan": {
+      "type":"object","additionalProperties":false,
+      "properties":{
+        "status":{"type":"string","enum":["READY","CONDITIONAL","NO_TRADE"]},
+        "setup":{"type":"string"},
+        "confirmation":{"type":"string"},
+        "invalidation":{"type":"string"},
+        "risk_note":{"type":"string"}
+      },
+      "required":["status","setup","confirmation","invalidation","risk_note"]
+    },
+    "evidence_refs":{"type":"array","items":{"type":"string"}},
+    "data_limitations":{"type":"array","items":{"type":"string"}}
+  },
+  "required":["analysis_status","market_overview","what","why","positioning","levels","scenarios","bias","uncertainty","trade_plan","evidence_refs","data_limitations"]
+}

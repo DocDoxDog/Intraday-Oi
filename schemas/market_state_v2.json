@@ -1,0 +1,24 @@
+{
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["version", "product", "as_of", "options", "technical", "news", "quality"],
+  "properties": {
+    "version": {"const": "market-state-v2"},
+    "product": {"type": "string"},
+    "as_of": {"type": "string"},
+    "options": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["expirations", "gamma_matrix", "oi", "dex"],
+      "properties": {
+        "expirations": {"type": "array"},
+        "gamma_matrix": {"type": "object"},
+        "oi": {"type": "object"},
+        "dex": {"type": "object"}
+      }
+    },
+    "technical": {"type": "object"},
+    "news": {"type": "object"},
+    "quality": {"type": "object"}
+  }
+}
