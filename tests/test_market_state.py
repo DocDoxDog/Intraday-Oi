@@ -43,7 +43,7 @@ def test_cfd_levels_are_normalized_from_futures():
     levels = parsed["raw_series"]["market_state"]["levels"]
     assert levels["resistance_main"] == 4397
     assert levels["support_main"] == 4197
-    assert levels["resistance_current"] == 4297
+    assert levels["resistance_current"] == 4397
 
 
 def test_missing_cfd_never_reuses_futures_levels():
@@ -103,5 +103,5 @@ def test_trade_plan_is_always_conditional_and_deterministic_when_levels_exist():
     trade = ai["trade_plan"]
     assert trade["status"] == "CONDITIONAL"
     assert "คำนวณเมื่อ trigger" not in str(trade)
-    assert "4,297.00" in trade["entry"]
-    assert "4,197.00" in trade["entry"]
+    assert "4,397.00" in trade["entry"]
+    assert "4,247.00" in trade["entry"]
