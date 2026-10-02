@@ -97,7 +97,7 @@ def test_telegram_renders_five_message_sections():
     m5 = telegram._format_trade_plan_message(parsed, ai)
     assert "WHAT text" in m3 and "WHY text" in m3 and "POSITIONING text" in m3
     assert "4232.48736" in m4 and "7 expirations" in m4 and "🟢" in m4 and "🔴" in m4 and "🟡" in m4
-    assert "Status: <b>CONDITIONAL</b>" in m5
+    assert "Status: CONDITIONAL" in m5
 
 
 def test_line_renders_canonical_analysis_without_local_trade_plan():
