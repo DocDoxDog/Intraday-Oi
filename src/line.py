@@ -83,6 +83,7 @@ def format_message(parsed: dict, ai_result: dict) -> str:
         f"Churn Put {_show(totals.get('quikstrike_churn_put'))} | "
         f"Call {_show(totals.get('quikstrike_churn_call'))} | "
         f"Total {_show(totals.get('churn'))}",
+        f"Volume Put {_show(parsed.get('put_volume'))} | Call {_show(parsed.get('call_volume'))}",
         f"IV {_show(parsed.get('vol'))}% | IV Δ {_show(parsed.get('vol_chg'))}%",
         ai_result.get("history_comparison") or "-",
     ]
