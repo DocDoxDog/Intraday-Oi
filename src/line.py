@@ -36,51 +36,56 @@ def _image_message(url: str) -> dict:
 
 
 def format_message(parsed: dict, ai_result: dict) -> str:
-    """Compact LINE renderer: source facts + verified narrative, no local trade plan."""
+    """Backward-compatible alias for message 3."""
     dte = parsed.get("dte")
-    dte_line = f" (DTE: {dte})" if dte is not None else ""
-
-    if "error" in ai_result:
-        return f"⚠️ AI analysis error: {ai_result['error']}"
-
     raw = parsed.get("raw_series") or {}
     totals = raw.get("totals") or {}
-    spot = parsed.get("cfd_price", parsed.get("future_price"))
-    iv = parsed.get("vol")
-    put = totals.get("open_interest_view_put", totals.get("open_interest_put"))
-    call = totals.get("open_interest_view_call", totals.get("open_interest_call"))
-    delta_put = totals.get("oi_delta_put")
-    delta_call = totals.get("oi_delta_call")
-    churn = totals.get("churn")
+    return (
+        f"GOLD MARKET ANALYST V2 • วันที่ {__import__('datetime').datetime.now().day} "
+        f"{__import__('datetime').datetime.now().strftime('%b')} "
+        f"| เวลา {__import__('datetime').datetime.now().strftime('%H:%M')} น.\n"
+        f"Futures {parsed.get('future_price','-')} | CFD {parsed.get('cfd_price','-')} | DTE {dte if dte is not None else '-'}\n"
+        f"Status: {str(ai_result.get('analysis_status') or 'CONFIRMED').upper()} | "
+        f"Bias: {str(ai_result.get('bias') or ai_result.get('short_bias') or 'WAIT').upper()}\n\n"
+        f"WHAT\n{ai_result.get('what') or ai_result.get('market_overview') or '-'}\n\n"
+        f"WHY\n{ai_result.get('why') or '-'}\n\n"
+        f"POSITIONING\n{ai_result.get('positioning') or '-'}"
+    )
 
+
+def _levels_message(parsed: dict, ai_result: dict) -> str:
+    raw = parsed.get("raw_series") or {}
+    gamma = raw.get("multi_expiry_gamma") or {}
+    zones = raw.get("multi_expiry_gamma_zones") or {}
     levels = ai_result.get("levels") or {}
     scenarios = ai_result.get("scenarios") or {}
-
-    def show(value):
-        return "-" if value is None or value == "" else str(value)
-
-    def compact(value, limit=220):
-        text = " ".join(str(value or "-").split())
-        return text if len(text) <= limit else text[:limit].rsplit(" ", 1)[0] + "..."
-
+    show=lambda v: "-" if v is None or v == "" else str(v)
     return (
-        f"📊 Gold Options Flow{dte_line}\n\n"
-        f"สรุป: CFD {show(spot)} | IV {show(iv)}%\n"
-        f"Open Interest: Put {show(put)} | Call {show(call)}\n"
-        f"ΔOI: Put {show(delta_put)} | Call {show(delta_call)} | Churn {show(churn)}\n"
-        f"Bias: {show(ai_result.get('bias', ai_result.get('short_bias')))}\n\n"
-        f"วิเคราะห์\n{compact(ai_result.get('market_overview'))}\n\n"
-        f"KEY LEVELS (CFD)\n"
-        f"ต้านไกล: {show(levels.get('resistance_far', ai_result.get('resistance_far')))}\n"
-        f"ต้านหลัก: {show(levels.get('resistance_main', ai_result.get('resistance_main')))}\n"
-        f"ต้านใกล้: {show(levels.get('resistance_current', ai_result.get('resistance_current')))}\n"
-        f"รับใกล้: {show(levels.get('support_current', ai_result.get('support_current')))}\n"
-        f"รับหลัก: {show(levels.get('support_main', ai_result.get('support_main')))}\n"
-        f"รับลึก: {show(levels.get('support_deep', ai_result.get('support_deep')))}\n\n"
+        "KEY LEVELS\n"
+        f"ต้านไกล: {show(levels.get('resistance_far'))}\n"
+        f"ต้านหลัก: {show(levels.get('resistance_main'))}\n"
+        f"ต้านใกล้: {show(levels.get('resistance_current'))}\n"
+        f"รับใกล้: {show(levels.get('support_current'))}\n"
+        f"รับหลัก: {show(levels.get('support_main'))}\n"
+        f"รับลึก: {show(levels.get('support_deep'))}\n\n"
+        f"GAMMA TERM STRUCTURE\n"
+        f"{len(gamma.get('columns') or [])} expirations | +GEX zone {show(zones.get('highest_positive_gamma'))} | -GEX zone {show(zones.get('highest_negative_gamma'))}\n\n"
         f"SCENARIOS\n"
-        f"Bull: {compact(scenarios.get('bull', ai_result.get('bull_case')))}\n"
-        f"Bear: {compact(scenarios.get('bear', ai_result.get('bear_case')))}\n"
-        f"Sideway: {compact(scenarios.get('sideway', ai_result.get('sideway_case')))}"
+        f"🟢 Bull — {scenarios.get('bull') or '-'}\n"
+        f"🔴 Bear — {scenarios.get('bear') or '-'}\n"
+        f"🟡 Sideway — {scenarios.get('sideway') or '-'}"
+    )
+
+
+def _trade_plan_message(parsed: dict, ai_result: dict) -> str:
+    trade = ai_result.get("trade_plan") or {}
+    return (
+        "TRADE PLAN\n"
+        f"Status: {str(trade.get('status') or 'NO_TRADE').upper()}\n"
+        f"{trade.get('setup') or '-'}\n"
+        f"Confirmation: {trade.get('confirmation') or '-'}\n"
+        f"Invalidation: {trade.get('invalidation') or '-'}\n"
+        f"Risk: {trade.get('risk_note') or '-'}"
     )
 
 
@@ -112,29 +117,26 @@ def _post_push(token: str, to: str, messages: list[dict]) -> None:
         raise RuntimeError(f"LINE group push ล้มเหลว [{resp.status_code}]: {resp.text}")
 
 
-def send(parsed: dict, ai_result: dict, screenshot_url: str | None = None) -> None:
-    """
-    ส่ง broadcast ไปหาผู้ที่แอดเพื่อน LINE OA ทุกคน
-    ไม่ต้องรู้ userId รายคน — LINE จัดการกระจายให้เองตาม Channel access token
-    """
+def send(parsed: dict, ai_result: dict, screenshot_url: str | None = None, gamma_table_url: str | None = None) -> None:
+    """Send exactly five LINE messages: Gamma, source, analyst, levels/scenarios, trade plan."""
     token = os.environ.get("LINE_CHANNEL_ACCESS_TOKEN")
     if not token:
         raise RuntimeError("LINE_CHANNEL_ACCESS_TOKEN ไม่ได้ตั้งค่า — เช็ค GitHub Secrets หรือไฟล์ .env")
 
-    detailed_text = format_message(parsed, ai_result)
-    bias_text = ai_result.get("short_bias", "ไม่มีข้อมูล Bias")
-    short_bias_message = f"🎯 Bias ฟันธง!\n{bias_text}"
-
     messages: list[dict] = []
+    if gamma_table_url:
+        messages.append(_image_message(gamma_table_url))
     if screenshot_url:
         messages.append(_image_message(screenshot_url))
-    messages.append(_text_message(detailed_text))
-    messages.append(_text_message(short_bias_message))
+    messages.extend([
+        _text_message(format_message(parsed, ai_result)),
+        _text_message(_levels_message(parsed, ai_result)),
+        _text_message(_trade_plan_message(parsed, ai_result)),
+    ])
 
-    # Broadcast ไปยังผู้ติดตาม/ผู้ที่แชทกับ OA ตามเงื่อนไขของ LINE
     errors: list[str] = []
     for i in range(0, len(messages), MAX_MESSAGES_PER_REQUEST):
-        chunk = messages[i : i + MAX_MESSAGES_PER_REQUEST]
+        chunk = messages[i:i + MAX_MESSAGES_PER_REQUEST]
         try:
             _post_broadcast(token, chunk)
             print(f"✅ ส่ง LINE broadcast สำเร็จ ({len(chunk)} ข้อความ)")
@@ -143,11 +145,10 @@ def send(parsed: dict, ai_result: dict, screenshot_url: str | None = None) -> No
             errors.append(str(e))
         time.sleep(0.5)
 
-    # Push ข้อความชุดเดียวกันเข้า Group แยกจาก Broadcast
     group_id = os.environ.get("LINE_GROUP_ID", "").strip()
     if group_id:
         for i in range(0, len(messages), MAX_MESSAGES_PER_REQUEST):
-            chunk = messages[i : i + MAX_MESSAGES_PER_REQUEST]
+            chunk = messages[i:i + MAX_MESSAGES_PER_REQUEST]
             try:
                 _post_push(token, group_id, chunk)
                 print(f"✅ ส่ง LINE group push สำเร็จ ({len(chunk)} ข้อความ)")
@@ -158,7 +159,5 @@ def send(parsed: dict, ai_result: dict, screenshot_url: str | None = None) -> No
     else:
         print("⏭️  ข้าม LINE group push (ไม่ได้ตั้งค่า LINE_GROUP_ID)")
 
-    # ถ้ามี chunk ไหนล้มเหลว ให้ raise ออกไปจริง — กัน main.py print "✅ Sent to LINE"
-    # ทั้งที่จริงๆ ส่งไม่สำเร็จ (ก่อนหน้านี้ error ถูกกลืนไว้เงียบๆ ในนี้)
     if errors:
-        raise RuntimeError(f"LINE broadcast ล้มเหลว {len(errors)}/{ (len(messages) + MAX_MESSAGES_PER_REQUEST - 1) // MAX_MESSAGES_PER_REQUEST } chunk(s): " + " | ".join(errors))
+        raise RuntimeError(f"LINE broadcast ล้มเหลว {len(errors)} chunk(s): " + " | ".join(errors))
