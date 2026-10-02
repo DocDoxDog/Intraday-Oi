@@ -397,7 +397,6 @@ def run():
             screenshot_url=screenshot_url,
             gamma_table_url=gamma_table_url,
             gamma_table_full_url=gamma_table_full_url,
-            news_text=format_news_announcement(new_news_rows or parsed.get("news_context") or []) if (new_news_rows or parsed.get("news_context")) else None,
             chat_ids=chat_ids,
         )
         print("✅ Sent to Telegram")
@@ -405,12 +404,13 @@ def run():
         print(f"⚠️  Telegram send failed (data still saved to Supabase): {e}", file=sys.stderr)
 
     if new_news_rows:
-        news_text = format_news_announcement(new_news_rows)
+        news_text = format_news_announcement(new_news_rows, limit=3)
         try:
             telegram.send_news(news_text, chat_ids=chat_ids)
             print("✅ Sent NEWS ANNOUNCEMENT to Telegram")
         except Exception as e:
             print(f"⚠️  Telegram news announcement failed: {e}", file=sys.stderr)
+
         if os.environ.get("LINE_CHANNEL_ACCESS_TOKEN"):
             try:
                 line.send_news(news_text)
@@ -427,7 +427,6 @@ def run():
             screenshot_url=screenshot_url,
             gamma_table_url=gamma_table_url,
             gamma_table_full_url=gamma_table_full_url,
-            news_text=format_news_announcement(new_news_rows or parsed.get("news_context") or []) if (new_news_rows or parsed.get("news_context")) else None,
         )
             print("✅ Sent to LINE")
         except Exception as e:
