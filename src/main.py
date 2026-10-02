@@ -276,7 +276,7 @@ def run():
         support_main = to_cfd(support_main_fut)
         support_deep = to_cfd(support_deep_fut)
 
-        fmt = lambda v: f"{v:.5f}" if isinstance(v, (int, float)) else "UNKNOWN"
+        fmt = lambda v: f"{v:.2f}" if isinstance(v, (int, float)) else "UNKNOWN"
 
         ai_result = {
             "analysis_status": "DEGRADED",
