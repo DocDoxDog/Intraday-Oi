@@ -72,6 +72,25 @@ def get_hour_ago_snapshot(contract: str | None = None) -> dict | None:
     return result.data[0] if result.data else None
 
 
+def get_two_hours_ago_snapshot(contract: str | None = None) -> dict | None:
+    """หา snapshot ใกล้ 2 ชม.ก่อนในหน้าต่าง 105-150 นาที เพื่อคำนวณ OI velocity/acceleration."""
+    client = get_client()
+    now = datetime.now(timezone.utc)
+    window_start = (now - timedelta(minutes=150)).isoformat()
+    window_end = (now - timedelta(minutes=105)).isoformat()
+
+    query = (
+        client.table("options_flow_snapshots")
+        .select(FIELDS)
+        .gte("captured_at", window_start)
+        .lte("captured_at", window_end)
+        .order("captured_at", desc=True)
+        .limit(1)
+    )
+    query = _apply_series_filter(query, contract)
+    result = query.execute()
+    return result.data[0] if result.data else None
+
 def _compact_raw_summary(raw: dict) -> dict:
     totals = raw.get("totals") or {}
     gex = raw.get("gex") or {}
@@ -193,6 +212,12 @@ def get_context(contract: str | None = None) -> dict:
         print(f"⚠️  ดึง hour_ago snapshot ไม่สำเร็จ: {e}")
 
     try:
+        two_hours_ago = get_two_hours_ago_snapshot(contract)
+    except Exception as e:
+        two_hours_ago = None
+        print(f"⚠️  ดึง two_hours_ago snapshot ไม่สำเร็จ: {e}")
+
+    try:
         today = get_today_summary(contract)
     except Exception as e:
         today = {"count": 0}
@@ -210,4 +235,4 @@ def get_context(contract: str | None = None) -> dict:
         oi_baseline = None
         print(f"⚠️  ดึง OI baseline ไม่สำเร็จ: {e}")
 
-    return {"hour_ago": hour_ago, "today": today, "yesterday": yesterday, "oi_baseline": oi_baseline}
+    return {"hour_ago": hour_ago, "two_hours_ago": two_hours_ago, "today": today, "yesterday": yesterday, "oi_baseline": oi_baseline}
