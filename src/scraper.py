@@ -95,6 +95,49 @@ EXTRACT_INTRADAY_JS = r"""
 
 
 # Fallback สำหรับหน้า/มุมมองเก่าที่สร้าง Highcharts object ไว้ใน DOM
+EXTRACT_AUX_IMAGE_MAP_JS = r"""
+() => {
+    const parseFields = (value) => {
+        const out = {};
+        for (const item of (value || '').split('~')) {
+            const sep = item.indexOf('|');
+            if (sep < 0) continue;
+            out[item.slice(0, sep)] = item.slice(sep + 1);
+        }
+        return out;
+    };
+
+    const areas = [...document.querySelectorAll('map area[fields]')];
+    const rows = areas.map(a => {
+        const fields = parseFields(a.getAttribute('fields'));
+        const title = fields.title || a.getAttribute('title') || a.getAttribute('alt') || '';
+        const directStrike =
+            fields.strike || fields.Strike || fields.strikePrice ||
+            fields.strike_price || fields.x || null;
+        const titleMatch = String(title).match(/(?:^|\s)(-?[\d,]+(?:\.\d+)?)\s*(?:Strike|$)/i);
+        const strike = directStrike || (titleMatch ? titleMatch[1] : null);
+        const changeKeys = Object.keys(fields).filter(k =>
+            /change|chg|churn/i.test(k)
+        );
+        return {
+            coords: a.getAttribute('coords'),
+            template_id: a.getAttribute('templateid'),
+            title,
+            strike,
+            fields,
+            change_keys: changeKeys,
+        };
+    }).filter(x => x.strike !== null && x.change_keys.length);
+
+    return {
+        mode: 'image_map_aux',
+        heading: document.querySelector('.viewheader-info h3')?.innerText || '',
+        rows,
+    };
+}
+"""
+
+
 EXTRACT_HIGHCHARTS_JS = r"""
 () => {
     const result = { charts: [], source: 'highcharts' };
@@ -278,7 +321,7 @@ def _read_highcharts(page) -> dict:
 
 
 def _read_secondary_oi_views(page) -> dict:
-    """อ่าน OI Change และ Churn ที่ยังมีใน free view โดยไม่เรียกเป็น volume."""
+    """Read OI Change and Churn when QuikStrike exposes them in the free view."""
     views = {
         "oi_change": "MainContent_ucViewControl_IntegratedV2VExpectedRange_lbOIChg",
         "churn": "MainContent_ucViewControl_IntegratedV2VExpectedRange_lbChurn",
@@ -291,6 +334,12 @@ def _read_secondary_oi_views(page) -> dict:
         try:
             link.click(force=True, timeout=15_000)
             page.wait_for_timeout(2_000)
+
+            aux = page.evaluate(EXTRACT_AUX_IMAGE_MAP_JS)
+            if aux.get("rows"):
+                out[name] = aux
+                continue
+
             data = _read_highcharts(page)
             if data.get("charts"):
                 out[name] = data
