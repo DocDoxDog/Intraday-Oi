@@ -38,7 +38,7 @@ from src.gamma_chart import render_gamma_table
 
 
 def run():
-    print("[1/8] Resolving QuikStrike URL (self-healing)...")
+    print("[1/9] Resolving QuikStrike URL (self-healing)...")
     try:
         url_manager = UrlManager()
         quikstrike_url = url_manager.get_url()
@@ -46,7 +46,7 @@ def run():
         print(f"❌ URL resolution failed completely: {e}", file=sys.stderr)
         sys.exit(1)
 
-    print("[2/8] Scraping QuikStrike...")
+    print("[2/9] Scraping QuikStrike...")
     try:
         max_expirations = max(1, int(os.environ.get("QUIKSTRIKE_MAX_EXPIRATIONS", "7")))
         if max_expirations > 1:
@@ -58,7 +58,7 @@ def run():
         print(f"❌ Scrape failed: {e}", file=sys.stderr)
         sys.exit(1)
 
-    print("[3/8] Parsing raw data...")
+    print("[3/9] Parsing raw data...")
     try:
         parsed = parse(raw)
     except ParseError as e:
@@ -82,7 +82,7 @@ def run():
               "— ค่านี้อาจไม่แม่นยำ ควรเช็คหน้า QuikStrike ว่าโครง heading เปลี่ยนไปหรือไม่",
               file=sys.stderr)
 
-    print("[3.5/8] Fetching XAU/USD spot and converting Futures levels to CFD...")
+    print("[3.5/9] Fetching XAU/USD spot and converting Futures levels to CFD...")
     if os.environ.get("TWELVEDATA_API_KEY"):
         try:
             spot_data = fetch_spot()
@@ -96,7 +96,7 @@ def run():
     else:
         print("    ⏭️  ข้าม Twelve Data (ไม่ได้ตั้งค่า TWELVEDATA_API_KEY)")
 
-    print("[3.7/8] Building hidden multi-timeframe technical confirmation...")
+    print("[3.7/9] Building hidden multi-timeframe technical confirmation...")
     if os.environ.get("TWELVEDATA_API_KEY"):
         try:
             parsed["technical_context"] = build_context()
@@ -110,7 +110,7 @@ def run():
     else:
         print("    ⏭️  ข้าม technical confirmation (ไม่มี Twelve Data key)")
 
-    print("[4/8] Uploading Gamma Table + OI screenshot to Supabase Storage...")
+    print("[4/9] Uploading Gamma Table + OI screenshot to Supabase Storage...")
     screenshot_bytes = parsed.pop("screenshot", None)
     screenshot_path = None
     screenshot_url = None
@@ -140,7 +140,7 @@ def run():
     else:
         print("    ⚠️  ไม่มี screenshot จากขั้นตอน scrape (ข้ามขั้นตอนนี้)")
 
-    print("[5/8] Fetching history context (hour-ago + today range)...")
+    print("[5/9] Fetching history context (hour-ago + today range)...")
     hist_context = history.get_context(contract=parsed.get("contract"))
     hr_ago_status = "พบ" if hist_context.get("hour_ago") else "ไม่พบ"
     today_count = hist_context.get("today", {}).get("count", 0)
@@ -152,7 +152,7 @@ def run():
         f"ΔOI put={oi_totals.get('oi_delta_put', 0)} call={oi_totals.get('oi_delta_call', 0)}"
     )
 
-    print("[5.5/8] Building deterministic OI intelligence...")
+    print("[5.5/9] Building deterministic OI intelligence...")
     try:
         from src.oi_intelligence import enrich as enrich_oi_intelligence
         previous = hist_context.get("hour_ago")
@@ -172,7 +172,7 @@ def run():
     except Exception as e:
         print(f"⚠️  OI intelligence failed (raw OI remains available): {e}", file=sys.stderr)
 
-    print("[6/8] Running local supaBOT-compatible analyst core → Gemini...")
+    print("[6/9] Running local supaBOT-compatible analyst core → Gemini...")
     try:
         ai_result = analyze(parsed, history=hist_context)
     except Exception as e:
