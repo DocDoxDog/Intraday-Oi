@@ -219,9 +219,9 @@ def collect_news(
 
 
 def format_news_announcement(items: list[NewsItem | dict], *, limit: int = 3) -> str:
-    """Render source-only news announcements; no market-direction inference."""
+    """Render concise source-backed news announcements."""
     rows = items[: max(1, int(limit))]
-    lines = ["🚨 NEWS ANNOUNCEMENT", ""]
+    lines = ["<b>🚨 NEWS ANNOUNCEMENT</b>", ""]
     for row in rows:
         if isinstance(row, dict):
             category = row.get("category") or "OTHER"
@@ -235,11 +235,13 @@ def format_news_announcement(items: list[NewsItem | dict], *, limit: int = 3) ->
             source = row.source
             published = row.published_at or "UNKNOWN"
             url = row.url
+
         lines.extend([
-            f"• [{category}] {headline}",
-            f"Source: {source} | {published}",
-            url,
+            f"<b>{html.escape(str(category))}</b>",
+            html.escape(str(headline)),
+            f"Source: {html.escape(str(source))} | {html.escape(str(published))}",
+            html.escape(str(url)),
             "",
         ])
-    lines.append("หมายเหตุ: เป็นประกาศจาก source โดยตรง ยังไม่ใช่ข้อสรุปทิศทางตลาด")
+    lines.append("หมายเหตุ: source announcement เท่านั้น • Analyst จะนำไปพิจารณาร่วมกับ market evidence")
     return "\n".join(lines).strip()
