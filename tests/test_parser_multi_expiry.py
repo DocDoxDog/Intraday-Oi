@@ -74,3 +74,30 @@ def test_parser_resolves_product_without_fabricating_volume():
     assert result["product_symbol"] == "GC"
     assert result["put_volume"] is None
     assert result["call_volume"] is None
+
+
+def test_secondary_oi_change_and_churn_image_map():
+    from src.parser import _merge_secondary_views
+    rows = [
+        {"strike": 4200, "oiPut": 100, "oiCall": 120},
+        {"strike": 4210, "oiPut": 50, "oiCall": 70},
+    ]
+    secondary = {
+        "oi_change": {"rows": [
+            {"strike": "4200", "fields": {"putChange": "12", "callChange": "-5"}},
+            {"strike": "4210", "fields": {"putChange": "3"}},
+        ]},
+        "churn": {"rows": [
+            {"strike": "4200", "fields": {"putChurn": "4", "callChurn": "2"}},
+        ]},
+    }
+    merged, totals = _merge_secondary_views(rows, secondary)
+    assert merged[0]["oiPutChange"] == 12
+    assert merged[0]["oiCallChange"] == -5
+    assert merged[1]["oiPutChange"] == 3
+    assert totals["oi_change_put"] == 15
+    assert totals["oi_change_call"] == -5
+    assert totals["oi_change_total"] == 10
+    assert merged[0]["churnPut"] == 4
+    assert merged[0]["churnCall"] == 2
+    assert totals["churn"] == 6
