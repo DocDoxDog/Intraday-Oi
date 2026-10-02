@@ -75,6 +75,9 @@ def verify_output(
         "what",
         "why",
         "positioning",
+        "levels",
+        "scenarios",
+        "trade_plan",
         "resistance_far",
         "resistance_main",
         "resistance_current",
@@ -102,6 +105,21 @@ def verify_output(
             for item in output
             if isinstance(item, dict)
         ]
+
+    # V2 claims are nested under levels/scenarios/trade_plan. Verify the
+    # complete claim object, not only legacy top-level fields, so numeric
+    # levels cannot bypass evidence checking.
+    if isinstance(output, dict):
+        claim_payload = {
+            key: output.get(key)
+            for key in (
+                "market_overview", "what", "why", "positioning",
+                "levels", "scenarios", "trade_plan", "bias", "uncertainty",
+            )
+            if key in output
+        }
+    else:
+        claim_payload = output
 
     output_numbers = _numeric_strings(claim_payload)
     cited_evidence_numbers = _cited_evidence_numbers(
