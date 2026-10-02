@@ -155,6 +155,14 @@ def _summarize_input(parsed: dict[str, Any], history: dict[str, Any] | None) -> 
             "gamma_source": gex.get("gamma_source"),
             "rows": top_gex,
         },
+        "multi_expiry_gamma": {
+            "version": (raw.get("multi_expiry_gamma") or {}).get("version"),
+            "status": (raw.get("multi_expiry_gamma") or {}).get("status"),
+            "expiration_count": (raw.get("multi_expiry_gamma") or {}).get("expiration_count"),
+            "columns": (raw.get("multi_expiry_gamma") or {}).get("columns") or [],
+            "zones": raw.get("multi_expiry_gamma_zones") or {},
+            "totals": (raw.get("multi_expiry_gamma") or {}).get("totals") or {},
+        },
         "oi_rows": [
             {
                 "strike": row.get("strike"),
@@ -192,6 +200,7 @@ STATIC_PROMPT = """คุณคือ Senior Gold Options Market Analyst ขอ�
 - อธิบาย WHY: หลักฐานใดสนับสนุนการตีความ
 - อธิบาย POSITIONING: ระดับ/โครงสร้างที่ผู้เล่นออปชันอาจกำลังตอบสนอง โดยใช้ถ้อยคำเชิงอนุมาน เช่น สะท้อน, สอดคล้องกับ, มีน้ำหนักต่อ
 - อธิบาย LEVELS: เลือกเฉพาะ deterministic levels ที่มีอยู่
+- ถ้ามี multi-expiry gamma matrix ให้พูดถึงโครงสร้างระหว่าง expiration โดยอ้างอิง code/DTE จริง และห้ามแทน missing cell ด้วยศูนย์
 - อธิบาย SCENARIO: Bull/Bear/Sideway โดยระบุ confirmation และ invalidation ในเชิงเงื่อนไข
 - อธิบาย NO-TRADE/WAIT เมื่อหลักฐานไม่พอหรือข้อมูลขัดกัน
 - เขียนภาษาไทยธรรมชาติ กระชับ อ่านแล้วเหมือนมีนักวิเคราะห์กำลังอธิบายตลาดให้ฟัง
