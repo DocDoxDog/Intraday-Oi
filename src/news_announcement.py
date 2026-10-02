@@ -216,7 +216,8 @@ def collect_news(
                 },
             )
             response.raise_for_status()
-            content_type = (response.headers.get("content-type") or "").lower()
+            headers = getattr(response, "headers", {}) or {}
+            content_type = (headers.get("content-type") or "").lower()
             body = response.text
             if "html" in content_type and source.key == "BEA_RELEASES":
                 # BEA may serve its releases page instead of the RSS document.
