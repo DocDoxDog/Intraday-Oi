@@ -17,6 +17,7 @@ _RULES = (
     ("FED", ("FED", "FOMC", "Federal Reserve"), ("GOLD", "USD", "NASDAQ")),
     ("ECB", ("ECB", "European Central Bank"), ("EURUSD", "DXY")),
     ("BOJ", ("BOJ", "Bank of Japan"), ("USDJPY", "NIKKEI")),
+    ("GEOPOLITICAL", ("WAR", "CONFLICT", "MISSILE", "AIRSTRIKE", "SANCTION", "CEASEFIRE", "MILITARY", "INVASION", "ATTACK", "HOSTILITIES", "RED SEA", "HORMUZ"), ("GOLD", "USD", "USOIL", "UKOIL")),
 )
 
 
