@@ -55,6 +55,8 @@ jobs:
               raise SystemExit(0)
 
           base = os.getenv("SUPABASE_URL", "").rstrip("/")
+          if base.endswith("/rest/v1"):
+              base = base[:-8].rstrip("/")
           key = os.getenv("SUPABASE_SERVICE_ROLE_KEY", "")
           if not base or not key:
               print("❌ Analysis gate unavailable: missing Supabase credentials", file=sys.stderr)
@@ -82,6 +84,7 @@ jobs:
           print(f"analysis_allowed={allowed} remaining_seconds={remaining:.0f}")
           with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as fh:
               fh.write(f"allowed={'true' if allowed else 'false'}\n")
+          PY
 
       - name: Install Intraday-Oi dependencies
         if: steps.analysis_gate.outputs.allowed == 'true'
