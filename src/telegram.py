@@ -85,6 +85,20 @@ def _format_source_message(parsed: dict) -> str:
     return "\n".join(lines)
 
 
+def _format_news_context(items: list[dict]) -> str:
+    """Show current source-backed macro/news evidence inside the analyst bundle."""
+    if not items:
+        return "ไม่มีข่าว/ประกาศที่ผ่าน relevance filter ในรอบนี้"
+    lines = []
+    for item in items[:3]:
+        headline = _escape(item.get("headline") or "UNKNOWN")
+        source = _escape(item.get("source") or "UNKNOWN")
+        published = _escape(item.get("published_at") or "UNKNOWN")
+        category = _escape(item.get("category") or "OTHER")
+        lines.append(f"• <b>{category}</b> — {headline} | {source} | {published}")
+    return "\n".join(lines)
+
+
 def _format_analysis_message(parsed: dict, ai_result: dict) -> str:
     """Readable analyst message with strong section hierarchy."""
     def show(value, digits=2):
@@ -113,12 +127,12 @@ def _format_analysis_message(parsed: dict, ai_result: dict) -> str:
         "",
         "<b>FLOW SNAPSHOT</b>",
         f"OI  Put {_escape(show(totals.get('open_interest_view_put', totals.get('open_interest_put'))))}  |  Call {_escape(show(totals.get('open_interest_view_call', totals.get('open_interest_call'))))}",
-        f"ΔOI Put {_escape(show(totals.get('oi_delta_put', totals.get('oi_change_put'))))}  |  Call {_escape(show(totals.get('oi_delta_call', totals.get('oi_change_call'))))}",
-        f"Churn {_escape(show(totals.get('churn')))}  |  IV {_escape(show(parsed.get('vol')))}%",
+        f"ΔOI 1H Put {_escape(show(history_1h.get('oi_put')))}  |  Call {_escape(show(history_1h.get('oi_call')))}",
+        f"Churn 1H {_escape(show(history_1h.get('churn')))}  |  IV {_escape(show(parsed.get('vol')))}%  |  ΔIV {_escape(show(history_1h.get('vol_change')))}",
         f"ΔOI Total {_escape(show(totals.get('oi_delta_total')))}  |  Net GEX {_escape(show(gamma.get('net_gex')))}",
         f"Delta Exposure {_escape(show(dex.get('net_delta_exposure')))}  |  Flow UNKNOWN {_escape(show(flow.get('unknown_rate'), 2))}",
         f"OI Migration {_escape(str(len(migration.get('shifts') or [])))} shifts",
-        f"1H ΔOI Put {_escape(show(history_1h.get('oi_put')))} | Call {_escape(show(history_1h.get('oi_call')))} | Churn {_escape(show(history_1h.get('churn')))}",
+        f"TODAY ΔOI {_escape(show((raw.get('history_comparison') or {}).get('today_oi_change')))} | YDAY ΔOI {_escape(show((raw.get('history_comparison') or {}).get('yesterday_oi_change')))}",
         f"1H ΔPrice {_escape(show(history_1h.get('future_price_change')))} | ΔGEX {_escape(show(history_1h.get('gex_change')))}",
         "",
         "<b>MARKET REGIME</b>",
