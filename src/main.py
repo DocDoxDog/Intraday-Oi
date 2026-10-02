@@ -193,6 +193,7 @@ def run():
         news_dicts = [item.as_dict() for item in news_items]
         new_news_rows = insert_news_announcements(news_dicts)
         parsed["news_context"] = [item.as_dict() for item in news_items[:10]]
+        parsed.setdefault("raw_series", {})["news_context"] = parsed["news_context"]
         print(f"    news candidates={len(news_items)} | new announcements={len(new_news_rows)}")
     except Exception as e:
         parsed["news_context"] = []
@@ -382,10 +383,7 @@ def run():
         print(f"⚠️  Telegram send failed (data still saved to Supabase): {e}", file=sys.stderr)
 
     if new_news_rows:
-        news_text = format_news_announcement([
-            type("NewsItemProxy", (), {"category": row.get("category"), "headline": row.get("headline"), "source": row.get("source"), "published_at": row.get("published_at"), "url": row.get("url")})()
-            for row in new_news_rows
-        ])
+        news_text = format_news_announcement(new_news_rows)
         try:
             telegram.send_news(news_text, chat_ids=chat_ids)
             print("✅ Sent NEWS ANNOUNCEMENT to Telegram")
