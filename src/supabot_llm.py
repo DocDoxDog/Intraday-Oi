@@ -126,6 +126,42 @@ def _json_safe(value: Any) -> Any:
         return str(value)
 
 
+def _compact_history(history: dict[str, Any] | None) -> dict[str, Any]:
+    history = history or {}
+
+    def compact_snapshot(row: Any) -> dict[str, Any] | None:
+        if not isinstance(row, dict):
+            return None
+        raw = row.get("raw_series") or {}
+        totals = raw.get("totals") or {}
+        gex = raw.get("gex") or {}
+        return {
+            "captured_at": row.get("captured_at"),
+            "future_price": row.get("future_price"),
+            "future_chg": row.get("future_chg"),
+            "vol": row.get("vol"),
+            "vol_chg": row.get("vol_chg"),
+            "put_volume": row.get("put_volume"),
+            "call_volume": row.get("call_volume"),
+            "oi_put": totals.get("open_interest_view_put", totals.get("open_interest_put")),
+            "oi_call": totals.get("open_interest_view_call", totals.get("open_interest_call")),
+            "gex_net": gex.get("net_gex"),
+            "gamma_flip": gex.get("gamma_flip"),
+            "call_wall": gex.get("call_wall"),
+            "put_wall": gex.get("put_wall"),
+        }
+
+    return {
+        "hour_ago": compact_snapshot(history.get("hour_ago")),
+        "today": history.get("today") or {"count": 0},
+        "yesterday": history.get("yesterday") or {"count": 0},
+        "comparison_note": (
+            "เปรียบเทียบ current กับ hour_ago, today และ yesterday "
+            "ก่อนสรุป regime/flow/change; ห้ามเติมค่าที่ไม่มี"
+        ),
+    }
+
+
 def _summarize_input(parsed: dict[str, Any], history: dict[str, Any] | None) -> dict[str, Any]:
     raw = parsed.get("raw_series") or {}
     rows = raw.get("strike_rows") or []
@@ -148,36 +184,51 @@ def _summarize_input(parsed: dict[str, Any], history: dict[str, Any] | None) -> 
     )[:15]
 
     current = {
-        k: v
-        for k, v in parsed.items()
-        if k not in {"screenshot"}
-    }
-    current["raw_series"] = {
-        "totals": totals,
-        "dte": raw.get("dte"),
-        "heading": raw.get("heading"),
-        "expected_ranges": raw.get("expected_ranges") or [],
-        "cfd_expected_ranges": raw.get("cfd_expected_ranges") or [],
-        "gex": {
-            "status": gex.get("status"),
-            "net_gex": gex.get("net_gex"),
-            "call_gex_total": gex.get("call_gex_total"),
-            "put_gex_total": gex.get("put_gex_total"),
-            "gamma_flip": gex.get("gamma_flip"),
-            "call_wall": gex.get("call_wall"),
-            "put_wall": gex.get("put_wall"),
-            "max_abs_gex_strike": gex.get("max_abs_gex_strike"),
-            "gex_unit": gex.get("gex_unit"),
-            "gamma_source": gex.get("gamma_source"),
-            "rows": top_gex,
-        },
-        "multi_expiry_gamma": {
-            "version": (raw.get("multi_expiry_gamma") or {}).get("version"),
-            "status": (raw.get("multi_expiry_gamma") or {}).get("status"),
-            "expiration_count": (raw.get("multi_expiry_gamma") or {}).get("expiration_count"),
-            "columns": (raw.get("multi_expiry_gamma") or {}).get("columns") or [],
-            "zones": raw.get("multi_expiry_gamma_zones") or {},
-            "totals": (raw.get("multi_expiry_gamma") or {}).get("totals") or {},
+        "product_symbol": parsed.get("product_symbol"),
+        "contract": parsed.get("contract"),
+        "observed_at": parsed.get("observed_at"),
+        "future_price": parsed.get("future_price"),
+        "future_chg": parsed.get("future_chg"),
+        "spot_price": parsed.get("spot_price"),
+        "basis_diff": parsed.get("basis_diff"),
+        "cfd_price": parsed.get("cfd_price"),
+        "price_conversion": parsed.get("price_conversion"),
+        "dte": parsed.get("dte"),
+        "vol": parsed.get("vol"),
+        "vol_chg": parsed.get("vol_chg"),
+        "technical_context": parsed.get("technical_context") or {},
+        "raw_series": {
+            "totals": totals,
+            "dte": raw.get("dte"),
+            "heading": raw.get("heading"),
+            "gex": {
+                "status": gex.get("status"),
+                "net_gex": gex.get("net_gex"),
+                "call_gex_total": gex.get("call_gex_total"),
+                "put_gex_total": gex.get("put_gex_total"),
+                "gamma_flip": gex.get("gamma_flip"),
+                "call_wall": gex.get("call_wall"),
+                "put_wall": gex.get("put_wall"),
+                "max_abs_gex_strike": gex.get("max_abs_gex_strike"),
+                "gex_unit": gex.get("gex_unit"),
+                "gamma_source": gex.get("gamma_source"),
+            },
+            "multi_expiry_gamma": {
+                "version": (raw.get("multi_expiry_gamma") or {}).get("version"),
+                "status": (raw.get("multi_expiry_gamma") or {}).get("status"),
+                "expiration_count": (raw.get("multi_expiry_gamma") or {}).get("expiration_count"),
+                "columns": [
+                    {
+                        "code": col.get("code"),
+                        "dte": col.get("dte"),
+                        "observed_at": col.get("observed_at"),
+                        "status": col.get("status"),
+                    }
+                    for col in ((raw.get("multi_expiry_gamma") or {}).get("columns") or [])[:10]
+                ],
+                "zones": raw.get("multi_expiry_gamma_zones") or {},
+                "totals": (raw.get("multi_expiry_gamma") or {}).get("totals") or {},
+            },
         },
         "oi_rows": [
             {
@@ -189,7 +240,14 @@ def _summarize_input(parsed: dict[str, Any], history: dict[str, Any] | None) -> 
                 "oiPutChange": row.get("oiPutChange"),
                 "vol": row.get("vol"),
             }
-            for row in rows[:120]
+            for row in sorted(
+                rows,
+                key=lambda row: abs(float(row.get("net_gex") or 0))
+                if isinstance(row, dict) and isinstance(row.get("strike"), (int, float))
+                else 0.0,
+                reverse=True,
+            )[:40]
+            if isinstance(row, dict)
         ],
     }
     current["news_context"] = [
@@ -203,12 +261,12 @@ def _summarize_input(parsed: dict[str, Any], history: dict[str, Any] | None) -> 
             "relevance": item.get("relevance"),
             "rights_status": item.get("rights_status"),
         }
-        for item in (parsed.get("news_context") or [])[:10]
+        for item in (parsed.get("news_context") or [])[:8]
         if isinstance(item, dict)
     ]
     return {
         "current": _json_safe(current),
-        "history": _json_safe(history or {}),
+        "history": _json_safe(_compact_history(history)),
         "deterministic_levels": _level_candidates(parsed),
         "data_limitations": [
             "Open Interest is positioning data; it is not equivalent to traded intraday volume.",
