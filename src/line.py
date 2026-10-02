@@ -84,11 +84,18 @@ def _trade_plan_message(parsed: dict, ai_result: dict) -> str:
     trade = ai_result.get("trade_plan") or {}
     return (
         "TRADE PLAN\n"
-        f"Status: {str(trade.get('status') or 'NO_TRADE').upper()}\n"
-        f"{trade.get('setup') or '-'}\n"
-        f"Confirmation: {trade.get('confirmation') or '-'}\n"
-        f"Invalidation: {trade.get('invalidation') or '-'}\n"
-        f"Risk: {trade.get('risk_note') or '-'}"
+        f"Status: {str(trade.get('status') or 'CONDITIONAL').upper()}\n"
+        f"Direction: {trade.get('direction') or 'WAIT'}\n"
+        f"Entry: {trade.get('entry') or 'UNKNOWN'}\n"
+        f"Stop: {trade.get('stop_loss') or 'UNKNOWN'}\n"
+        f"TP1: {trade.get('take_profit_1') or 'UNKNOWN'}\n"
+        f"TP2: {trade.get('take_profit_2') or 'UNKNOWN'}\n"
+        f"Trigger: {trade.get('trigger') or 'UNKNOWN'}\n"
+        f"Invalidation: {trade.get('invalidation') or 'UNKNOWN'}\n"
+        f"Risk/Reward: {trade.get('risk_reward') or 'UNKNOWN'}\n"
+        f"Market Condition: {trade.get('market_condition') or 'UNKNOWN'}\n"
+        f"Position Risk: {trade.get('position_risk') or 'UNKNOWN'}\n"
+        f"Risk: {trade.get('risk_note') or 'UNKNOWN'}"
     )
 
 
