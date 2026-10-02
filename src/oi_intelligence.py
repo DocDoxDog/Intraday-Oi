@@ -25,8 +25,8 @@ def classify_flow(row,price_change=None,iv_change=None):
 def delta_adjusted_exposure(rows,multiplier=100.0):
     out=[]; net=0.0; gross=0.0
     for r in rows:
-        co=_f(r.get("oiCall"),0.0); po=_f(r.get("oiPut"),0.0); cd=_f(r.get("callDelta")); pd=_f(r.get("putDelta"))
-        if cd is None or pd is None:
+        co=_f(r.get("oiCall")); po=_f(r.get("oiPut")); cd=_f(r.get("callDelta")); pd=_f(r.get("putDelta"))
+        if co is None or po is None or cd is None or pd is None:
             x=dict(r)
             x.update({"call_delta_exposure":None,"put_delta_exposure":None,"net_delta_exposure":None,"gross_delta_exposure":None,"delta_exposure_status":"UNKNOWN"})
             out.append(x)
@@ -47,8 +47,11 @@ def build_flow_hypotheses(rows,future_change=None):
 def oi_migration(previous_rows,current_rows):
     prev={float(r["strike"]):r for r in (previous_rows or []) if r.get("strike") is not None}; cur={float(r["strike"]):r for r in current_rows if r.get("strike") is not None}; shifts=[]
     for side,field in (("call","oiCall"),("put","oiPut")):
-        dec=sorted([(k,_f(v.get(field),0.0)-_f(cur.get(k,{}).get(field),0.0)) for k,v in prev.items() if _f(v.get(field),0.0)>_f(cur.get(k,{}).get(field),0.0)],key=lambda x:x[1],reverse=True)
-        inc=sorted([(k,_f(cur.get(k,{}).get(field),0.0)-_f(v.get(field),0.0)) for k,v in prev.items() if _f(cur.get(k,{}).get(field),0.0)>_f(v.get(field),0.0)],key=lambda x:x[1],reverse=True)
+        known_prev = {k: _f(v.get(field)) for k, v in prev.items() if _f(v.get(field)) is not None}
+        known_cur = {k: _f(v.get(field)) for k, v in cur.items() if _f(v.get(field)) is not None}
+        common = set(known_prev) & set(known_cur)
+        dec=sorted([(k, known_prev[k]-known_cur[k]) for k in common if known_prev[k] > known_cur[k]], key=lambda x:x[1], reverse=True)
+        inc=sorted([(k, known_cur[k]-known_prev[k]) for k in common if known_cur[k] > known_prev[k]], key=lambda x:x[1], reverse=True)
         for fs,amt in dec[:10]:
             if inc:
                 ts,target=min(inc,key=lambda x:abs(x[0]-fs)); qty=min(amt,target)
