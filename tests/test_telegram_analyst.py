@@ -37,7 +37,7 @@ def test_telegram_renders_canonical_v2_without_creating_trade_levels():
     }
     message = format_message(parsed, ai)
     assert "Bias</b> WAIT" in message
-    assert "4300" in message
+    assert "4,300.00" in message
     assert "GOLD MARKET ANALYST V2" in message
     assert "MARKET STATE" in message
     assert "DRIVERS" in message
@@ -97,7 +97,7 @@ def test_telegram_renders_five_message_sections():
     m4 = telegram._format_levels_message(parsed, ai)
     m5 = telegram._format_trade_plan_message(parsed, ai)
     assert "WHAT text" in m3 and "WHY text" in m3 and "POSITIONING text" in m3 and "FLOW & HISTORY" in m3
-    assert "4232.49" in m4 and "GAMMA TERM STRUCTURE" in m4 and "7" in m4 and "🟢" in m4 and "🔴" in m4 and "🟡" in m4
+    assert "4,232.49" in m4 and "GAMMA TERM STRUCTURE" in m4 and "7" in m4 and "🟢" in m4 and "🔴" in m4 and "🟡" in m4
     assert "Status: CONDITIONAL" in m5
     assert "Direction: WAIT" in m5
     assert "Entry:" in m5
