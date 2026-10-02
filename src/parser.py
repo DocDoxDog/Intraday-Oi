@@ -130,7 +130,7 @@ def _parse_image_map(raw):
         chart_png=render_oi_positioning(rows,title=heading or "Gold")
     except Exception:
         pass
-    parsed = {"contract":heading,"dte":dte,"dte_low_confidence":low,"future_price":future,"future_chg":None,"put_volume":0,"call_volume":0,"vol":sum(vols)/len(vols) if vols else None,"vol_chg":None,"delta_levels":{},"raw_series":raw_series,"screenshot":chart_png or raw.get("screenshot")}
+    parsed = {"contract":heading,"expiration_code":sel.get("selected"),"dte":dte,"dte_low_confidence":low,"future_price":future,"future_chg":None,"put_volume":0,"call_volume":0,"vol":sum(vols)/len(vols) if vols else None,"vol_chg":None,"delta_levels":{},"raw_series":raw_series,"screenshot":chart_png or raw.get("screenshot")}
     return _attach_gex(parsed)
 
 def _parse_legacy(raw):
@@ -170,10 +170,25 @@ def _parse_legacy(raw):
     except Exception:
         pass
     iv_values = [r.get("vol") for r in rows if isinstance(r.get("vol"), (int, float))]
-    parsed = {"contract":heading,"dte":dte,"dte_low_confidence":low,"future_price":future,"future_chg":None,"put_volume":0,"call_volume":0,"vol":sum(iv_values) / len(iv_values) if iv_values else None,"vol_chg":None,"delta_levels":{},"raw_series":raw_series,"screenshot":chart_png or raw.get("screenshot")}
+    parsed = {"contract":heading,"expiration_code":(raw.get("expiration_selection") or {}).get("selected"),"dte":dte,"dte_low_confidence":low,"future_price":future,"future_chg":None,"put_volume":0,"call_volume":0,"vol":sum(iv_values) / len(iv_values) if iv_values else None,"vol_chg":None,"delta_levels":{},"raw_series":raw_series,"screenshot":chart_png or raw.get("screenshot")}
     return _attach_gex(parsed)
 
 def parse(raw):
+    if raw.get("expiration_snapshots"):
+        snapshots = []
+        for item in raw["expiration_snapshots"]:
+            parsed_item = parse(item)
+            parsed_item.pop("screenshot", None)
+            snapshots.append(parsed_item)
+        primary_raw = {k: v for k, v in raw.items() if k != "expiration_snapshots"}
+        primary = parse(primary_raw)
+        primary["expiration_snapshots"] = snapshots
+        primary["multi_expiration"] = {
+            "enabled": True,
+            "count": len(snapshots),
+            "codes": [item.get("expiration_code") for item in snapshots],
+        }
+        return primary
     if (raw.get("chart_data") or {}).get("strike_rows"): return _parse_image_map(raw)
     return _parse_legacy(raw)
 
