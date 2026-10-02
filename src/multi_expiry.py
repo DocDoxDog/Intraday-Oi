@@ -179,3 +179,115 @@ def summarize_gamma_zones(gamma_matrix: dict[str, Any]) -> dict[str, Any]:
         ],
         "status": "VALID" if aggregate else "UNKNOWN",
     }
+
+
+
+_BANGKOK_OFFSET_HOURS = 7
+_GOLD_MONTH_CODES = ("F", "G", "H", "J", "K", "M", "N", "Q", "U", "V", "X", "Z")
+
+
+def build_gold_weekly_series_window(as_of: str | None = None, count: int = 7) -> list[dict[str, Any]]:
+    """Build the expected next Gold weekly expiry identities from CME's naming convention.
+
+    CME Gold weeklies use G1M..G5M (Mon), G1T..G5T (Tue),
+    G1W..G5W (Wed), G1R..G5R (Thu) and OG1..OG5 (Fri), with the
+    futures month/year suffix on the listed contract code. This helper only
+    builds calendar identities; it never fabricates OI/GEX cells.
+    """
+    from datetime import datetime, timedelta, timezone
+
+    if count < 1:
+        return []
+    if as_of:
+        dt = datetime.fromisoformat(str(as_of).replace("Z", "+00:00"))
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        dt = dt.astimezone(timezone(timedelta(hours=_BANGKOK_OFFSET_HOURS)))
+    else:
+        dt = datetime.now(timezone(timedelta(hours=_BANGKOK_OFFSET_HOURS)))
+
+    day = dt.date()
+    out: list[dict[str, Any]] = []
+    while len(out) < count:
+        if day.weekday() < 5:
+            week_number = ((day.day - 1) // 7) + 1
+            weekday_map = {
+                0: ("G", "M", "Monday"),
+                1: ("G", "T", "Tuesday"),
+                2: ("G", "W", "Wednesday"),
+                3: ("G", "R", "Thursday"),
+                4: ("OG", "V", "Friday"),
+            }
+            prefix, day_code, weekday_name = weekday_map[day.weekday()]
+            month_code = _GOLD_MONTH_CODES[day.month - 1]
+            year_digit = str(day.year % 10)
+            code = f"{prefix}{week_number}{month_code}{year_digit}"
+            out.append({
+                "code": code,
+                "expiry_date": day.isoformat(),
+                "weekday": weekday_name,
+                "weekday_short": day.strftime("%a"),
+                "week_number": week_number,
+                "calendar_days_from_as_of": (day - dt.date()).days,
+                "status": "EXPECTED",
+            })
+        day += timedelta(days=1)
+    return out
+
+
+def merge_expected_expirations(
+    gamma_matrix: dict[str, Any],
+    *,
+    as_of: str | None = None,
+    count: int = 7,
+) -> dict[str, Any]:
+    """Pad the display matrix with expected weekly expiries, preserving missing cells as NULL."""
+    expected = build_gold_weekly_series_window(as_of=as_of, count=count)
+    existing = {str(col.get("code")).upper(): col for col in (gamma_matrix.get("columns") or [])}
+    codes = set(existing)
+    for item in expected:
+        codes.add(item["code"])
+
+    columns: list[dict[str, Any]] = []
+    for item in expected:
+        code = item["code"]
+        actual = existing.get(code)
+        columns.append({
+            "code": code,
+            "dte": actual.get("dte") if actual else None,
+            "observed_at": actual.get("observed_at") if actual else None,
+            "expiry_date": item["expiry_date"],
+            "weekday": item["weekday"],
+            "weekday_short": item["weekday_short"],
+            "week_number": item["week_number"],
+            "calendar_days_from_as_of": item["calendar_days_from_as_of"],
+            "status": "OBSERVED" if actual else "NOT_OBSERVED",
+        })
+    for code, actual in existing.items():
+        if code not in {item["code"] for item in expected}:
+            columns.append(dict(actual, status="OBSERVED"))
+
+    row_values = {str(int(float(r["strike"]))) if float(r["strike"]).is_integer() else str(float(r["strike"])): r for r in (gamma_matrix.get("matrix") or [])}
+    matrix: list[dict[str, Any]] = []
+    for strike_key in sorted(row_values, key=float, reverse=True):
+        base = dict(row_values[strike_key])
+        for col in columns:
+            base.setdefault(col["code"], None)
+        matrix.append(base)
+
+    totals: dict[str, float | None] = {}
+    for col in columns:
+        values = [row.get(col["code"]) for row in matrix if isinstance(row.get(col["code"]), (int, float))]
+        totals[col["code"]] = sum(values) if values else None
+
+    out = dict(gamma_matrix)
+    out.update({
+        "columns": columns,
+        "matrix": matrix,
+        "totals": totals,
+        "expected_expiration_count": len(expected),
+        "expiration_count": len(columns),
+        "display_complete": len(columns) >= count and all(c.get("status") == "OBSERVED" for c in columns[:count]),
+        "status": "VALID" if matrix and columns else "PARTIAL",
+    })
+    return out
