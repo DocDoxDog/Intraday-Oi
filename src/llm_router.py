@@ -181,9 +181,8 @@ class GeminiRouter:
                     "maxOutputTokens": task.max_output_tokens,
                 },
             }
-            # Gemini 3.8 Flash rejects legacy sampling parameters such as
-            # temperature/top_p/top_k. Its default thinking level is valid for
-            # production; keep temperature for older Gemini routes only.
+            # Gemini 2.5 Flash supports the standard sampling parameters.
+            # Keep temperature enabled for the 2.5 Flash production route.
             if not route.model.startswith("gemini-3."):
                 body["generationConfig"]["temperature"] = task.temperature
     
@@ -192,8 +191,8 @@ class GeminiRouter:
                 # Keep this compatible with Gemini 3.x while preserving the governed schema.
                 body["generationConfig"]["responseMimeType"] = "application/json"
                 body["generationConfig"]["responseSchema"] = _gemini_response_schema(response_schema)
-            if route.model.startswith("gemini-3.8-"):
-                body["generationConfig"]["thinkingConfig"] = {"thinkingLevel": "medium"}
+            # Gemini 2.5 Flash uses thinkingBudget when thinking control is needed.
+            # Leave it unset here so the model keeps its default dynamic thinking behavior.
     
             started_at = datetime.now(timezone.utc).isoformat()
             timer = time.perf_counter()
