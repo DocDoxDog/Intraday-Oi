@@ -52,18 +52,43 @@ def get_hour_ago_snapshot(contract: str | None = None) -> dict | None:
     return result.data[0] if result.data else None
 
 
+def _compact_raw_summary(raw: dict) -> dict:
+    totals = raw.get("totals") or {}
+    gex = raw.get("gex") or {}
+    return {
+        "oi_put": totals.get("open_interest_view_put", totals.get("open_interest_put")),
+        "oi_call": totals.get("open_interest_view_call", totals.get("open_interest_call")),
+        "oi_total": totals.get("open_interest_view_total", totals.get("open_interest_total")),
+        "oi_change_put": totals.get("oi_delta_put", totals.get("oi_change_put")),
+        "oi_change_call": totals.get("oi_delta_call", totals.get("oi_change_call")),
+        "oi_change_total": totals.get("oi_delta_total"),
+        "churn": totals.get("churn"),
+        "quikstrike_churn_put": totals.get("quikstrike_churn_put"),
+        "quikstrike_churn_call": totals.get("quikstrike_churn_call"),
+        "gex_net": gex.get("net_gex"),
+        "gamma_flip": gex.get("gamma_flip"),
+        "call_wall": gex.get("call_wall"),
+        "put_wall": gex.get("put_wall"),
+    }
+
+
 def _summary_for_range(rows: list[dict]) -> dict:
     if not rows:
         return {"count": 0}
 
     future_prices = [float(r["future_price"]) for r in rows if r.get("future_price") is not None]
     vols = [float(r["vol"]) for r in rows if r.get("vol") is not None]
-    future_chg = [float(r["future_chg"]) for r in rows if r.get("future_chg") is not None]
+    chg = [float(r["future_chg"]) for r in rows if r.get("future_chg") is not None]
     vol_chg = [float(r["vol_chg"]) for r in rows if r.get("vol_chg") is not None]
 
     def last(field):
         vals = [r.get(field) for r in rows if r.get(field) is not None]
         return vals[-1] if vals else None
+
+    first_raw = (rows[0].get("raw_series") or {})
+    last_raw = (rows[-1].get("raw_series") or {})
+    last_totals = _compact_raw_summary(last_raw)
+    first_totals = _compact_raw_summary(first_raw)
 
     return {
         "count": len(rows),
@@ -73,14 +98,17 @@ def _summary_for_range(rows: list[dict]) -> dict:
         "future_price_high": max(future_prices) if future_prices else None,
         "future_price_low": min(future_prices) if future_prices else None,
         "future_price_last": future_prices[-1] if future_prices else None,
-        "future_chg_last": last("future_chg"),
+        "future_change_last": last("future_chg"),
+        "future_change_min": min(chg) if chg else None,
+        "future_change_max": max(chg) if chg else None,
         "vol_min": min(vols) if vols else None,
         "vol_max": max(vols) if vols else None,
         "vol_last": vols[-1] if vols else None,
-        "vol_chg_last": last("vol_chg"),
-        "put_volume_last": last("put_volume"),
-        "call_volume_last": last("call_volume"),
+        "vol_change_last": last("vol_chg"),
+        "oi_first": first_totals,
+        "oi_last": last_totals,
     }
+
 
 def get_today_summary(contract: str | None = None) -> dict:
     """สรุปทั้งวันตามเวลา Bangkok โดยส่งเฉพาะ compact metrics ให้ LLM."""
