@@ -35,6 +35,8 @@ def test_oi_positioning_does_not_invent_delta_without_baseline():
     assert row["oi_delta_call"] is None
     assert row["oi_delta_put"] is None
     assert totals["oi_delta_total"] is None
+    assert totals["quikstrike_churn_put"] is None
+    assert totals["quikstrike_churn_call"] is None
     assert totals["churn"] is None
 
 
@@ -50,3 +52,27 @@ def test_migration_ignores_unknown_oi_instead_of_treating_it_as_zero():
         [{"strike": 4300, "oiCall": None}, {"strike": 4350, "oiCall": 50}],
     )
     assert result["shifts"] == []
+
+
+def test_source_oi_change_and_churn_survive_without_baseline():
+    from src.oi_positioning import enrich
+    current = {
+        "raw_series": {
+            "oi_positioning_rows": [
+                {"strike": 4300, "oiCall": 100, "oiPut": 50,
+                 "oiCallChange": 12, "oiPutChange": 8,
+                 "churnCall": 2.5, "churnPut": 1.5}
+            ],
+            "totals": {
+                "oi_change_call": 12, "oi_change_put": 8,
+                "quikstrike_churn_call": 2.5, "quikstrike_churn_put": 1.5,
+            }
+        }
+    }
+    result = enrich(current, None)
+    totals = result["raw_series"]["totals"]
+    assert totals["oi_delta_call"] is None
+    assert totals["oi_delta_put"] is None
+    assert totals["oi_change_call"] == 12
+    assert totals["oi_change_put"] == 8
+    assert totals["churn"] == 4
