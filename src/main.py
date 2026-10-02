@@ -33,7 +33,7 @@ from src.oi_positioning import enrich as enrich_oi_positioning
 from src.supabase_client import insert_snapshot, insert_oi_intelligence, insert_multi_expiry_options, upload_screenshot, get_active_chat_ids
 from src.url_manager import UrlManager, UrlManagerError
 from src import history, telegram, line
-from src.multi_expiry import build_gamma_matrix, summarize_gamma_zones
+from src.multi_expiry import build_gamma_matrix, summarize_gamma_zones, merge_expected_expirations, build_gold_weekly_series_window
 from src.gamma_chart import render_gamma_table
 
 
@@ -70,10 +70,23 @@ def run():
     expiry_snapshots = parsed.get("expiration_snapshots") or []
     if expiry_snapshots:
         gamma_matrix = build_gamma_matrix(expiry_snapshots, current_price=parsed.get("future_price"))
+        gamma_matrix = merge_expected_expirations(
+            gamma_matrix,
+            as_of=parsed.get("observed_at"),
+            count=max(7, int(os.environ.get("QUIKSTRIKE_DISPLAY_EXPIRATIONS", "7"))),
+        )
         gamma_zones = summarize_gamma_zones(gamma_matrix)
         parsed.setdefault("raw_series", {})["multi_expiry_gamma"] = gamma_matrix
         parsed["raw_series"]["multi_expiry_gamma_zones"] = gamma_zones
-        print(f"    gamma matrix: {gamma_matrix['expiration_count']} expirations x {len(gamma_matrix['strikes'])} strikes")
+        parsed["raw_series"]["gold_series_window"] = build_gold_weekly_series_window(
+            as_of=parsed.get("observed_at"),
+            count=max(7, int(os.environ.get("QUIKSTRIKE_DISPLAY_EXPIRATIONS", "7"))),
+        )
+        observed_columns = sum(1 for c in gamma_matrix["columns"] if c.get("status") == "OBSERVED")
+        print(
+            f"    gamma matrix: {len(gamma_matrix['columns'])} display expirations "
+            f"(observed {observed_columns}) x {len(gamma_matrix['strikes'])} strikes"
+        )
     print(f"    product={parsed.get('product_symbol') or 'UNKNOWN'} contract={parsed['contract']} future={parsed['future_price']} "
           f"dte={parsed.get('dte')} retrieved_at={parsed['retrieved_at']}")
     if parsed.get("dte_low_confidence"):
@@ -148,7 +161,8 @@ def run():
     oi_totals = (parsed.get("raw_series") or {}).get("totals") or {}
     print(
         f"    OI positioning baseline={'yes' if oi_totals.get('oi_baseline_available') else 'no'} "
-        f"ΔOI put={oi_totals.get('oi_delta_put', 0)} call={oi_totals.get('oi_delta_call', 0)}"
+        f"ΔOI put={oi_totals.get('oi_delta_put') if oi_totals.get('oi_delta_put') is not None else 'UNKNOWN'} "
+        f"call={oi_totals.get('oi_delta_call') if oi_totals.get('oi_delta_call') is not None else 'UNKNOWN'}"
     )
 
     print("[5.5/9] Building deterministic OI intelligence...")
