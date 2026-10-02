@@ -1,31 +1,21 @@
-"""
-line.py
-=======
-ส่งรายงานเข้า LINE Official Account แบบ Broadcast
-(ส่งหาทุกคนที่แอดเพื่อนกับ OA — ไม่ต้องมี userId รายคน, ใช้แค่ Channel Access Token)
+"""LINE delivery for the GOLD Market Analyst."""
 
-หมายเหตุ:
-- Broadcast API ของ LINE ฟรี 500 ข้อความ/เดือน (บน Free plan) แล้วเริ่มคิดเงินตาม
-  แพ็กเกจ Messaging API — เช็คโควตาใน LINE Official Account Manager ก่อนใช้งานจริง
-- ต้องสร้าง LINE Official Account + Messaging API channel ใน LINE Developers Console
-  แล้วเอา "Channel access token (long-lived)" มาใส่ใน LINE_CHANNEL_ACCESS_TOKEN
-"""
+from __future__ import annotations
 
 import os
 import re
 import time
 from datetime import datetime, timedelta, timezone
+
 import requests
+
 
 LINE_BROADCAST_API = "https://api.line.me/v2/bot/message/broadcast"
 LINE_PUSH_API = "https://api.line.me/v2/bot/message/push"
-
-# LINE จำกัดสูงสุด 5 message objects ต่อ 1 คำขอ broadcast
 MAX_MESSAGES_PER_REQUEST = 5
 
 
 def _text_message(text: str) -> dict:
-    # LINE จำกัดความยาวข้อความ text ที่ 5000 ตัวอักษร/ก้อน
     return {"type": "text", "text": text[:5000]}
 
 
@@ -37,45 +27,73 @@ def _image_message(url: str) -> dict:
     }
 
 
-def format_message(parsed: dict, ai_result: dict) -> str:
-    """Readable analyst message aligned with Telegram."""
-    def show(value):
-        if value is None or value == "":
-            return "-"
-        if isinstance(value, (int, float)):
-            return f"{float(value):.2f}"
-        text = str(value).strip()
-        try:
-            return f"{float(text):.2f}"
-        except ValueError:
-            return text
+def _show(value, digits=2) -> str:
+    if value is None or value == "":
+        return "-"
+    if isinstance(value, (int, float)):
+        return f"{float(value):,.{digits}f}"
+    text = str(value).strip()
+    try:
+        return f"{float(text):,.{digits}f}"
+    except ValueError:
+        return text
 
+
+def format_message(parsed: dict, ai_result: dict) -> str:
     raw = parsed.get("raw_series") or {}
     totals = raw.get("totals") or {}
+    news = parsed.get("news_context") or []
 
     now = datetime.now(timezone.utc).astimezone(timezone(timedelta(hours=7)))
-    thai_months = ["", "ม.ค.", "ก.พ.", "มี.ค.", "เม.ย.", "พ.ค.", "มิ.ย.",
-                   "ก.ค.", "ส.ค.", "ก.ย.", "ต.ค.", "พ.ย.", "ธ.ค."]
-    date_text = f"วันที่ {now.day} {thai_months[now.month]} {now.year + 543} | เวลา {now:%H:%M} น."
+    months = ["", "ม.ค.", "ก.พ.", "มี.ค.", "เม.ย.", "พ.ค.", "มิ.ย.",
+              "ก.ค.", "ส.ค.", "ก.ย.", "ต.ค.", "พ.ย.", "ธ.ค."]
+    date_text = f"วันที่ {now.day} {months[now.month]} {now.year + 543} | เวลา {now:%H:%M} น."
 
-    return (
-        f"GOLD MARKET ANALYST V2 • {date_text}\n"
-        f"Futures {show(parsed.get('future_price'))} | CFD {show(parsed.get('cfd_price'))} | Basis {show(parsed.get('basis_diff'))} (FUTURES - CFD) | DTE {show(parsed.get('dte'))}\n"
-        f"Status: {str(ai_result.get('analysis_status') or 'CONFIRMED').upper()} | Bias: {str(ai_result.get('bias') or 'WAIT').upper()}\n\n"
-        f"FLOW SNAPSHOT\n"
-        f"OI Put {show(totals.get('open_interest_view_put', totals.get('open_interest_put')))} | Call {show(totals.get('open_interest_view_call', totals.get('open_interest_call')))}\n"
-        f"ΔOI Put {show(totals.get('oi_delta_put', totals.get('oi_change_put')))} | Call {show(totals.get('oi_delta_call', totals.get('oi_change_call')))}\n"
-        f"Churn {show(totals.get('churn'))} | IV {show(parsed.get('vol'))}%\n\n"
-        f"MARKET REGIME\n{ai_result.get('market_regime') or '-'}\n\n"
-        f"MACRO\n{ai_result.get('macro') or '-'}\n\n"
-        f"FINANCIAL ENGINEERING\n{ai_result.get('financial_engineering') or '-'}\n\n"
-        f"MARKET MICROSTRUCTURE\n{ai_result.get('market_microstructure') or '-'}\n\n"
-        f"MARKET PSYCHOLOGY\n{ai_result.get('market_psychology') or '-'}\n\n"
-        f"WHAT\n{ai_result.get('what') or ai_result.get('market_overview') or '-'}\n\n"
-        f"WHY\n{ai_result.get('why') or '-'}\n\n"
-        f"POSITIONING\n{ai_result.get('positioning') or '-'}\n\n"
-        f"HISTORY CHANGE\n{ai_result.get('history_comparison') or '-'}"
-    )
+    lines = [
+        f"GOLD MARKET ANALYST V2 • {date_text}",
+        f"Futures {_show(parsed.get('future_price'))} | CFD {_show(parsed.get('cfd_price'))} | "
+        f"Basis {_show(parsed.get('basis_diff'))} (FUTURES - CFD) | DTE {_show(parsed.get('dte'))}",
+        f"Status: {str(ai_result.get('analysis_status') or 'CONFIRMED').upper()} | "
+        f"Bias: {str(ai_result.get('bias') or 'WAIT').upper()}",
+        "",
+        "MARKET STATE",
+        f"Regime: {ai_result.get('market_regime') or '-'}",
+        ai_result.get("what") or ai_result.get("market_overview") or "-",
+        "",
+        "DRIVERS",
+        f"Macro: {ai_result.get('macro') or '-'}",
+        f"Financial Engineering: {ai_result.get('financial_engineering') or '-'}",
+        f"Microstructure: {ai_result.get('market_microstructure') or '-'}",
+        f"Psychology: {ai_result.get('market_psychology') or '-'}",
+        "",
+        "WHY / POSITIONING",
+        ai_result.get("why") or "-",
+        ai_result.get("positioning") or "-",
+        "",
+        "FLOW & HISTORY",
+        f"OI Put {_show(totals.get('open_interest_view_put', totals.get('open_interest_put')))} | "
+        f"Call {_show(totals.get('open_interest_view_call', totals.get('open_interest_call')))} | "
+        f"Total {_show(totals.get('open_interest_view_total', totals.get('open_interest_total')))}",
+        f"OI Change Put {_show(totals.get('oi_change_put'))} | "
+        f"Call {_show(totals.get('oi_change_call'))} | "
+        f"Total {_show(totals.get('oi_change_total'))}",
+        f"ΔOI vs baseline Put {_show(totals.get('oi_delta_put'))} | "
+        f"Call {_show(totals.get('oi_delta_call'))} | "
+        f"Total {_show(totals.get('oi_delta_total'))}",
+        f"Churn Put {_show(totals.get('quikstrike_churn_put'))} | "
+        f"Call {_show(totals.get('quikstrike_churn_call'))} | "
+        f"Total {_show(totals.get('churn'))}",
+        f"IV {_show(parsed.get('vol'))}% | IV Δ {_show(parsed.get('vol_chg'))}%",
+        ai_result.get("history_comparison") or "-",
+    ]
+    if news:
+        lines += ["", "NEWS CONTEXT"]
+        for item in news[:2]:
+            lines.append(
+                f"• {item.get('headline') or '-'}\n"
+                f"  {item.get('source') or '-'} | {item.get('published_at') or '-'}"
+            )
+    return "\n".join(lines)
 
 
 def _levels_message(parsed: dict, ai_result: dict) -> str:
@@ -84,82 +102,84 @@ def _levels_message(parsed: dict, ai_result: dict) -> str:
     zones = raw.get("multi_expiry_gamma_zones") or {}
     levels = ai_result.get("levels") or {}
     scenarios = ai_result.get("scenarios") or {}
-    show=lambda v: "-" if v is None or v == "" else (f"{float(v):.2f}" if isinstance(v,(int,float)) else str(v))
-    return (
-        "KEY LEVELS\n"
-        f"🔴 ต้านไกล: {show(levels.get('resistance_far'))}\n"
-        f"🔴 ต้านหลัก: {show(levels.get('resistance_main'))}\n"
-        f"🟠 ต้านใกล้: {show(levels.get('resistance_current'))}\n"
-        f"🟢 รับใกล้: {show(levels.get('support_current'))}\n"
-        f"🟢 รับหลัก: {show(levels.get('support_main'))}\n"
-        f"🟢 รับลึก: {show(levels.get('support_deep'))}\n\n"
-        f"GAMMA TERM STRUCTURE\n"
-        f"{len(gamma.get('columns') or [])} expirations | +GEX zone {show(zones.get('highest_positive_gamma'))} | -GEX zone {show(zones.get('highest_negative_gamma'))}\n\n"
-        f"SCENARIOS\n"
-        f"🟢 Bull — {scenarios.get('bull') or '-'}\n"
-        f"🔴 Bear — {scenarios.get('bear') or '-'}\n"
-        f"🟡 Sideway — {scenarios.get('sideway') or '-'}\n\n"
-        f"BASE: {ai_result.get('base_case') or '-'}\n"
-        f"ALT: {ai_result.get('alternative_case') or '-'}\n"
-        f"INVALIDATION: {ai_result.get('invalidation_case') or '-'}"
-    )
+    show = lambda v: _show(v)
+    return "\n".join([
+        "KEY LEVELS (CFD)",
+        f"🔴 ต้านไกล: {show(levels.get('resistance_far'))}",
+        f"🔴 ต้านหลัก: {show(levels.get('resistance_main'))}",
+        f"🟠 ต้านใกล้: {show(levels.get('resistance_current'))}",
+        f"🟢 รับใกล้: {show(levels.get('support_current'))}",
+        f"🟢 รับหลัก: {show(levels.get('support_main'))}",
+        f"🟢 รับลึก: {show(levels.get('support_deep'))}",
+        "",
+        "GAMMA TERM STRUCTURE",
+        f"{len(gamma.get('columns') or [])} expirations | "
+        f"+GEX zone {show(zones.get('highest_positive_gamma'))} | "
+        f"-GEX zone {show(zones.get('highest_negative_gamma'))}",
+        "",
+        "SCENARIOS",
+        f"🟢 Bull — {scenarios.get('bull') or '-'}",
+        f"🔴 Bear — {scenarios.get('bear') or '-'}",
+        f"🟡 Sideway — {scenarios.get('sideway') or '-'}",
+        "",
+        "CASE MAP",
+        f"BASE — {ai_result.get('base_case') or '-'}",
+        f"ALT — {ai_result.get('alternative_case') or '-'}",
+        f"INVALIDATION — {ai_result.get('invalidation_case') or '-'}",
+    ])
 
 
 def _trade_plan_message(parsed: dict, ai_result: dict) -> str:
     trade = ai_result.get("trade_plan") or {}
-    return (
-        "TRADE PLAN\n"
-        f"Status: {str(trade.get('status') or 'CONDITIONAL').upper()}\n"
-        f"Direction: {trade.get('direction') or 'WAIT'}\n"
-        f"Entry: {trade.get('entry') or 'UNKNOWN'}\n"
-        f"Stop: {trade.get('stop_loss') or 'UNKNOWN'}\n"
-        f"TP1: {trade.get('take_profit_1') or 'UNKNOWN'}\n"
-        f"TP2: {trade.get('take_profit_2') or 'UNKNOWN'}\n"
-        f"Trigger: {trade.get('trigger') or 'UNKNOWN'}\n"
-        f"Invalidation: {trade.get('invalidation') or 'UNKNOWN'}\n"
-        f"Risk/Reward: {trade.get('risk_reward') or 'UNKNOWN'}\n"
-        f"Market Condition: {trade.get('market_condition') or 'UNKNOWN'}\n"
-        f"Position Risk: {trade.get('position_risk') or 'UNKNOWN'}\n"
-        f"Risk: {trade.get('risk_note') or 'UNKNOWN'}\n\n"
-        f"FINAL TRADE IDEA\n"
-        f"{ai_result.get('final_trade_idea') or trade.get('setup') or 'UNKNOWN'}"
-    )
+    return "\n".join([
+        "TRADE PLAN",
+        f"Status: {str(trade.get('status') or 'CONDITIONAL').upper()}",
+        f"Direction: {trade.get('direction') or 'WAIT'}",
+        f"Entry: {trade.get('entry') or 'UNKNOWN'}",
+        f"Stop: {trade.get('stop_loss') or 'UNKNOWN'}",
+        f"TP1: {trade.get('take_profit_1') or 'UNKNOWN'}",
+        f"TP2: {trade.get('take_profit_2') or 'UNKNOWN'}",
+        "",
+        f"Trigger: {trade.get('trigger') or 'UNKNOWN'}",
+        f"Invalidation: {trade.get('invalidation') or 'UNKNOWN'}",
+        f"Risk/Reward: {trade.get('risk_reward') or 'UNKNOWN'}",
+        f"Market Condition: {trade.get('market_condition') or 'UNKNOWN'}",
+        f"Position Risk: {trade.get('position_risk') or 'UNKNOWN'}",
+        f"Risk: {trade.get('risk_note') or 'UNKNOWN'}",
+        "",
+        "FINAL TRADE IDEA",
+        ai_result.get("final_trade_idea") or trade.get("setup") or "UNKNOWN",
+    ])
 
 
 def _post_broadcast(token: str, messages: list[dict]) -> None:
-    resp = requests.post(
+    response = requests.post(
         LINE_BROADCAST_API,
-        headers={
-            "Authorization": f"Bearer {token}",
-            "Content-Type": "application/json",
-        },
+        headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
         json={"messages": messages},
         timeout=20,
     )
-    if resp.status_code != 200:
-        raise RuntimeError(f"LINE broadcast ล้มเหลว [{resp.status_code}]: {resp.text}")
+    if response.status_code != 200:
+        raise RuntimeError(f"LINE broadcast ล้มเหลว [{response.status_code}]: {response.text}")
 
 
 def _post_push(token: str, to: str, messages: list[dict]) -> None:
-    resp = requests.post(
+    response = requests.post(
         LINE_PUSH_API,
-        headers={
-            "Authorization": f"Bearer {token}",
-            "Content-Type": "application/json",
-        },
+        headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
         json={"to": to, "messages": messages},
         timeout=20,
     )
-    if resp.status_code != 200:
-        raise RuntimeError(f"LINE group push ล้มเหลว [{resp.status_code}]: {resp.text}")
+    if response.status_code != 200:
+        raise RuntimeError(f"LINE group push ล้มเหลว [{response.status_code}]: {response.text}")
 
 
 def send_news(news_text: str) -> None:
     token = os.environ.get("LINE_CHANNEL_ACCESS_TOKEN")
     if not token:
         raise RuntimeError("LINE_CHANNEL_ACCESS_TOKEN ไม่ได้ตั้งค่า")
-    plain_news = re.sub(r"<[^>]+>", "", news_text)
-    _post_broadcast(token, [_text_message(plain_news)])
+    plain = re.sub(r"<[^>]+>", "", news_text)
+    _post_broadcast(token, [_text_message(plain)])
     print("✅ ส่ง LINE NEWS ANNOUNCEMENT สำเร็จ")
 
 
@@ -169,12 +189,10 @@ def send(
     screenshot_url: str | None = None,
     gamma_table_url: str | None = None,
     gamma_table_full_url: str | None = None,
-    news_text: str | None = None,
 ) -> None:
-    """Send the same canonical bundle to LINE."""
     token = os.environ.get("LINE_CHANNEL_ACCESS_TOKEN")
     if not token:
-        raise RuntimeError("LINE_CHANNEL_ACCESS_TOKEN ไม่ได้ตั้งค่า — เช็ค GitHub Secrets หรือไฟล์ .env")
+        raise RuntimeError("LINE_CHANNEL_ACCESS_TOKEN ไม่ได้ตั้งค่า")
 
     messages: list[dict] = []
     if gamma_table_url:
@@ -183,10 +201,6 @@ def send(
         messages.append(_image_message(gamma_table_full_url))
     if screenshot_url:
         messages.append(_image_message(screenshot_url))
-    if news_text:
-        # news_text is formatted for Telegram HTML; LINE receives plain text.
-        plain_news = re.sub(r"<[^>]+>", "", news_text)
-        messages.append(_text_message(plain_news[:5000]))
     messages.extend([
         _text_message(format_message(parsed, ai_result)),
         _text_message(_levels_message(parsed, ai_result)),
@@ -199,9 +213,9 @@ def send(
         try:
             _post_broadcast(token, chunk)
             print(f"✅ ส่ง LINE broadcast สำเร็จ ({len(chunk)} ข้อความ)")
-        except Exception as e:
-            print(f"❌ ส่ง LINE broadcast ล้มเหลว: {e}")
-            errors.append(str(e))
+        except Exception as exc:
+            print(f"❌ ส่ง LINE broadcast ล้มเหลว: {exc}")
+            errors.append(str(exc))
         time.sleep(0.5)
 
     group_id = os.environ.get("LINE_GROUP_ID", "").strip()
@@ -211,12 +225,14 @@ def send(
             try:
                 _post_push(token, group_id, chunk)
                 print(f"✅ ส่ง LINE group push สำเร็จ ({len(chunk)} ข้อความ)")
-            except Exception as e:
-                print(f"❌ ส่ง LINE group push ล้มเหลว: {e}")
-                errors.append(str(e))
+            except Exception as exc:
+                print(f"❌ ส่ง LINE group push ล้มเหลว: {exc}")
+                errors.append(str(exc))
             time.sleep(0.5)
     else:
-        print("⏭️  ข้าม LINE group push (ไม่ได้ตั้งค่า LINE_GROUP_ID)")
+        print("⏭️ ข้าม LINE group push (ไม่ได้ตั้งค่า LINE_GROUP_ID)")
 
     if errors:
-        raise RuntimeError(f"LINE broadcast ล้มเหลว {len(errors)} chunk(s): " + " | ".join(errors))
+        raise RuntimeError(
+            f"LINE broadcast ล้มเหลว {len(errors)} chunk(s): " + " | ".join(errors)
+        )
