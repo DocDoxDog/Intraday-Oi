@@ -634,15 +634,20 @@ def scrape_multi_expiration(url: str | None = None, limit: int = 7) -> dict:
         context = browser.new_context(**context_options)
         page = context.new_page()
         try:
+            print("[scrape] goto QuikStrike...", flush=True)
             page.goto(url, wait_until="domcontentloaded", timeout=60_000)
             page.wait_for_timeout(500)
+            print("[scrape] discovering expirations...", flush=True)
             candidates = _discover_gold_expirations(page, limit=limit)
+            print(f"[scrape] discovered {len(candidates)} expiration(s): {[x['code'] for x in candidates]}", flush=True)
             if not candidates:
                 raise ScrapeError("ไม่พบ Gold expirations ที่มี DTE")
 
             snapshots = []
             for index, candidate in enumerate(candidates):
+                print(f"[scrape] activating {candidate['code']} ({candidate['dte']} DTE)...", flush=True)
                 _activate_expiration(page, candidate["code"])
+                print(f"[scrape] loading OI for {candidate['code']}...", flush=True)
                 _load_oi_chart(page)
                 page.wait_for_timeout(500)
                 chart_data = page.evaluate(EXTRACT_INTRADAY_JS)
