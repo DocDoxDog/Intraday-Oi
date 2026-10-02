@@ -1,7 +1,12 @@
 name: Scrape OI Intraday
 
 on:
-  workflow_dispatch: {}
+  workflow_dispatch:
+    inputs:
+      force_notify:
+        description: "ส่ง Telegram/LINE แม้อยู่ใน cooldown (true/false)"
+        required: false
+        default: "false"
   repository_dispatch:
     types: [run-analysis]
 
@@ -46,4 +51,6 @@ jobs:
           TWELVEDATA_API_KEY: ${{ secrets.TWELVEDATA_API_KEY }}
           TWELVEDATA_SYMBOL: XAU/USD
           SUPABOT_LLM_TIMEOUT_SECONDS: "60"
+          OI_BOT_NOTIFICATION_COOLDOWN_MINUTES: "30"
+          OI_BOT_FORCE_NOTIFY: ${{ inputs.force_notify }}
         run: python -m src.main
