@@ -43,8 +43,8 @@ def _render(gamma_matrix: dict[str, Any], *, full: bool) -> bytes:
     fig_width = max(12.5, 2.0 + 1.65 * ncols)
     row_count = len(rows) + 1
     fig_height = max(
-        7.0 if not full else 9.0,
-        2.0 + 0.245 * min(row_count, 145),
+        7.0 if not full else 8.0,
+        1.7 + (0.28 if not full else 0.19) * min(row_count, 145),
     )
 
     fig, ax = plt.subplots(
@@ -111,20 +111,20 @@ def _render(gamma_matrix: dict[str, Any], *, full: bool) -> bytes:
         colLabels=headers,
         cellColours=cell_colors,
         cellLoc="center",
-        bbox=[0.01, 0.035, 0.98, 0.90 if not full else 0.925],
+        bbox=[0.01, 0.035 if not full else 0.025, 0.98, 0.90 if not full else 0.94],
         colWidths=[0.12] + [0.88 / ncols] * ncols,
     )
     table.auto_set_font_size(False)
-    table.set_fontsize(8.5 if full else 9)
-    table.scale(1, 1.28 if not full else 1.12)
+    table.set_fontsize(8.5 if full else 9.5)
+    table.scale(1, 1.10 if full else 1.12)
 
     for (row_index, _col_index), cell in table.get_celld().items():
         cell.set_edgecolor("#333333")
         if row_index == 0:
-            cell.set_height(0.115 if full else 0.17)
+            cell.set_height(0.145 if full else 0.225)
             cell.get_text().set_weight("bold")
             cell.get_text().set_color("white")
-            cell.get_text().set_fontsize(10.5 if full else 13)
+            cell.get_text().set_fontsize(10.5 if full else 15)
             cell.set_facecolor("#263238")
 
     title = (
