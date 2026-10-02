@@ -249,7 +249,8 @@ def _post_with_retry(url: str, payload: dict, timeout: int = 20) -> None:
             if response.status_code >= 500:
                 time.sleep(1.0 * (attempt + 1))
                 continue
-            response.raise_for_status()
+            detail = (response.text or "").strip()
+            raise RuntimeError(f"Telegram API HTTP {response.status_code}: {detail[:500]}")
         except Exception as exc:
             last_error = exc
             if attempt < 2:
@@ -274,6 +275,37 @@ def send_news(news_text: str, *, chat_ids: list[str]) -> None:
         print(f"✅ Telegram NEWS ANNOUNCEMENT sent to {cid}")
 
 
+def _send_photo_with_fallback(token: str, chat_id: str, photo_url: str, caption: str) -> None:
+    """Send a remote image; fall back to multipart upload when Telegram rejects the URL."""
+    url = TELEGRAM_PHOTO_API.format(token=token)
+    response = requests.post(
+        url,
+        json={"chat_id": chat_id, "photo": photo_url, "caption": caption},
+        timeout=20,
+    )
+    if response.status_code < 400:
+        return
+    if response.status_code != 400:
+        response.raise_for_status()
+    try:
+        image = requests.get(photo_url, timeout=20)
+        image.raise_for_status()
+        upload = requests.post(
+            url,
+            data={"chat_id": chat_id, "caption": caption},
+            files={"photo": ("image.png", image.content, image.headers.get("content-type", "image/png"))},
+            timeout=30,
+        )
+        if upload.status_code >= 400:
+            raise RuntimeError(
+                f"Telegram photo upload failed HTTP {upload.status_code}: {(upload.text or '')[:500]}"
+            )
+    except Exception as exc:
+        raise RuntimeError(
+            f"Telegram photo URL rejected HTTP 400; multipart fallback failed: {exc}"
+        ) from exc
+
+
 def send(
     parsed: dict,
     ai_result: dict,
@@ -293,20 +325,11 @@ def send(
 
     for cid in chat_ids:
         if gamma_table_url:
-            _post_with_retry(
-                TELEGRAM_PHOTO_API.format(token=token),
-                {"chat_id": cid, "photo": gamma_table_url, "caption": "GOLD GAMMA TABLE — Multi-Expiration"},
-            )
+            _send_photo_with_fallback(token, cid, gamma_table_url, "GOLD GAMMA TABLE — Multi-Expiration")
         if gamma_table_full_url:
-            _post_with_retry(
-                TELEGRAM_PHOTO_API.format(token=token),
-                {"chat_id": cid, "photo": gamma_table_full_url, "caption": "GOLD GAMMA TABLE — FULL DATA"},
-            )
+            _send_photo_with_fallback(token, cid, gamma_table_full_url, "GOLD GAMMA TABLE — FULL DATA")
         if screenshot_url:
-            _post_with_retry(
-                TELEGRAM_PHOTO_API.format(token=token),
-                {"chat_id": cid, "photo": screenshot_url, "caption": "QUIKSTRIKE OI — Source Screenshot"},
-            )
+            _send_photo_with_fallback(token, cid, screenshot_url, "QUIKSTRIKE OI — Source Screenshot")
 
         for message in (
             _format_analysis_message(parsed, ai_result),
