@@ -346,13 +346,23 @@ def scrape(url: str | None = None) -> dict:
             screenshot = None
             try:
                 chart_image = page.locator("img.chart")
-                if chart_image.count():
-                    screenshot = chart_image.screenshot(type="png")
+                if chart_image.count() and chart_image.first.is_visible():
+                    screenshot = chart_image.first.screenshot(type="png")
                 else:
                     chart_container = page.locator("#chart")
-                    screenshot = chart_container.screenshot(type="png")
+                    if chart_container.count() and chart_container.first.is_visible():
+                        screenshot = chart_container.first.screenshot(type="png")
             except Exception:
                 screenshot = None
+
+            # Last-resort source capture: the actual rendered QuikStrike page.
+            if not screenshot:
+                try:
+                    screenshot = page.screenshot(
+                        type="png", full_page=False, animations="disabled"
+                    )
+                except Exception:
+                    screenshot = None
 
             result = {
                 "source": "quikstrike_open_interest_image_map"
@@ -685,13 +695,25 @@ def scrape_multi_expiration(url: str | None = None, limit: int = 7) -> dict:
                 if index == 0:
                     try:
                         chart_image = page.locator("img.chart")
-                        if chart_image.count():
-                            source_screenshot = chart_image.screenshot(type="png")
+                        if chart_image.count() and chart_image.first.is_visible():
+                            source_screenshot = chart_image.first.screenshot(type="png")
                         else:
                             chart_container = page.locator("#chart")
-                            source_screenshot = chart_container.screenshot(type="png")
+                            if chart_container.count() and chart_container.first.is_visible():
+                                source_screenshot = chart_container.first.screenshot(type="png")
                     except Exception:
                         source_screenshot = None
+
+                    # Last-resort source capture: this is still the real QuikStrike
+                    # viewport, never a synthetic chart. Keeping it as a source
+                    # screenshot is preferable to silently sending no source image.
+                    if not source_screenshot:
+                        try:
+                            source_screenshot = page.screenshot(
+                                type="png", full_page=False, animations="disabled"
+                            )
+                        except Exception:
+                            source_screenshot = None
 
                 snapshot = {
                     "source": (
