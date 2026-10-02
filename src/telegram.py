@@ -86,23 +86,33 @@ def _format_source_message(parsed: dict) -> str:
 
 
 def _format_analysis_message(parsed: dict, ai_result: dict) -> str:
-    """Render the complete V2 analyst narrative as message 3."""
-    dte = parsed.get("dte")
-    raw = parsed.get("raw_series") or {}
-    totals = raw.get("totals") or {}
+    """Readable analyst message with strong section hierarchy."""
+    def show(value, digits=2):
+        if value is None or value == "":
+            return "-"
+        if isinstance(value, (int, float)):
+            return f"{float(value):.{digits}f}"
+        return str(value)
 
-    def show(value):
-        return "-" if value is None or value == "" else str(value)
-
-    header = (
-        f"<b>GOLD MARKET ANALYST V2 • {_thai_datetime_str()}</b>\n"
-        f"Futures {show(parsed.get('future_price'))} | CFD {show(parsed.get('cfd_price'))} | DTE {show(dte)}\n"
-        f"Status: {_escape(str(ai_result.get('analysis_status') or 'CONFIRMED').upper())} | "
-        f"Bias: {_escape(str(ai_result.get('bias') or 'WAIT').upper())}"
-    )
-
-    parts = [
-        header,
+    sections = [
+        f"<b>GOLD MARKET ANALYST V2</b>\n{_thai_datetime_str()}",
+        f"<b>Futures</b> {show(parsed.get('future_price'))}  |  <b>CFD</b> {show(parsed.get('cfd_price'))}  |  <b>DTE</b> {show(parsed.get('dte'))}",
+        f"<b>Status</b> {_escape(str(ai_result.get('analysis_status') or 'CONFIRMED').upper())}  |  <b>Bias</b> {_escape(str(ai_result.get('bias') or 'WAIT').upper())}",
+        "",
+        "<b>MARKET REGIME</b>",
+        _escape(ai_result.get("market_regime") or "UNKNOWN"),
+        "",
+        "<b>MACRO</b>",
+        _escape(ai_result.get("macro") or "UNKNOWN"),
+        "",
+        "<b>FINANCIAL ENGINEERING</b>",
+        _escape(ai_result.get("financial_engineering") or "-"),
+        "",
+        "<b>MARKET MICROSTRUCTURE</b>",
+        _escape(ai_result.get("market_microstructure") or "-"),
+        "",
+        "<b>MARKET PSYCHOLOGY</b>",
+        _escape(ai_result.get("market_psychology") or "-"),
         "",
         "<b>WHAT</b>",
         _escape(ai_result.get("what") or ai_result.get("market_overview") or "-"),
@@ -112,9 +122,48 @@ def _format_analysis_message(parsed: dict, ai_result: dict) -> str:
         "",
         "<b>POSITIONING</b>",
         _escape(ai_result.get("positioning") or "-"),
+        "",
+        "<b>HISTORY CHANGE</b>",
+        _escape(ai_result.get("history_comparison") or "-"),
     ]
+    return "\n".join(sections)
 
-    return "\n".join(parts)
+
+def _format_levels_message(parsed: dict, ai_result: dict) -> str:
+    raw = parsed.get("raw_series") or {}
+    gamma = raw.get("multi_expiry_gamma") or {}
+    zones = raw.get("multi_expiry_gamma_zones") or {}
+    levels = ai_result.get("levels") or {}
+    scenarios = ai_result.get("scenarios") or {}
+
+    def show(value):
+        if value is None or value == "":
+            return "-"
+        if isinstance(value, (int, float)):
+            return f"{float(value):.2f}"
+        return str(value)
+
+    return (
+        "<b>KEY LEVELS</b>\n"
+        f"🔴 ต้านไกล: <b>{show(levels.get('resistance_far'))}</b>\n"
+        f"🔴 ต้านหลัก: <b>{show(levels.get('resistance_main'))}</b>\n"
+        f"🟠 ต้านใกล้: <b>{show(levels.get('resistance_current'))}</b>\n"
+        f"🟢 รับใกล้: <b>{show(levels.get('support_current'))}</b>\n"
+        f"🟢 รับหลัก: <b>{show(levels.get('support_main'))}</b>\n"
+        f"🟢 รับลึก: <b>{show(levels.get('support_deep'))}</b>\n\n"
+        "<b>GAMMA TERM STRUCTURE</b>\n"
+        f"<b>{len(gamma.get('columns') or [])}</b> expirations | "
+        f"+GEX zone <b>{show(zones.get('highest_positive_gamma'))}</b> | "
+        f"-GEX zone <b>{show(zones.get('highest_negative_gamma'))}</b>\n\n"
+        "<b>SCENARIOS</b>\n"
+        f"🟢 <b>Bull</b> — {_escape(scenarios.get('bull') or '-')}\n"
+        f"🔴 <b>Bear</b> — {_escape(scenarios.get('bear') or '-')}\n"
+        f"🟡 <b>Sideway</b> — {_escape(scenarios.get('sideway') or '-')}\n\n"
+        "<b>CASE MAP</b>\n"
+        f"BASE: {_escape(ai_result.get('base_case') or '-')}\n"
+        f"ALT: {_escape(ai_result.get('alternative_case') or '-')}\n"
+        f"INVALIDATION: {_escape(ai_result.get('invalidation_case') or '-')}"
+    )
 
 
 def _format_levels_message(parsed: dict, ai_result: dict) -> str:
