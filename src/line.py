@@ -135,8 +135,15 @@ def send_news(news_text: str) -> None:
     print("✅ ส่ง LINE NEWS ANNOUNCEMENT สำเร็จ")
 
 
-def send(parsed: dict, ai_result: dict, screenshot_url: str | None = None, gamma_table_url: str | None = None) -> None:
-    """Send exactly five LINE messages: Gamma, source, analyst, levels/scenarios, trade plan."""
+def send(
+    parsed: dict,
+    ai_result: dict,
+    screenshot_url: str | None = None,
+    gamma_table_url: str | None = None,
+    gamma_table_full_url: str | None = None,
+    news_text: str | None = None,
+) -> None:
+    """Send the same canonical bundle to LINE."""
     token = os.environ.get("LINE_CHANNEL_ACCESS_TOKEN")
     if not token:
         raise RuntimeError("LINE_CHANNEL_ACCESS_TOKEN ไม่ได้ตั้งค่า — เช็ค GitHub Secrets หรือไฟล์ .env")
@@ -144,8 +151,12 @@ def send(parsed: dict, ai_result: dict, screenshot_url: str | None = None, gamma
     messages: list[dict] = []
     if gamma_table_url:
         messages.append(_image_message(gamma_table_url))
+    if gamma_table_full_url:
+        messages.append(_image_message(gamma_table_full_url))
     if screenshot_url:
         messages.append(_image_message(screenshot_url))
+    if news_text:
+        messages.append(_text_message(news_text[:5000]))
     messages.extend([
         _text_message(format_message(parsed, ai_result)),
         _text_message(_levels_message(parsed, ai_result)),
