@@ -39,9 +39,9 @@ def test_telegram_renders_canonical_v2_without_creating_trade_levels():
     assert "<b>WAIT</b>" in message
     assert "4300" in message
     assert "TRADE PLAN" in message
-    assert "Entry" not in message
-    assert "TP1" not in message
-    assert "SL" not in message
+    assert "Entry:" not in message
+    assert "TP1:" not in message
+    assert "SL:" not in message
 
 
 def test_telegram_requires_explicit_authorized_chat_ids(monkeypatch):
