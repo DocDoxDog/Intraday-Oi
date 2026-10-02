@@ -231,6 +231,10 @@ def _parse_image_map(raw):
     vols=[_iv_percent(r["vol"]) for r in rows if isinstance(r.get("vol"),(int,float))]
     secondary_views = raw.get("secondary_views") or {}
     rows, secondary_totals = _merge_secondary_views(rows, secondary_views)
+    def _sum_optional(field: str) -> int | float | None:
+        values = [r.get(field) for r in rows if isinstance(r.get(field), (int, float))]
+        return sum(values) if values else None
+
     oi_totals = {
         "open_interest_view_put": sum(r.get("oiPut") or 0 for r in rows),
         "open_interest_view_call": sum(r.get("oiCall") or 0 for r in rows),
@@ -238,6 +242,10 @@ def _parse_image_map(raw):
         "open_interest_put": sum(r.get("oiPut") or 0 for r in rows),
         "open_interest_call": sum(r.get("oiCall") or 0 for r in rows),
         "open_interest_total": sum(r.get("oiTotal") or 0 for r in rows),
+        "volume_put": _sum_optional("volumePut"),
+        "volume_call": _sum_optional("volumeCall"),
+        "intraday_volume_put": _sum_optional("ivolumePut"),
+        "intraday_volume_call": _sum_optional("ivolumeCall"),
         **secondary_totals,
     }
     raw_series={"mode":"open_interest","dte":dte,"expiration_selection":sel,"heading":heading,"strike_rows":rows,"oi_positioning_rows":rows,"expected_ranges":chart.get("expected_ranges") or [],"secondary_views":list(secondary_views),"totals":oi_totals,"series":_build_series(rows,[])}
@@ -252,8 +260,8 @@ def _parse_image_map(raw):
         "dte_low_confidence": low,
         "future_price": future,
         "future_chg": None,
-        "put_volume": None,
-        "call_volume": None,
+        "put_volume": oi_totals.get("volume_put"),
+        "call_volume": oi_totals.get("volume_call"),
         "vol": sum(vols) / len(vols) if vols else None,
         "vol_chg": None,
         "delta_levels": {},
