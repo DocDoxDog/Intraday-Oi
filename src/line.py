@@ -44,6 +44,9 @@ def format_message(parsed: dict, ai_result: dict) -> str:
             return "-"
         return f"{float(value):.2f}" if isinstance(value, (int, float)) else str(value)
 
+    raw = parsed.get("raw_series") or {}
+    totals = raw.get("totals") or {}
+
     now = datetime.now(timezone.utc).astimezone(timezone(timedelta(hours=7)))
     thai_months = ["", "ม.ค.", "ก.พ.", "มี.ค.", "เม.ย.", "พ.ค.", "มิ.ย.",
                    "ก.ค.", "ส.ค.", "ก.ย.", "ต.ค.", "พ.ย.", "ธ.ค."]
