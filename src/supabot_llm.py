@@ -126,7 +126,7 @@ def _json_safe(value: Any) -> Any:
         return str(value)
 
 
-def _compact_history(history: dict[str, Any] | None) -> dict[str, Any]:
+def _compact_history(parsed: dict[str, Any], history: dict[str, Any] | None) -> dict[str, Any]:
     history = history or {}
 
     def compact_snapshot(row: Any) -> dict[str, Any] | None:
@@ -141,24 +141,95 @@ def _compact_history(history: dict[str, Any] | None) -> dict[str, Any]:
             "future_chg": row.get("future_chg"),
             "vol": row.get("vol"),
             "vol_chg": row.get("vol_chg"),
-            "put_volume": row.get("put_volume"),
-            "call_volume": row.get("call_volume"),
             "oi_put": totals.get("open_interest_view_put", totals.get("open_interest_put")),
             "oi_call": totals.get("open_interest_view_call", totals.get("open_interest_call")),
+            "oi_total": totals.get("open_interest_view_total", totals.get("open_interest_total")),
+            "oi_change_put": totals.get("oi_delta_put", totals.get("oi_change_put")),
+            "oi_change_call": totals.get("oi_delta_call", totals.get("oi_change_call")),
+            "oi_change_total": totals.get("oi_delta_total"),
+            "churn": totals.get("churn"),
             "gex_net": gex.get("net_gex"),
             "gamma_flip": gex.get("gamma_flip"),
             "call_wall": gex.get("call_wall"),
             "put_wall": gex.get("put_wall"),
         }
 
+    current_raw = parsed.get("raw_series") or {}
+    current_totals = current_raw.get("totals") or {}
+    current_gex = current_raw.get("gex") or {}
+    current = {
+        "future_price": parsed.get("future_price"),
+        "vol": parsed.get("vol"),
+        "oi_put": current_totals.get("open_interest_view_put", current_totals.get("open_interest_put")),
+        "oi_call": current_totals.get("open_interest_view_call", current_totals.get("open_interest_call")),
+        "oi_total": current_totals.get("open_interest_view_total", current_totals.get("open_interest_total")),
+        "oi_change_put": current_totals.get("oi_delta_put"),
+        "oi_change_call": current_totals.get("oi_delta_call"),
+        "oi_change_total": current_totals.get("oi_delta_total"),
+        "churn": current_totals.get("churn"),
+        "gex_net": current_gex.get("net_gex"),
+        "gamma_flip": current_gex.get("gamma_flip"),
+        "call_wall": current_gex.get("call_wall"),
+        "put_wall": current_gex.get("put_wall"),
+    }
+
+    def diff(base: dict | None) -> dict:
+        if not base:
+            return {"status": "UNKNOWN"}
+        out = {"status": "VALID"}
+        for key in (
+            "future_price", "vol", "oi_put", "oi_call", "oi_total",
+            "oi_change_put", "oi_change_call", "oi_change_total",
+            "churn", "gex_net",
+        ):
+            now_value = current.get(key)
+            old_value = base.get(key)
+            if isinstance(now_value, (int, float)) and isinstance(old_value, (int, float)):
+                out[key] = round(float(now_value) - float(old_value), 6)
+            else:
+                out[key] = None
+        return out
+
+    hour = compact_snapshot(history.get("hour_ago"))
+    today = history.get("today") or {"count": 0}
+    yesterday = history.get("yesterday") or {"count": 0}
+
+    today_open = {
+        "future_price": today.get("future_price_open"),
+        "vol": today.get("vol_last") if today.get("count") == 1 else None,
+        "oi_put": (today.get("oi_first") or {}).get("oi_put"),
+        "oi_call": (today.get("oi_first") or {}).get("oi_call"),
+        "oi_total": (today.get("oi_first") or {}).get("oi_total"),
+        "oi_change_put": (today.get("oi_first") or {}).get("oi_change_put"),
+        "oi_change_call": (today.get("oi_first") or {}).get("oi_change_call"),
+        "oi_change_total": (today.get("oi_first") or {}).get("oi_change_total"),
+        "churn": (today.get("oi_first") or {}).get("churn"),
+        "gex_net": (today.get("oi_first") or {}).get("gex_net"),
+    }
+    yesterday_last = today_open.copy()
+    if yesterday.get("count"):
+        yesterday_last = {
+            "future_price": yesterday.get("future_price_last"),
+            "vol": yesterday.get("vol_last"),
+            "oi_put": (yesterday.get("oi_last") or {}).get("oi_put"),
+            "oi_call": (yesterday.get("oi_last") or {}).get("oi_call"),
+            "oi_total": (yesterday.get("oi_last") or {}).get("oi_total"),
+            "oi_change_put": (yesterday.get("oi_last") or {}).get("oi_change_put"),
+            "oi_change_call": (yesterday.get("oi_last") or {}).get("oi_change_call"),
+            "oi_change_total": (yesterday.get("oi_last") or {}).get("oi_change_total"),
+            "churn": (yesterday.get("oi_last") or {}).get("churn"),
+            "gex_net": (yesterday.get("oi_last") or {}).get("gex_net"),
+        }
+
     return {
-        "hour_ago": compact_snapshot(history.get("hour_ago")),
-        "today": history.get("today") or {"count": 0},
-        "yesterday": history.get("yesterday") or {"count": 0},
-        "comparison_note": (
-            "เปรียบเทียบ current กับ hour_ago, today และ yesterday "
-            "ก่อนสรุป regime/flow/change; ห้ามเติมค่าที่ไม่มี"
-        ),
+        "hour_ago": hour,
+        "today": today,
+        "yesterday": yesterday,
+        "changes": {
+            "vs_hour_ago": diff(hour),
+            "vs_today_open": diff(today_open),
+            "vs_yesterday_last": diff(yesterday_last if yesterday.get("count") else None),
+        },
     }
 
 
@@ -266,7 +337,7 @@ def _summarize_input(parsed: dict[str, Any], history: dict[str, Any] | None) -> 
     ]
     return {
         "current": _json_safe(current),
-        "history": _json_safe(_compact_history(history)),
+        "history": _json_safe(_compact_history(parsed, history)),
         "deterministic_levels": _level_candidates(parsed),
         "data_limitations": [
             "Open Interest is positioning data; it is not equivalent to traded intraday volume.",
