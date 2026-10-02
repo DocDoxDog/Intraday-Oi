@@ -23,9 +23,10 @@ SIGNED_URL_EXPIRY_SECONDS = 3600
 SNAPSHOT_COLUMNS = {
     "captured_at", "contract", "dte", "future_price", "future_chg",
     "put_volume", "call_volume", "vol", "vol_chg", "delta_levels",
-    "raw_series", "spot_price", "basis_diff", "cfd_price",
+    "raw_series", "product", "asset_code", "spot_price", "basis_diff", "cfd_price",
     "price_conversion", "technical_context", "ai_summary",
     "screenshot_path", "screenshot_url", "gamma_table_path", "gamma_table_url",
+    "gamma_table_full_path", "gamma_table_full_url", "dte_low_cofidence",
 }
 
 
@@ -87,6 +88,7 @@ def insert_snapshot(
     client = get_client()
     row = {
         **{key: value for key, value in parsed.items() if key in SNAPSHOT_COLUMNS},
+        "dte_low_cofidence": parsed.get("dte_low_confidence"),
         "ai_summary": ai_summary,
         "screenshot_path": screenshot_path,
         "screenshot_url": screenshot_url,
