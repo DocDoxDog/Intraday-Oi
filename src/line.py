@@ -13,6 +13,7 @@ line.py
 
 import os
 import time
+from datetime import datetime, timedelta, timezone
 import requests
 
 LINE_BROADCAST_API = "https://api.line.me/v2/bot/message/broadcast"
@@ -38,12 +39,14 @@ def _image_message(url: str) -> dict:
 def format_message(parsed: dict, ai_result: dict) -> str:
     """Backward-compatible alias for message 3."""
     dte = parsed.get("dte")
+    now = datetime.now(timezone.utc).astimezone(timezone(timedelta(hours=7)))
+    thai_months = ["", "ม.ค.", "ก.พ.", "มี.ค.", "เม.ย.", "พ.ค.", "มิ.ย.",
+                   "ก.ค.", "ส.ค.", "ก.ย.", "ต.ค.", "พ.ย.", "ธ.ค."]
+    date_text = f"วันที่ {now.day} {thai_months[now.month]} {now.year + 543} | เวลา {now:%H:%M} น."
     raw = parsed.get("raw_series") or {}
     totals = raw.get("totals") or {}
     return (
-        f"GOLD MARKET ANALYST V2 • วันที่ {__import__('datetime').datetime.now().day} "
-        f"{__import__('datetime').datetime.now().strftime('%b')} "
-        f"| เวลา {__import__('datetime').datetime.now().strftime('%H:%M')} น.\n"
+        f"GOLD MARKET ANALYST V2 • {date_text}\n"
         f"Futures {parsed.get('future_price','-')} | CFD {parsed.get('cfd_price','-')} | DTE {dte if dte is not None else '-'}\n"
         f"Status: {str(ai_result.get('analysis_status') or 'CONFIRMED').upper()} | "
         f"Bias: {str(ai_result.get('bias') or ai_result.get('short_bias') or 'WAIT').upper()}\n\n"
