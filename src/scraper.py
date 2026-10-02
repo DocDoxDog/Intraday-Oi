@@ -343,7 +343,7 @@ def _read_secondary_oi_views(page) -> dict:
 
         if link is None:
             label = re.compile(
-                r"^\\s*(?:OI\\s*Change|Churn)\\s*$",
+                r"^\s*(?:OI\s*Change|Churn)\s*$",
                 re.I,
             )
             loc = page.get_by_text(label)
