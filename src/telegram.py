@@ -101,7 +101,7 @@ def _format_analysis_message(parsed: dict, ai_result: dict) -> str:
         "",
         "<b>FLOW SNAPSHOT</b>",
         f"OI  Put {_escape(show(totals.get('open_interest_view_put', totals.get('open_interest_put'))))}  |  Call {_escape(show(totals.get('open_interest_view_call', totals.get('open_interest_call'))))}",
-        f"ΔOI Put {_escape(show(totals.get('oi_delta_put', totals.get('oi_change_put'))))}  |  Call {_escape(show(totals.get('oi_delta_call', totals.get('oi_change_call')))}",
+        f"ΔOI Put {_escape(show(totals.get('oi_delta_put', totals.get('oi_change_put'))))}  |  Call {_escape(show(totals.get('oi_delta_call', totals.get('oi_change_call'))))}",
         f"Churn {_escape(show(totals.get('churn')))}  |  IV {_escape(show(parsed.get('vol')))}%",
         "",
         "<b>MARKET REGIME</b>",
