@@ -135,7 +135,7 @@ def _render(gamma_matrix: dict[str, Any], *, full: bool) -> bytes:
     subtitle = (
         "All available observed strikes • $M per 1% move • blank = no source observation"
         if full
-        else "31 strikes around current Futures price • $M per 1% move"
+        else "25 strikes around current Futures price • DTE shown in header • $M per 1% move"
     )
 
     fig.suptitle(
