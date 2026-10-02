@@ -90,6 +90,10 @@ def test_telegram_renders_three_text_message_sections():
         "trade_plan": {
             "status": "CONDITIONAL", "setup": "รอการยืนยัน",
             "confirmation": "ยืนยัน", "invalidation": "invalid", "risk_note": "risk",
+            "long_trigger": 4197.48736, "long_stop": 4172.48736,
+            "long_tp1": 4232.48736, "long_tp2": 4242.48736, "long_tp3": 4252.48736,
+            "short_trigger": 4172.48736, "short_stop": 4197.48736,
+            "short_tp1": 4152.48736, "short_tp2": 4122.48736, "short_tp3": 4112.48736,
         },
     }
     m3 = telegram._format_analysis_message(parsed, ai)
