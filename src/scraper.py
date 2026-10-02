@@ -361,3 +361,161 @@ if __name__ == "__main__":
         ),
     }
     print(json.dumps(debug, ensure_ascii=False, indent=2))
+
+
+
+def _discover_gold_expirations(page, limit: int = 7) -> list[dict]:
+    """Discover real Gold expiration identities without selecting one yet."""
+    links = page.locator(EXPIRATION_LINK_SELECTOR)
+    candidates = []
+    for i in range(links.count()):
+        link = links.nth(i)
+        try:
+            code = (link.locator(".item-name").inner_text() or "").strip()
+            text = link.inner_text() or ""
+        except Exception:
+            continue
+        if not code.startswith("OG"):
+            continue
+        match = re.search(r"\(([0-9]+(?:\.[0-9]+)?)\s*DTE\)", text, re.I)
+        if not match:
+            continue
+        dte = float(match.group(1))
+        if dte <= 0:
+            continue
+        weekly_friday = bool(re.match(r"^OG\d+[A-Z]\d$", code, re.I))
+        monthly = bool(re.match(r"^OG[A-Z]\d$", code, re.I))
+        if weekly_friday or monthly:
+            candidates.append({"code": code, "dte": dte})
+    candidates.sort(key=lambda x: (x["dte"], x["code"]))
+    return candidates[: max(1, int(limit))]
+
+
+def _activate_expiration(page, code: str) -> None:
+    links = page.locator(EXPIRATION_LINK_SELECTOR)
+    target = None
+    for i in range(links.count()):
+        link = links.nth(i)
+        try:
+            candidate = (link.locator(".item-name").inner_text() or "").strip()
+        except Exception:
+            continue
+        if candidate == code:
+            target = link
+            break
+    if target is None:
+        raise ScrapeError(f"ไม่พบ expiration {code}")
+
+    try:
+        trigger = page.locator("#ctl00_ucSelector_hlExpiration")
+        if trigger.count() and not target.is_visible():
+            trigger.click(timeout=10_000)
+            page.wait_for_timeout(250)
+        target.click(force=True, timeout=10_000)
+        for _ in range(30):
+            page.wait_for_timeout(1_000)
+            heading = (
+                page.locator(".viewheader-info h3").first.inner_text()
+                if page.locator(".viewheader-info h3").count()
+                else ""
+            )
+            if code in heading:
+                return
+    except Exception as exc:
+        raise ScrapeError(f"เลือก expiration {code} ไม่สำเร็จ: {exc}") from exc
+    raise ScrapeError(f"postback แล้วแต่ heading ไม่เปลี่ยนเป็น {code}")
+
+
+def scrape_multi_expiration(url: str | None = None, limit: int = 7) -> dict:
+    """Scrape several real Gold expirations in one browser session.
+
+    The first snapshot remains compatible with scrape()/parse(). Additional
+    snapshots are returned under expiration_snapshots and are not collapsed
+    into a single synthetic DTE.
+    """
+    url = url or os.environ.get("QUIKSTRIKE_URL", "")
+    if not url:
+        raise ScrapeError("QUIKSTRIKE_URL ว่างเปล่า")
+
+    with sync_playwright() as p:
+        browser = p.chromium.launch(
+            headless=True,
+            args=["--no-sandbox", "--disable-dev-shm-usage"],
+        )
+        context_options = {
+            "viewport": {"width": 1600, "height": 1000},
+            "extra_http_headers": {"Referer": QUIKSTRIKE_REFERER},
+        }
+        if os.path.exists(QUIKSTRIKE_SESSION_STATE):
+            context_options["storage_state"] = QUIKSTRIKE_SESSION_STATE
+        context = browser.new_context(**context_options)
+        page = context.new_page()
+        try:
+            page.goto(url, wait_until="domcontentloaded", timeout=60_000)
+            page.wait_for_timeout(500)
+            candidates = _discover_gold_expirations(page, limit=limit)
+            if not candidates:
+                raise ScrapeError("ไม่พบ Gold expirations ที่มี DTE")
+
+            snapshots = []
+            for index, candidate in enumerate(candidates):
+                _activate_expiration(page, candidate["code"])
+                _load_oi_chart(page)
+                page.wait_for_timeout(500)
+                chart_data = page.evaluate(EXTRACT_INTRADAY_JS)
+                if not chart_data.get("strike_rows"):
+                    chart_data = page.evaluate(EXTRACT_HIGHCHARTS_JS)
+                if chart_data.get("error") or (
+                    not chart_data.get("strike_rows") and not chart_data.get("charts")
+                ):
+                    raise ScrapeError(
+                        f"ไม่พบข้อมูล strike สำหรับ expiration {candidate['code']}"
+                    )
+
+                heading_locator = page.locator(".viewheader-info h3")
+                heading = (
+                    heading_locator.first.inner_text()
+                    if heading_locator.count()
+                    else ""
+                )
+                snapshot = {
+                    "source": (
+                        "quikstrike_open_interest_image_map"
+                        if chart_data.get("strike_rows")
+                        else "quikstrike_highcharts_fallback"
+                    ),
+                    "chart_data": chart_data,
+                    "secondary_views": {},
+                    "expiration_selection": {
+                        "selected": candidate["code"],
+                        "policy": "multi_expiry_term_structure",
+                        "dte_hint": candidate["dte"],
+                    },
+                    "page_heading": heading,
+                    "page_text": page.locator("body").inner_text(),
+                    "screenshot": None,
+                }
+
+                if index == 0:
+                    try:
+                        chart_image = page.locator("img.chart")
+                        if chart_image.count():
+                            snapshot["screenshot"] = chart_image.screenshot(type="png")
+                        else:
+                            chart_container = page.locator("#chart")
+                            snapshot["screenshot"] = chart_container.screenshot(type="png")
+                    except Exception:
+                        snapshot["screenshot"] = None
+
+                snapshots.append(snapshot)
+
+            primary = dict(snapshots[0])
+            primary["expiration_snapshots"] = snapshots
+            primary["multi_expiration"] = {
+                "enabled": True,
+                "count": len(snapshots),
+                "codes": [item["expiration_selection"]["selected"] for item in snapshots],
+            }
+            return primary
+        finally:
+            browser.close()
