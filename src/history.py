@@ -20,7 +20,7 @@ except ImportError:
 BANGKOK_TZ = timezone(timedelta(hours=7))
 
 # ฟิลด์ที่ดึงมาใช้จริง — ไม่ดึง raw_series/screenshot_url เพราะหนักและไม่จำเป็นสำหรับ trend summary
-FIELDS = "captured_at,contract,dte,future_price,future_chg,put_volume,call_volume,vol,vol_chg,delta_levels,raw_series"
+FIELDS = "captured_at,contract,dte,future_price,future_chg,put_volume,call_volume,vol,vol_chg,raw_series"
 
 
 def _bangkok_day_bounds(now: datetime | None = None) -> tuple[str, str]:
@@ -52,9 +52,38 @@ def get_hour_ago_snapshot(contract: str | None = None) -> dict | None:
     return result.data[0] if result.data else None
 
 
+def _summary_for_range(rows: list[dict]) -> dict:
+    if not rows:
+        return {"count": 0}
+
+    future_prices = [float(r["future_price"]) for r in rows if r.get("future_price") is not None]
+    vols = [float(r["vol"]) for r in rows if r.get("vol") is not None]
+    future_chg = [float(r["future_chg"]) for r in rows if r.get("future_chg") is not None]
+    vol_chg = [float(r["vol_chg"]) for r in rows if r.get("vol_chg") is not None]
+
+    def last(field):
+        vals = [r.get(field) for r in rows if r.get(field) is not None]
+        return vals[-1] if vals else None
+
+    return {
+        "count": len(rows),
+        "first_snapshot_time": rows[0].get("captured_at"),
+        "latest_snapshot_time": rows[-1].get("captured_at"),
+        "future_price_open": future_prices[0] if future_prices else None,
+        "future_price_high": max(future_prices) if future_prices else None,
+        "future_price_low": min(future_prices) if future_prices else None,
+        "future_price_last": future_prices[-1] if future_prices else None,
+        "future_chg_last": last("future_chg"),
+        "vol_min": min(vols) if vols else None,
+        "vol_max": max(vols) if vols else None,
+        "vol_last": vols[-1] if vols else None,
+        "vol_chg_last": last("vol_chg"),
+        "put_volume_last": last("put_volume"),
+        "call_volume_last": last("call_volume"),
+    }
+
 def get_today_summary(contract: str | None = None) -> dict:
-    """สรุป range ของวันนี้ (ตามเวลากรุงเทพ) — ไม่ส่งข้อมูลดิบทั้งหมดเข้า prompt
-    ส่งแค่ min/max/count + จุดแรก-จุดล่าสุด พอให้ AI เห็นทิศทางของทั้งวัน"""
+    """สรุปทั้งวันตามเวลา Bangkok โดยส่งเฉพาะ compact metrics ให้ LLM."""
     client = get_client()
     start_iso, end_iso = _bangkok_day_bounds()
 
@@ -69,29 +98,28 @@ def get_today_summary(contract: str | None = None) -> dict:
         query = query.eq("contract", contract)
 
     rows = query.execute().data or []
-    if not rows:
-        return {"count": 0}
+    return _summary_for_range(rows)
 
-    pc_ratios = [
-        r["put_volume"] / r["call_volume"]
-        for r in rows
-        if r.get("put_volume") and r.get("call_volume")
-    ]
-    future_prices = [r["future_price"] for r in rows if r.get("future_price") is not None]
-    vols = [r["vol"] for r in rows if r.get("vol") is not None]
 
-    return {
-        "count": len(rows),
-        "first_snapshot_time": rows[0]["captured_at"],
-        "latest_snapshot_time": rows[-1]["captured_at"],
-        "future_price_open": future_prices[0] if future_prices else None,
-        "future_price_high": max(future_prices) if future_prices else None,
-        "future_price_low": min(future_prices) if future_prices else None,
-        "pc_ratio_min": round(min(pc_ratios), 2) if pc_ratios else None,
-        "pc_ratio_max": round(max(pc_ratios), 2) if pc_ratios else None,
-        "vol_min": min(vols) if vols else None,
-        "vol_max": max(vols) if vols else None,
-    }
+def get_yesterday_summary(contract: str | None = None) -> dict:
+    """สรุปวันก่อนหน้าตามเวลา Bangkok เพื่อใช้เป็นบริบทเทียบวันต่อวัน."""
+    client = get_client()
+    now = datetime.now(timezone.utc).astimezone(BANGKOK_TZ)
+    start = (now - timedelta(days=1)).replace(hour=0, minute=0, second=0, microsecond=0)
+    end = now.replace(hour=0, minute=0, second=0, microsecond=0)
+
+    query = (
+        client.table("options_flow_snapshots")
+        .select(FIELDS)
+        .gte("captured_at", start.astimezone(timezone.utc).isoformat())
+        .lt("captured_at", end.astimezone(timezone.utc).isoformat())
+        .order("captured_at", desc=False)
+    )
+    if contract:
+        query = query.eq("contract", contract)
+
+    rows = query.execute().data or []
+    return _summary_for_range(rows)
 
 
 def get_oi_baseline(contract: str | None = None) -> dict | None:
@@ -123,9 +151,15 @@ def get_context(contract: str | None = None) -> dict:
         print(f"⚠️  ดึง today summary ไม่สำเร็จ: {e}")
 
     try:
+        yesterday = get_yesterday_summary(contract)
+    except Exception as e:
+        yesterday = {"count": 0}
+        print(f"⚠️  ดึง yesterday summary ไม่สำเร็จ: {e}")
+
+    try:
         oi_baseline = get_oi_baseline(contract)
     except Exception as e:
         oi_baseline = None
         print(f"⚠️  ดึง OI baseline ไม่สำเร็จ: {e}")
 
-    return {"hour_ago": hour_ago, "today": today, "oi_baseline": oi_baseline}
+    return {"hour_ago": hour_ago, "today": today, "yesterday": yesterday, "oi_baseline": oi_baseline}
