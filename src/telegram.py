@@ -97,8 +97,8 @@ def _format_analysis_message(parsed: dict, ai_result: dict) -> str:
     header = (
         f"<b>GOLD MARKET ANALYST V2 • {_thai_datetime_str()}</b>\n"
         f"Futures {show(parsed.get('future_price'))} | CFD {show(parsed.get('cfd_price'))} | DTE {show(dte)}\n"
-        f"Status: <b>{_escape(str(ai_result.get('analysis_status') or 'CONFIRMED').upper())}</b> | "
-        f"Bias: <b>{_escape(str(ai_result.get('bias') or 'WAIT').upper())}</b>"
+        f"Status: {_escape(str(ai_result.get('analysis_status') or 'CONFIRMED').upper())} | "
+        f"Bias: {_escape(str(ai_result.get('bias') or 'WAIT').upper())}"
     )
 
     parts = [
@@ -152,7 +152,7 @@ def _format_trade_plan_message(parsed: dict, ai_result: dict) -> str:
     trade = ai_result.get("trade_plan") or {}
     return (
         "<b>TRADE PLAN</b>\n"
-        f"Status: <b>{_escape(str(trade.get('status') or 'CONDITIONAL').upper())}</b>\n"
+        f"Status: {_escape(str(trade.get('status') or 'CONDITIONAL').upper())}\n"
         f"Direction: {_escape(trade.get('direction') or 'WAIT')}\n"
         f"Entry: {_escape(trade.get('entry') or 'UNKNOWN')}\n"
         f"Stop: {_escape(trade.get('stop_loss') or 'UNKNOWN')}\n"
