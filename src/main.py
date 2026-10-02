@@ -58,7 +58,7 @@ def run():
 
     print("[2/9] Scraping QuikStrike...")
     try:
-        max_expirations = max(1, int(os.environ.get("QUIKSTRIKE_MAX_EXPIRATIONS", "7")))
+        max_expirations = max(1, int(os.environ.get("QUIKSTRIKE_MAX_EXPIRATIONS", "12")))
         if max_expirations > 1:
             raw = scrape_multi_expiration(quikstrike_url, limit=max_expirations)
             print(f"    multi-expiration enabled: {len(raw.get('expiration_snapshots') or [])} expirations")
