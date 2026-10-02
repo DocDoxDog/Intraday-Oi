@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import re
+from decimal import Decimal, InvalidOperation
 from typing import Any
 
 
@@ -9,12 +10,18 @@ class LLMVerificationError(RuntimeError):
     pass
 
 
-_NUMBER_RE = re.compile(r"(?<![A-Za-z])[-+]?\d+(?:\.\d+)?(?![A-Za-z])")
+_NUMBER_RE = re.compile(
+    r"(?<![A-Za-z])(?:[-−+]?\d{1,3}(?:,\d{3})+(?:\.\d+)?|[-−+]?\d+(?:\.\d+)?)(?![A-Za-z])"
+)
+
+
+def _normalize_number(value: str) -> str:
+    return value.replace(",", "").replace("−", "-")
 
 
 def _numeric_strings(value: Any) -> list[str]:
     text = json.dumps(value, ensure_ascii=False, default=str)
-    return _NUMBER_RE.findall(text)
+    return [_normalize_number(match) for match in _NUMBER_RE.findall(text)]
 
 
 def _cited_evidence_numbers(evidence: dict[str, Any], refs: list[str]) -> set[str]:
@@ -24,6 +31,38 @@ def _cited_evidence_numbers(evidence: dict[str, Any], refs: list[str]) -> set[st
         if item is not None:
             numbers.update(_numeric_strings(item))
     return numbers
+
+
+def _number_is_supported(claim_number: str, evidence_numbers: set[str]) -> bool:
+    """Accept exact evidence numbers plus ordinary display rounding.
+
+    Analysts often render source numbers with thousands separators or round
+    long deterministic decimals for readability. The verifier must normalize
+    those display forms without accepting materially different numbers.
+    """
+    normalized = _normalize_number(claim_number)
+    if normalized in evidence_numbers:
+        return True
+
+    try:
+        claim = Decimal(normalized)
+    except (InvalidOperation, ValueError):
+        return False
+
+    # Only allow rounding at the precision actually displayed by the claim.
+    if "." in normalized:
+        places = len(normalized.split(".", 1)[1])
+    else:
+        places = 0
+    tolerance = Decimal(1).scaleb(-places) / Decimal(2)
+
+    for raw in evidence_numbers:
+        try:
+            if abs(claim - Decimal(raw)) <= tolerance:
+                return True
+        except InvalidOperation:
+            continue
+    return False
 
 
 def verify_output(
@@ -93,7 +132,8 @@ def verify_output(
         {
             number
             for number in output_numbers
-            if number not in cited_evidence_numbers and number not in {"0", "1"}
+            if number not in {"0", "1"}
+            and not _number_is_supported(number, cited_evidence_numbers)
         }
     )
 
