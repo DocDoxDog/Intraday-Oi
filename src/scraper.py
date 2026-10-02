@@ -169,6 +169,28 @@ def _select_preferred_expiration(page) -> dict:
             candidates.append({"link": link, "code": code, "dte": dte, "weekly": weekly_friday, "monthly": monthly})
 
     if not candidates:
+        # Some QuikStrike renders expose the active expiration only in the
+        # heading while the selector entries are populated later. The active
+        # heading is still authoritative for this snapshot, so use it rather
+        # than rejecting a valid current contract.
+        try:
+            heading = page.locator(".viewheader-info h3").first.inner_text()
+        except Exception:
+            heading = ""
+        match = re.search(
+            r"(?P<code>[A-Za-z0-9._-]+)\s*\((?P<dte>[0-9]+(?:\.[0-9]+)?)\s*DTE\)",
+            heading,
+            re.I,
+        )
+        if match:
+            dte = float(match.group("dte"))
+            code = match.group("code")
+            if dte > 0:
+                return {
+                    "selected": code,
+                    "policy": "active_heading_fallback",
+                    "dte_hint": dte,
+                }
         return {"selected": None, "policy": "no_positive_gold_expiry_found"}
 
     now = datetime.now(timezone(timedelta(hours=7))).date()
@@ -497,12 +519,28 @@ def _discover_gold_expirations(page, limit: int = 7) -> list[dict]:
     if candidates:
         return candidates[: max(1, int(limit))]
 
-    # Fail with diagnostics instead of the opaque "no expirations" message.
+    # Fallback: the active expiration is always present in the report heading,
+    # even when the selector menu itself is lazy-rendered. Keep this as a real
+    # single-expiry snapshot rather than inventing additional expirations.
     heading = ""
     try:
         heading = page.locator(".viewheader-info h3").first.inner_text()
     except Exception:
         pass
+    match = re.search(
+        r"(?P<code>[A-Za-z0-9._-]+)\s*\((?P<dte>[0-9]+(?:\.[0-9]+)?)\s*DTE\)",
+        heading,
+        re.I,
+    )
+    if match:
+        dte = float(match.group("dte"))
+        code = match.group("code")
+        if dte > 0:
+            print(
+                f"⚠️  QuikStrike expiration menu ไม่ถูก render; ใช้ active heading fallback "
+                f"{code} ({dte} DTE)"
+            )
+            return [{"code": code, "dte": dte}]
     dte_lines = []
     try:
         body_text = page.locator("body").inner_text()
