@@ -86,58 +86,41 @@ def _format_source_message(parsed: dict) -> str:
 
 
 def _format_analysis_message(parsed: dict, ai_result: dict) -> str:
-    status = str(ai_result.get("analysis_status") or "CONFIRMED").upper()
-    bias = str(ai_result.get("bias") or "WAIT").upper()
+    """Compact analyst message aligned with the preferred LINE presentation."""
+    dte = parsed.get("dte")
     raw = parsed.get("raw_series") or {}
-    technical = parsed.get("technical_context") or {}
-    confirmation = technical.get("confirmation") or {}
-
-    lines = [
-        "<b>🧭 GOLD • มองตลาดตอนนี้</b>",
-        f"ราคา CFD <b>{_escape(parsed.get('cfd_price', parsed.get('future_price', '-')))}</b> · Bias <b>{_escape(bias)}</b>",
-        "",
-        "<b>เกิดอะไรขึ้น</b>",
-        _escape(_compact(ai_result.get("what") or ai_result.get("market_overview"), 850)),
-        "",
-        "<b>ทำไมถึงสำคัญ</b>",
-        _escape(_compact(ai_result.get("why"), 850)),
-        "",
-        "<b>โครงสร้างตลาด</b>",
-        _escape(_compact(ai_result.get("positioning"), 850)),
-    ]
-
-    if confirmation:
-        lines += [
-            "",
-            "<b>Price / Technical Context</b>",
-            _escape(
-                _compact(
-                    f"H4={confirmation.get('bias','UNKNOWN')} | "
-                    f"HTF aligned={confirmation.get('htf_aligned','UNKNOWN')} | "
-                    f"M15/M5 aligned={confirmation.get('m15_m5_aligned','UNKNOWN')}",
-                    500,
-                )
-            ),
-        ]
-
+    totals = raw.get("totals") or {}
     levels = ai_result.get("levels") or {}
-    shown = [
-        ("resistance_current", "ต้านใกล้"),
-        ("resistance_main", "ต้านหลัก"),
-        ("support_current", "รับใกล้"),
-        ("support_main", "รับหลัก"),
-    ]
-    level_lines = [
-        f"{label}: <b>{_escape(levels.get(key) if levels.get(key) is not None else 'UNKNOWN')}</b>"
-        for key, label in shown
-    ]
-    lines += ["", "<b>จุดที่ต้องดู</b>"] + level_lines
+    scenarios = ai_result.get("scenarios") or {}
 
-    limitations = ai_result.get("data_limitations") or []
-    if limitations:
-        lines += ["", "<b>สิ่งที่ยังไม่ชัด</b>"] + ["• " + _escape(_compact(x, 300)) for x in limitations[:3]]
+    def show(value):
+        return "-" if value is None or value == "" else str(value)
 
-    return "\n".join(lines)
+    def compact(value, limit=220):
+        text = " ".join(str(value or "-").split())
+        return text if len(text) <= limit else text[:limit].rsplit(" ", 1)[0] + "..."
+
+    return (
+        f"📊 Gold Options Flow (DTE: {show(dte)})\n\n"
+        f"สรุป: CFD {show(parsed.get('cfd_price', parsed.get('future_price')))} | IV {show(parsed.get('vol'))}%\n"
+        f"Open Interest: Put {show(totals.get('open_interest_view_put', totals.get('open_interest_put')))} | "
+        f"Call {show(totals.get('open_interest_view_call', totals.get('open_interest_call')))}\n"
+        f"ΔOI: Put {show(totals.get('oi_delta_put'))} | Call {show(totals.get('oi_delta_call'))} | "
+        f"Churn {show(totals.get('churn'))}\n"
+        f"Bias: {show(ai_result.get('bias', ai_result.get('short_bias')))}\n\n"
+        f"วิเคราะห์\n{compact(ai_result.get('market_overview'))}\n\n"
+        f"KEY LEVELS (CFD)\n"
+        f"ต้านไกล: {show(levels.get('resistance_far'))}\n"
+        f"ต้านหลัก: {show(levels.get('resistance_main'))}\n"
+        f"ต้านใกล้: {show(levels.get('resistance_current'))}\n"
+        f"รับใกล้: {show(levels.get('support_current'))}\n"
+        f"รับหลัก: {show(levels.get('support_main'))}\n"
+        f"รับลึก: {show(levels.get('support_deep'))}\n\n"
+        f"SCENARIOS\n"
+        f"Bull: {compact(scenarios.get('bull'))}\n"
+        f"Bear: {compact(scenarios.get('bear'))}\n"
+        f"Sideway: {compact(scenarios.get('sideway'))}"
+    )
 
 
 def _format_trade_plan_message(parsed: dict, ai_result: dict) -> str:
@@ -223,38 +206,25 @@ def send(
     if not chat_ids:
         raise RuntimeError("ไม่มี authorized chat_ids ให้ส่ง")
 
-    source_text = _format_source_message(parsed)
+    # Preferred delivery is the same compact 3-message experience as LINE:
+    # 1) real QuikStrike source screenshot
+    # 2) compact analysis
+    # 3) final Bias line
     analysis_text = _format_analysis_message(parsed, ai_result)
-    trade_text = _format_trade_plan_message(parsed, ai_result)
+    bias_text = f"🎯 Bias ฟันธง!\n{str(ai_result.get('bias', ai_result.get('short_bias', 'WAIT')))}"
 
     for cid in chat_ids:
-        photos = [url for url in (gamma_table_url, screenshot_url) if url]
-        if len(photos) >= 2:
-            media = [
-                {"type": "photo", "media": gamma_table_url, "caption": "GOLD GAMMA TABLE • 7 DAYS"},
-                {"type": "photo", "media": screenshot_url, "caption": "QUIKSTRIKE OI • SOURCE"},
-            ]
+        if screenshot_url:
             _post_with_retry(
-                f"https://api.telegram.org/bot{token}/sendMediaGroup",
-                {"chat_id": cid, "media": media},
+                TELEGRAM_PHOTO_API.format(token=token),
+                {"chat_id": cid, "photo": screenshot_url, "caption": "QUIKSTRIKE OI • SOURCE"},
             )
-        else:
-            if gamma_table_url:
-                _post_with_retry(
-                    TELEGRAM_PHOTO_API.format(token=token),
-                    {"chat_id": cid, "photo": gamma_table_url, "caption": "GOLD GAMMA TABLE • 7 DAYS"},
-                )
-            if screenshot_url:
-                _post_with_retry(
-                    TELEGRAM_PHOTO_API.format(token=token),
-                    {"chat_id": cid, "photo": screenshot_url, "caption": "QUIKSTRIKE OI • SOURCE"},
-                )
 
-        for text in (source_text, analysis_text, trade_text):
+        for text in (analysis_text, bias_text):
             for chunk in _chunk(text):
                 _post_with_retry(
                     TELEGRAM_API.format(token=token),
-                    {"chat_id": cid, "text": chunk, "parse_mode": "HTML"},
+                    {"chat_id": cid, "text": chunk},
                 )
                 time.sleep(0.4)
-        print(f"✅ Telegram 3-message analyst bundle sent to {cid}")
+        print(f"✅ Telegram compact analyst bundle sent to {cid}")
