@@ -45,6 +45,7 @@ from src import history, telegram, line
 from src.multi_expiry import build_gamma_matrix, summarize_gamma_zones, merge_expected_expirations, build_gold_weekly_series_window
 from src.gamma_chart import render_gamma_table, render_gamma_table_full
 from src.news_announcement import collect_news, format_news_announcement
+from src.market_state import enrich_market_state, normalize_analyst_output
 
 
 def run():
@@ -114,9 +115,9 @@ def run():
                 f"cfd={parsed['cfd_price']}"
             )
         except TwelveDataError as e:
-            print(f"⚠️  Twelve Data enrichment failed (keeping Futures levels): {e}", file=sys.stderr)
+            print(f"⚠️  Twelve Data enrichment failed; CFD/Basis remain UNKNOWN and CFD levels will not be fabricated: {e}", file=sys.stderr)
     else:
-        print("    ⏭️  ข้าม Twelve Data (ไม่ได้ตั้งค่า TWELVEDATA_API_KEY)")
+        print("    ⏭️  ข้าม Twelve Data (ไม่ได้ตั้งค่า TWELVEDATA_API_KEY) — CFD/Basis remain UNKNOWN")
 
     print("[3.7/9] Building hidden multi-timeframe technical confirmation...")
     if os.environ.get("TWELVEDATA_API_KEY"):
@@ -174,11 +175,13 @@ def run():
     else:
         print("    ⚠️  ไม่มี screenshot จากขั้นตอน scrape (ข้ามขั้นตอนนี้)")
 
-    print("[5/9] Fetching history context (hour-ago + today range)...")
+    print("[5/9] Fetching history context (1H + 2H + today + yesterday)...")
     hist_context = history.get_context(contract=parsed.get("contract"))
     hr_ago_status = "พบ" if hist_context.get("hour_ago") else "ไม่พบ"
+    two_hr_status = "พบ" if hist_context.get("two_hours_ago") else "ไม่พบ"
     today_count = hist_context.get("today", {}).get("count", 0)
-    print(f"    hour_ago snapshot: {hr_ago_status} | today snapshots: {today_count}")
+    yesterday_count = hist_context.get("yesterday", {}).get("count", 0)
+    print(f"    1H: {hr_ago_status} | 2H: {two_hr_status} | today snapshots: {today_count} | yesterday snapshots: {yesterday_count}")
     parsed = enrich_oi_positioning(parsed, hist_context.get("oi_baseline"))
     oi_totals = (parsed.get("raw_series") or {}).get("totals") or {}
     print(
@@ -252,6 +255,17 @@ def run():
     except Exception as e:
         parsed["news_context"] = []
         print(f"⚠️  News collection failed (analysis continues without news): {e}", file=sys.stderr)
+
+    # Deterministic state is prepared AFTER news so the same governed input
+    # reaches both the analyst and the Telegram/LINE renderers.
+    parsed = enrich_market_state(parsed, hist_context)
+    market_state = (parsed.get("raw_series") or {}).get("market_state") or {}
+    print(
+        f"    market state: CFD={'OK' if market_state.get('cfd_complete') else 'UNKNOWN'} | "
+        f"1H={'OK' if hist_context.get('hour_ago') else 'UNKNOWN'} | "
+        f"Today={'OK' if hist_context.get('today', {}).get('count') else 'UNKNOWN'} | "
+        f"Yesterday={'OK' if hist_context.get('yesterday', {}).get('count') else 'UNKNOWN'}"
+    )
 
     print("[6/9] Running local supaBOT-compatible analyst core → Gemini...")
     try:
@@ -417,6 +431,16 @@ def run():
             "evidence_refs": ["itb:oi:deterministic", "itb:oi:history"] + (["itb:news:latest"] if news_available else []),
         }
         print("    ⚠️ ใช้ DEGRADED V2: มี conditional trade roadmap จาก deterministic levels")
+
+    # Hard post-processing boundary: the LLM may narrate, but it cannot
+    # replace deterministic CFD levels, history coverage, or the requirement
+    # to emit a conditional trade roadmap.
+    ai_result = normalize_analyst_output(parsed, hist_context, ai_result)
+    print(
+        f"    analyst guardrails: status={ai_result.get('analysis_status')} "
+        f"trade_plan={((ai_result.get('trade_plan') or {}).get('status') or 'UNKNOWN')} "
+        f"direction={((ai_result.get('trade_plan') or {}).get('direction') or 'UNKNOWN')}"
+    )
 
     print("[7/9] Inserting into Supabase...")
     import json
