@@ -24,7 +24,7 @@ def test_v2_numeric_levels_are_checked_against_evidence():
         "trade_plan": {"status": "NO_TRADE", "setup": "x", "confirmation": "x", "invalidation": "x", "risk_note": "x"},
         "evidence_refs": ["itb:oi:deterministic"], "data_limitations": [],
     }
-    with pytest.raises(LLMVerificationError, match="UNSUPPORTED_NUMERIC_CLAIMS:4500"):
+    with pytest.raises(LLMVerificationError, match="UNSUPPORTED_NUMERIC_CLAIMS:.*4500"):
         verify_output(envelope=envelope(), output=output, schema=None)
 
 
