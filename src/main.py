@@ -12,13 +12,6 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-import sys
-import os
-from datetime import datetime, timezone
-from dotenv import load_dotenv
-
-load_dotenv()
-
 # Always import Intraday-Oi as a package so the same code path works in
 # GitHub Actions (python -m src.main) and direct local execution (python src/main.py).
 if __package__ in {None, ""}:
