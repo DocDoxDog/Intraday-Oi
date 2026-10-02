@@ -1,11 +1,7 @@
 name: Scrape OI Intraday
 
 on:
-  push:
-    branches: [main]
   workflow_dispatch: {}
-  repository_dispatch:
-    types: [run-analysis]
 
 jobs:
   scrape:
