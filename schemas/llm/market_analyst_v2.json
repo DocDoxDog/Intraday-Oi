@@ -32,12 +32,18 @@
       "type":"object","additionalProperties":false,
       "properties":{
         "status":{"type":"string","enum":["READY","CONDITIONAL","NO_TRADE"]},
+        "direction":{"type":"string","enum":["BUY","SELL","WAIT"]},
+        "entry":{"type":"string"},
+        "stop_loss":{"type":"string"},
+        "take_profit_1":{"type":"string"},
+        "take_profit_2":{"type":"string"},
         "setup":{"type":"string"},
+        "trigger":{"type":"string"},
         "confirmation":{"type":"string"},
         "invalidation":{"type":"string"},
         "risk_note":{"type":"string"}
       },
-      "required":["status","setup","confirmation","invalidation","risk_note"]
+      "required":["status","direction","entry","stop_loss","take_profit_1","take_profit_2","setup","trigger","confirmation","invalidation","risk_note"]
     },
     "evidence_refs":{"type":"array","items":{"type":"string"}},
     "data_limitations":{"type":"array","items":{"type":"string"}}
