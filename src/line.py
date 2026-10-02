@@ -12,6 +12,7 @@ line.py
 """
 
 import os
+import re
 import time
 from datetime import datetime, timedelta, timezone
 import requests
@@ -191,7 +192,9 @@ def send(
     if screenshot_url:
         messages.append(_image_message(screenshot_url))
     if news_text:
-        messages.append(_text_message(news_text[:5000]))
+        # news_text is formatted for Telegram HTML; LINE receives plain text.
+        plain_news = re.sub(r"<[^>]+>", "", news_text)
+        messages.append(_text_message(plain_news[:5000]))
     messages.extend([
         _text_message(format_message(parsed, ai_result)),
         _text_message(_levels_message(parsed, ai_result)),
