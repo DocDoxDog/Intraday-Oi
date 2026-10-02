@@ -320,15 +320,23 @@ def run():
 
         fmt = lambda v: f"{v:.2f}" if isinstance(v, (int, float)) else "UNKNOWN"
 
+        current_totals = (parsed.get("raw_series") or {}).get("totals") or {}
+        news_available = bool(parsed.get("news_context"))
+
         ai_result = {
             "analysis_status": "DEGRADED",
-            "market_overview": "รอบนี้ไม่มีผลจาก LLM ที่ผ่าน verification จึงแสดงเฉพาะ deterministic market state",
-            "what": "ระบบยืนยันได้เฉพาะข้อมูล QuikStrike/OI/GEX ที่เก็บได้ในรอบนี้",
-            "why": "ไม่มี analyst output ที่ผ่าน JSON/schema/verifier จึงไม่ควรสรุปทิศทางแทนโมเดล",
+            "market_overview": "รอบนี้ LLM output ไม่ผ่าน verification จึงใช้ deterministic market state เป็นฐาน โดยไม่ปั้นข้อสรุปใหม่",
+            "what": (
+                f"Futures {fmt(future_price)} | CFD {fmt(cfd_price)} | "
+                f"Net GEX={fmt(gex.get('net_gex'))} | DTE={fmt(parsed.get('dte'))}"
+            ),
+            "why": "ยังมี source-derived OI/GEX/level สำหรับทำ conditional roadmap แต่ analyst narrative จาก LLM ใช้ไม่ได้ในรอบนี้",
             "positioning": (
-                f"GEX call wall={fmt(resistance_main)} | "
-                f"put wall={fmt(support_main)} | "
-                f"multi-expiry={gamma.get('expiration_count') or 0}"
+                f"OI Put={fmt(current_totals.get('open_interest_put'))} | "
+                f"Call={fmt(current_totals.get('open_interest_call'))} | "
+                f"OI Change Put={fmt(current_totals.get('oi_change_put'))} | "
+                f"Call={fmt(current_totals.get('oi_change_call'))} | "
+                f"Churn={fmt(current_totals.get('churn'))}"
             ),
             "levels": {
                 "resistance_far": resistance_far,
@@ -382,9 +390,31 @@ def run():
             },
             "data_limitations": [
                 "LLM output rejected before delivery: " + str(ai_result.get("error")),
-                "ไม่มี news evidence ในรอบนี้",
+                "มี news evidence ใน input" if news_available else "ไม่มี news evidence ในรอบนี้",
+                "DEGRADED fallback ไม่ตีความ Macro/News เพิ่มเกิน deterministic evidence",
             ],
-            "evidence_refs": ["itb:oi:deterministic"],
+            "market_regime": "TRANSITION_UNCERTAIN",
+            "macro": "NEWS evidence available แต่ไม่ได้ให้ LLM narrative ในรอบนี้" if news_available else "UNKNOWN",
+            "financial_engineering": (
+                f"Net GEX={fmt(gex.get('net_gex'))} | "
+                f"Call Wall={fmt(resistance_main)} | Put Wall={fmt(support_main)}"
+            ),
+            "market_microstructure": "ใช้เฉพาะ deterministic price/level mapping; ไม่มี order-flow claim เพิ่ม",
+            "market_psychology": "UNKNOWN",
+            "history_comparison": "ดู deterministic history fields ใน input; LLM narrative unavailable",
+            "base_case": (
+                f"ราคาแกว่งระหว่าง {fmt(support_main)} และ {fmt(resistance_main)} จนกว่าจะเกิด trigger"
+            ),
+            "alternative_case": (
+                f"เหนือ {fmt(resistance_current)} มีโอกาสเปิด upside path; "
+                f"ต่ำกว่า {fmt(support_main)} มีโอกาสเปิด downside path"
+            ),
+            "invalidation_case": "เมื่อ deterministic levels ไม่สอดคล้องกับ current snapshot",
+            "final_trade_idea": (
+                f"Conditional roadmap: LONG เหนือ {fmt(resistance_current)} ไป {fmt(resistance_main)} "
+                f"หรือ SHORT ใต้ {fmt(support_main)} ไป {fmt(support_current)}"
+            ),
+            "evidence_refs": ["itb:oi:deterministic", "itb:oi:history"] + (["itb:news:latest"] if news_available else []),
         }
         print("    ⚠️ ใช้ DEGRADED V2: มี conditional trade roadmap จาก deterministic levels")
 
