@@ -45,3 +45,14 @@ def test_telegram_mentions_multi_expiry_gamma():
     message = format_message(parsed, ai)
     assert "7 expirations" in message
     assert "4600" in message
+
+
+def test_gamma_table_uses_millions_per_one_percent_move():
+    matrix = {
+        "columns": [{"code": "OGU6", "dte": 1.0}],
+        "matrix": [{"strike": 4600.0, "OGU6": 2_500_000.0}],
+        "totals": {"OGU6": 2_500_000.0},
+        "status": "VALID",
+    }
+    image = render_gamma_table(matrix)
+    assert image[:8] == b"\x89PNG\r\n\x1a\n"
