@@ -452,6 +452,8 @@ def _summarize_input(parsed: dict[str, Any], history: dict[str, Any] | None) -> 
             "published_at": item.get("published_at"),
             "category": item.get("category"),
             "relevance": item.get("relevance"),
+            "market_channels": item.get("market_channels") or [],
+            "freshness": item.get("freshness") or "UNKNOWN",
             "rights_status": item.get("rights_status"),
         }
         for item in (parsed.get("news_context") or [])[:8]
