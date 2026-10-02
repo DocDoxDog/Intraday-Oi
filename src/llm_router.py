@@ -160,7 +160,14 @@ class GeminiRouter:
         if not candidates:
             raise LLMRouterError("GEMINI_NO_CANDIDATE")
         parts = ((candidates[0].get("content") or {}).get("parts") or [])
-        text = "".join(str(part.get("text") or "") for part in parts if isinstance(part, dict)).strip()
+        # Gemini 2.5 can expose thought parts alongside the final answer. The
+        # analyst gateway must consume only visible answer text for JSON parsing.
+        visible = [
+            str(part.get("text") or "")
+            for part in parts
+            if isinstance(part, dict) and part.get("text") and not part.get("thought")
+        ]
+        text = "".join(visible).strip()
         if not text:
             raise LLMRouterError("GEMINI_EMPTY_TEXT")
         return text
@@ -191,8 +198,11 @@ class GeminiRouter:
                 # Keep this compatible with Gemini 3.x while preserving the governed schema.
                 body["generationConfig"]["responseMimeType"] = "application/json"
                 body["generationConfig"]["responseSchema"] = _gemini_response_schema(response_schema)
-            # Gemini 2.5 Flash uses thinkingBudget when thinking control is needed.
-            # Leave it unset here so the model keeps its default dynamic thinking behavior.
+            # Structured V2 analyst output is a compact JSON contract. Gemini 2.5
+            # Flash counts thinking tokens against maxOutputTokens; disabling dynamic
+            # thinking here prevents the JSON response from being truncated.
+            if route.model.startswith("gemini-2.5-flash"):
+                body["generationConfig"]["thinkingConfig"] = {"thinkingBudget": 0}
     
             started_at = datetime.now(timezone.utc).isoformat()
             timer = time.perf_counter()
