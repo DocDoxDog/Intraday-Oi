@@ -34,3 +34,18 @@ def test_telegram_uses_canonical_bias_and_does_not_create_trade_levels():
     assert "TP1" not in message
     assert "SL" not in message
     assert "Bias: <b>WAIT</b>" in notification
+
+
+def test_telegram_requires_explicit_authorized_chat_ids(monkeypatch):
+    import pytest
+    from src import telegram
+    monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "test-token")
+    with pytest.raises(RuntimeError, match="authorized chat_ids"):
+        telegram.send({}, {"market_overview": "x"}, chat_ids=None)
+
+
+def test_product_identity_does_not_default_unknown_to_gc():
+    import pytest
+    from src.supabot_llm import _product
+    with pytest.raises(Exception, match="PRODUCT_UNRESOLVED"):
+        _product({"contract": "UNKNOWN PRODUCT 2030"})
