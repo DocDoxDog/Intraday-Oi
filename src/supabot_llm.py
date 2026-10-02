@@ -141,6 +141,41 @@ def _level_candidates(parsed: dict[str, Any]) -> list[dict[str, Any]]:
             "raw_series.gex.rows",
         )
 
+    # Market-state levels are already normalized to CFD coordinates and are
+    # authoritative candidates for the analyst; do not force the model to
+    # reconstruct them from raw Futures strikes.
+    market_state = raw.get("market_state") or {}
+    state_levels = market_state.get("levels") or {}
+    for level_id, value in state_levels.items():
+        if isinstance(value, (int, float)):
+            levels.append({
+                "id": f"market_state:{level_id}",
+                "price": round(float(value), 5),
+                "reason": "deterministic normalized CFD level",
+                "source": "raw_series.market_state.levels",
+            })
+
+    gamma_state = market_state.get("gamma") or {}
+    gamma_mean = gamma_state.get("gamma_mean")
+    if isinstance(gamma_mean, (int, float)):
+        levels.append({
+            "id": "gamma:mean",
+            "price": round(float(gamma_mean), 5) if parsed.get("cfd_price") is not None else None,
+            "reason": "deterministic gamma mean",
+            "source": "raw_series.market_state.gamma",
+        })
+    for item in gamma_state.get("acceleration_zones") or []:
+        strike = item.get("strike_futures") if isinstance(item, dict) else None
+        if isinstance(strike, (int, float)):
+            converted = to_display_price(strike)
+            if converted is not None:
+                levels.append({
+                    "id": f"gamma:acceleration:{strike}",
+                    "price": converted,
+                    "reason": "deterministic gamma acceleration zone",
+                    "source": "raw_series.market_state.gamma",
+                })
+
     # Technical prices are deterministic Twelve Data evidence and live in CFD
     # coordinates already. They are references, not automatic support/resistance.
     technical = parsed.get("technical_context") or {}
