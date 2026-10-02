@@ -424,8 +424,8 @@ def _open_expiration_menu(page) -> None:
 def _extract_dte(text: str) -> float | None:
     """Accept the common QuikStrike renderings: '(12.5 DTE)' or 'DTE: 12.5'."""
     patterns = (
-        r"\\(([0-9]+(?:\\.[0-9]+)?)\\s*DTE\\)",
-        r"\\bDTE\\s*[:=-]?\\s*([0-9]+(?:\\.[0-9]+)?)",
+        r"\(([0-9]+(?:\.[0-9]+)?)\s*DTE\)",
+        r"\bDTE\s*[:=-]?\s*([0-9]+(?:\.[0-9]+)?)",
     )
     for pattern in patterns:
         match = re.search(pattern, text or "", re.I)
@@ -444,7 +444,7 @@ def _expiration_code_from_text(text: str, dte_match: re.Match[str] | None = None
     prefix = text[:dte_match.start()] if dte_match else text
     tokens = re.findall(r"[A-Za-z0-9._-]+", prefix)
     for token in reversed(tokens):
-        if re.search(r"[A-Za-z]", token) and re.search(r"\\d", token) and 2 <= len(token) <= 20:
+        if re.search(r"[A-Za-z]", token) and re.search(r"\d", token) and 2 <= len(token) <= 20:
             return token
     return ""
 
@@ -483,7 +483,7 @@ def _discover_gold_expirations(page, limit: int = 7) -> list[dict]:
             code = ""
         if not code:
             code = _expiration_code_from_text(text, re.search(
-                r"\\(?:(?:[0-9]+(?:\\.[0-9]+)?)\\s*DTE)|(?:DTE\\s*[:=-]?\\s*[0-9]+(?:\\.[0-9]+)?)",
+                r"(?:(?:\([0-9]+(?:\.[0-9]+)?)\s*DTE\))|(?:DTE\s*[:=-]?\s*[0-9]+(?:\.[0-9]+)?)",
                 text, re.I,
             ))
         code = code.strip()
