@@ -158,7 +158,8 @@ def send_news(news_text: str) -> None:
     token = os.environ.get("LINE_CHANNEL_ACCESS_TOKEN")
     if not token:
         raise RuntimeError("LINE_CHANNEL_ACCESS_TOKEN ไม่ได้ตั้งค่า")
-    _post_broadcast(token, [_text_message(news_text)])
+    plain_news = re.sub(r"<[^>]+>", "", news_text)
+    _post_broadcast(token, [_text_message(plain_news)])
     print("✅ ส่ง LINE NEWS ANNOUNCEMENT สำเร็จ")
 
 
