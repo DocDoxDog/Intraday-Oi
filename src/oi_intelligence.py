@@ -59,6 +59,42 @@ def oi_migration(previous_rows,current_rows):
     return {"shifts":shifts,"method":"nearest-strike OI redistribution hypothesis","confidence":"low_without_trade_volume"}
 def enrich(current,previous=None):
     raw=current.setdefault("raw_series",{}); rows=raw.get("oi_positioning_rows") or raw.get("strike_rows") or []
-    raw["delta_exposure"]=delta_adjusted_exposure(rows); raw["flow_hypotheses"]=build_flow_hypotheses(rows,current.get("future_chg"))
+    raw["delta_exposure"]=delta_adjusted_exposure(rows)
+    raw["flow_hypotheses"]=build_flow_hypotheses(rows,current.get("future_chg"))
     pr=((previous or {}).get("raw_series") or {}).get("oi_positioning_rows") or ((previous or {}).get("raw_series") or {}).get("strike_rows") or []
-    raw["oi_migration"]=oi_migration(pr,rows); raw["intelligence_version"]="oi-intelligence-v1"; return current
+    raw["oi_migration"]=oi_migration(pr,rows)
+    
+    def side_total(items, field):
+        vals=[_f(r.get(field)) for r in items if _f(r.get(field)) is not None]
+        return sum(vals) if vals else None
+    
+    current_put=side_total(rows,"oiPut")
+    current_call=side_total(rows,"oiCall")
+    previous_put=side_total(pr,"oiPut")
+    previous_call=side_total(pr,"oiCall")
+    raw["history_delta_1h"] = {
+        "status": "VALID" if previous_put is not None and previous_call is not None else "UNKNOWN",
+        "oi_put": current_put - previous_put if current_put is not None and previous_put is not None else None,
+        "oi_call": current_call - previous_call if current_call is not None and previous_call is not None else None,
+        "oi_total": (
+            (current_put + current_call) - (previous_put + previous_call)
+            if current_put is not None and current_call is not None and previous_put is not None and previous_call is not None
+            else None
+        ),
+        "churn": (
+            abs(current_put - previous_put) + abs(current_call - previous_call)
+            if current_put is not None and current_call is not None and previous_put is not None and previous_call is not None
+            else None
+        ),
+        "future_price_change": (
+            _f(current.get("future_price")) - _f(previous.get("future_price"))
+            if _f(current.get("future_price")) is not None and _f(previous.get("future_price")) is not None
+            else None
+        ),
+        "gex_change": (
+            _f((raw.get("gex") or {}).get("net_gex")) - _f(((previous or {}).get("raw_series") or {}).get("gex", {}).get("net_gex"))
+            if _f((raw.get("gex") or {}).get("net_gex")) is not None and _f(((previous or {}).get("raw_series") or {}).get("gex", {}).get("net_gex")) is not None
+            else None
+        ),
+    }
+    raw["intelligence_version"]="oi-intelligence-v2"; return current
