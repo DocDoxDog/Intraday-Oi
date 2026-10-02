@@ -555,6 +555,16 @@ def _discover_gold_expirations(page, limit: int = 7) -> list[dict]:
     )
 
 def _activate_expiration(page, code: str) -> None:
+    # When discovery had to use the active heading fallback, this code is
+    # already selected. Do not scan 100+ unrelated anchors; missing selectors
+    # can make per-anchor locator calls wait and exhaust the CI timeout.
+    try:
+        heading = page.locator(".viewheader-info h3").first.inner_text()
+    except Exception:
+        heading = ""
+    if code and code in heading:
+        return
+
     links = page.locator(EXPIRATION_LINK_SELECTOR)
     if links.count() == 0:
         links = page.locator("a")
