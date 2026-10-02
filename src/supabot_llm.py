@@ -655,8 +655,12 @@ data_limitations
 Field intent:
 - market_overview / what = Market Read
 - why / positioning = Why Now + positioning mechanism
-- macro / financial_engineering / market_microstructure / market_psychology = supporting lenses,
-  เขียนสั้นและไม่ซ้ำกัน
+- macro = Macroeconomic/News synthesis: combine fresh relevant news with rates, real yield, USD,
+  liquidity and gold transmission; do not dump headlines
+- financial_engineering = GEX/volatility/dealer-hedging mechanism
+- market_microstructure = Technical + liquidity + price-action interpretation
+- market_psychology = positioning/trapped participants/reflexivity mechanism
+แต่ละ field ต้องเขียนสั้นและไม่ซ้ำกัน
 - history_comparison = change story ไม่ใช่ raw table
 - scenarios = Bull/Bear/Sideway conditions
 - base_case / alternative_case / invalidation_case = Case Map
