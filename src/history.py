@@ -123,6 +123,7 @@ def _summary_for_range(rows: list[dict]) -> dict:
         "future_change_max": max(chg) if chg else None,
         "vol_min": min(vols) if vols else None,
         "vol_max": max(vols) if vols else None,
+        "vol_first": vols[0] if vols else None,
         "vol_last": vols[-1] if vols else None,
         "vol_change_last": last("vol_chg"),
         "oi_first": first_totals,
@@ -175,8 +176,9 @@ def get_oi_baseline(contract: str | None = None) -> dict | None:
     query = (client.table("options_flow_snapshots").select("captured_at,contract,raw_series")
              .lt("captured_at", start_iso)
              .order("captured_at", desc=True).limit(1))
-    if contract:
-        query = query.eq("contract", contract)
+    # QuikStrike headings contain the current expiration/DTE, so exact contract
+    # equality makes the EOD baseline disappear when the expiration changes.
+    query = _apply_series_filter(query, contract)
     result = query.execute()
     return result.data[0] if result.data else None
 
