@@ -84,3 +84,34 @@ def test_gemini_38_flash_omits_legacy_temperature_config(monkeypatch):
     generation = captured["body"]["generationConfig"]
     assert "temperature" not in generation
     assert captured["url"].endswith("/models/gemini-3.8-flash:generateContent")
+
+
+def test_gemini_schema_strips_jsonschema_only_keywords():
+    from src.llm_router import _gemini_response_schema
+
+    canonical = {
+        "type": "object",
+        "additionalProperties": False,
+        "properties": {
+            "bias": {
+                "type": "string",
+                "enum": ["BUY", "SELL", "WAIT"],
+                "description": "human-readable bias",
+                "minimum": 0,
+            },
+            "items": {
+                "type": "array",
+                "items": {"type": "string", "maxLength": 20},
+            },
+        },
+        "required": ["bias"],
+    }
+
+    provider = _gemini_response_schema(canonical)
+
+    assert provider["type"] == "object"
+    assert "additionalProperties" not in provider
+    assert "description" not in provider["properties"]["bias"]
+    assert "minimum" not in provider["properties"]["bias"]
+    assert "maxLength" not in provider["properties"]["items"]["items"]
+    assert provider["properties"]["bias"]["enum"] == ["BUY", "SELL", "WAIT"]
