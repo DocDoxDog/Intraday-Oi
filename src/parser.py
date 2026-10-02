@@ -49,7 +49,7 @@ def _extract_dte(*texts: str | None) -> tuple[float | None, bool]:
     return None, False
 
 def _product_symbol(text: str) -> str | None:
-    match = re.search(r"\\b(GC|SI|CL|ES|NQ)\\b", text or "", re.I)
+    match = re.search(r"\b(GC|SI|CL|ES|NQ)\b", text or "", re.I)
     return match.group(1).upper() if match else None
 
 def _marker_number(text: str, label: str) -> float | None:
