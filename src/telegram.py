@@ -210,7 +210,6 @@ def send(
         raise RuntimeError("ไม่มี authorized chat_ids ให้ส่ง")
 
     detailed = format_message(parsed, ai_result)
-    notification = format_notification(parsed, ai_result)
 
     for cid in chat_ids:
         if gamma_table_url:
@@ -238,8 +237,4 @@ def send(
             )
             time.sleep(0.4)
 
-        _post_with_retry(
-            TELEGRAM_API.format(token=token),
-            {"chat_id": cid, "text": notification, "parse_mode": "HTML"},
-        )
         print(f"✅ Telegram analyst update sent to {cid}")
