@@ -127,6 +127,14 @@ def _post_push(token: str, to: str, messages: list[dict]) -> None:
         raise RuntimeError(f"LINE group push ล้มเหลว [{resp.status_code}]: {resp.text}")
 
 
+def send_news(news_text: str) -> None:
+    token = os.environ.get("LINE_CHANNEL_ACCESS_TOKEN")
+    if not token:
+        raise RuntimeError("LINE_CHANNEL_ACCESS_TOKEN ไม่ได้ตั้งค่า")
+    _post_broadcast(token, [_text_message(news_text)])
+    print("✅ ส่ง LINE NEWS ANNOUNCEMENT สำเร็จ")
+
+
 def send(parsed: dict, ai_result: dict, screenshot_url: str | None = None, gamma_table_url: str | None = None) -> None:
     """Send exactly five LINE messages: Gamma, source, analyst, levels/scenarios, trade plan."""
     token = os.environ.get("LINE_CHANNEL_ACCESS_TOKEN")
