@@ -22,6 +22,7 @@ from url_manager import UrlManager, UrlManagerError
 import history
 import telegram
 import line
+from intelligence.news.free_feed import collect_free_news, news_context
 
 
 def run():
@@ -160,6 +161,18 @@ def run():
             print("    ✅ Canonical MarketState persisted to oi_core_market_states")
         except Exception as e:
             print(f"⚠️  Canonical MarketState persistence failed (legacy flow continues): {e}", file=sys.stderr)
+    print("[5.8/8] Fetching free geopolitical + macro news...")
+    try:
+        news_items, news_clusters = collect_free_news()
+        parsed["news_context"] = news_context(news_items, news_clusters)
+        print(
+            f"    news_items={len(news_items)} "
+            f"story_clusters={len(news_clusters)}"
+        )
+    except Exception as e:
+        parsed["news_context"] = []
+        print(f"⚠️  Free news ingestion failed (analysis continues): {e}", file=sys.stderr)
+
     print("[6/8] Analyzing with Gemini...")
     try:
         ai_result = analyze(parsed, history=hist_context)
