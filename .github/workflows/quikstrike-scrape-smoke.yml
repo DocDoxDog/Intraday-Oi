@@ -28,7 +28,8 @@ jobs:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
         run: |
-          python - <<'PY'
+          export PYTHONUNBUFFERED=1
+          timeout 120s python - <<'PY
           import json
           from src.url_manager import UrlManager
           from src.scraper import scrape_multi_expiration
