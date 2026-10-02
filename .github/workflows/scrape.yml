@@ -12,7 +12,7 @@ on:
 
 concurrency:
   group: oi-live-analysis
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 jobs:
   scrape:
