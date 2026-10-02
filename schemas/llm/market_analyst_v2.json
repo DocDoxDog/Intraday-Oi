@@ -10,7 +10,7 @@
     "levels": {
       "type":"object","additionalProperties":false,
       "properties":{
-        "resistance_far":{"type":["string","number","null"]},
+        "resistance_far":{"type":"string"},
         "resistance_main":{"type":["string","number","null"]},
         "resistance_current":{"type":["string","number","null"]},
         "support_current":{"type":["string","number","null"]},
