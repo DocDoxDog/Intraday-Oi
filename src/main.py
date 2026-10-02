@@ -65,7 +65,6 @@ def run():
         print(f"❌ Parse failed: {e}", file=sys.stderr)
         sys.exit(1)
 
-    parsed.setdefault("product_symbol", "GC")
     parsed["retrieved_at"] = datetime.now(timezone.utc).isoformat()
     parsed["observed_at"] = parsed["retrieved_at"]
     expiry_snapshots = parsed.get("expiration_snapshots") or []
