@@ -99,7 +99,7 @@ def _format_analysis_message(parsed: dict, ai_result: dict) -> str:
 
     sections = [
         f"<b>GOLD MARKET ANALYST V2</b>\n{_thai_datetime_str()}",
-        f"<b>Futures</b> {show(parsed.get('future_price'))}  |  <b>CFD</b> {show(parsed.get('cfd_price'))}  |  <b>DTE</b> {show(parsed.get('dte'))}",
+        f"<b>Futures</b> {show(parsed.get('future_price'))}  |  <b>CFD</b> {show(parsed.get('cfd_price'))}  |  <b>Basis</b> {show(parsed.get('basis_diff'))} (FUTURES - CFD)  |  <b>DTE</b> {show(parsed.get('dte'))}",
         f"<b>Status</b> {_escape(str(ai_result.get('analysis_status') or 'CONFIRMED').upper())}  |  <b>Bias</b> {_escape(str(ai_result.get('bias') or 'WAIT').upper())}",
         "",
         "<b>FLOW SNAPSHOT</b>",
