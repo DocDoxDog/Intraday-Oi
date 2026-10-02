@@ -47,3 +47,8 @@ def test_zone_summary_is_deterministic():
     zones = summarize_gamma_zones(result)
     assert zones["highest_positive_gamma"] == 4600
     assert zones["highest_negative_gamma"] == 4610
+
+
+def test_empty_expiration_total_is_unknown_not_zero():
+    result = build_gamma_matrix([snapshot("OGU6", 1.0, [{"strike": 4600, "net_gex": None}])])
+    assert result["totals"]["OGU6"] is None
