@@ -103,6 +103,7 @@ def _format_analysis_message(parsed: dict, ai_result: dict) -> str:
     dex = raw.get("delta_exposure") or {}
     flow = raw.get("flow_hypotheses") or {}
     migration = raw.get("oi_migration") or {}
+    history_1h = raw.get("history_delta_1h") or {}
     gamma = raw.get("gex") or {}
 
     sections = [
@@ -117,6 +118,8 @@ def _format_analysis_message(parsed: dict, ai_result: dict) -> str:
         f"ΔOI Total {_escape(show(totals.get('oi_delta_total')))}  |  Net GEX {_escape(show(gamma.get('net_gex')))}",
         f"Delta Exposure {_escape(show(dex.get('net_delta_exposure')))}  |  Flow UNKNOWN {_escape(show(flow.get('unknown_rate'), 2))}",
         f"OI Migration {_escape(str(len(migration.get('shifts') or [])))} shifts",
+        f"1H ΔOI Put {_escape(show(history_1h.get('oi_put')))} | Call {_escape(show(history_1h.get('oi_call')))} | Churn {_escape(show(history_1h.get('churn')))}",
+        f"1H ΔPrice {_escape(show(history_1h.get('future_price_change')))} | ΔGEX {_escape(show(history_1h.get('gex_change')))}",
         "",
         "<b>MARKET REGIME</b>",
         _escape(ai_result.get("market_regime") or "UNKNOWN"),
