@@ -16,20 +16,39 @@ def render_gamma_table(gamma_matrix: dict[str, Any], title: str = "Gold Gamma Ta
     if not columns or not rows:
         raise ValueError("GAMMA_MATRIX_EMPTY")
 
-    fig_width = max(12, 2.0 + 1.45 * len(columns))
-    fig_height = max(6, 2.0 + 0.30 * min(len(rows), 45))
+    # Telegram/LINE should be readable without pinch-zooming. Keep the matrix
+    # compact and focus on the 31 strikes nearest the current price while the
+    # full source rows remain stored in Supabase.
+    current_price = gamma_matrix.get("current_price")
+    display_rows = rows
+    if isinstance(current_price, (int, float)) and len(rows) > 31:
+        display_rows = sorted(
+            rows,
+            key=lambda row: abs(float(row.get("strike", 0)) - float(current_price)),
+        )[:31]
+        display_rows = sorted(display_rows, key=lambda row: float(row["strike"]), reverse=True)
+    else:
+        display_rows = sorted(rows, key=lambda row: float(row["strike"]), reverse=True)
+
+    fig_width = max(9.5, 2.1 + 1.10 * len(columns))
+    fig_height = max(5.6, 1.6 + 0.24 * min(len(display_rows) + 1, 34))
     fig, ax = plt.subplots(figsize=(fig_width, fig_height), dpi=150)
     ax.axis("off")
 
-    headers = ["Strike"] + [
-        f"DTE {col['dte']:.2f}\n{col['code']}" if isinstance(col.get("dte"), (int, float))
-        else str(col["code"])
+    headers = ["Price ↓"] + [
+        (
+            f"{str(col.get('expiry_date', ''))[8:10]}/{str(col.get('expiry_date', ''))[5:7]} "
+            f"{col.get('weekday_short', '')}\n{col['code']}\nDTE {col['dte']:.2f}"
+            if isinstance(col.get("dte"), (int, float))
+            else f"{str(col.get('expiry_date', ''))[8:10]}/{str(col.get('expiry_date', ''))[5:7]} "
+                 f"{col.get('weekday_short', '')}\n{col['code']}\n{'OBSERVED' if col.get('status') == 'OBSERVED' else 'NO DATA'}"
+        )
         for col in columns
     ]
 
     cell_text = []
     cell_colors = []
-    for row in rows:
+    for row in display_rows:
         values = [row["strike"]]
         colors = ["#eeeeee"]
         for col in columns:
@@ -91,7 +110,7 @@ def render_gamma_table(gamma_matrix: dict[str, Any], title: str = "Gold Gamma Ta
     fig.text(
         0.5,
         0.025,
-        "Blank = no matching source observation | values = $M per 1% move | deterministic source-derived GEX",
+        "เรียงราคาสูง → ต่ำ | ช่องว่าง = ยังไม่มี source observation | ตัวเลข = $M ต่อการขยับ 1% | แสดง 31 strike ใกล้ราคาปัจจุบัน",
         ha="center",
         fontsize=8,
     )
