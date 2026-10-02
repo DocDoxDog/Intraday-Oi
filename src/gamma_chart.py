@@ -34,7 +34,9 @@ def render_gamma_table(gamma_matrix: dict[str, Any], title: str = "Gold Gamma Ta
         colors = ["#eeeeee"]
         for col in columns:
             value = row.get(col["code"])
-            values.append("" if value is None else f"{value:+.1f}")
+            # Canonical GEX is stored in USD per 1% move; render in $M to match
+            # the analyst-facing Gamma Table convention.
+            values.append("" if value is None else f"{value / 1_000_000:+.1f}")
             if value is None:
                 colors.append("#ffffff")
             elif value > 0:
@@ -47,7 +49,7 @@ def render_gamma_table(gamma_matrix: dict[str, Any], title: str = "Gold Gamma Ta
         cell_colors.append(colors)
 
     totals = ["Panel total"] + [
-        f"{gamma_matrix.get('totals', {}).get(col['code'], 0):+.1f}"
+        f"{gamma_matrix.get('totals', {}).get(col['code'], 0) / 1_000_000:+.1f}"
         for col in columns
     ]
     cell_text.append(totals)
@@ -78,7 +80,7 @@ def render_gamma_table(gamma_matrix: dict[str, Any], title: str = "Gold Gamma Ta
         header.get_text().set_weight("bold")
 
     ax.set_title(
-        f"{title} — $10 Strike Detail | Multi-Expiration",
+        f"{title} — $M per 1% move | Multi-Expiration",
         fontsize=16,
         weight="bold",
         pad=16,
@@ -87,7 +89,7 @@ def render_gamma_table(gamma_matrix: dict[str, Any], title: str = "Gold Gamma Ta
     fig.text(
         0.5,
         0.025,
-        "Blank = no matching source observation | values are deterministic source-derived GEX",
+        "Blank = no matching source observation | values = $M per 1% move | deterministic source-derived GEX",
         ha="center",
         fontsize=8,
     )
