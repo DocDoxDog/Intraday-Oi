@@ -128,6 +128,19 @@ def verify_output(
     cited_evidence_numbers = _cited_evidence_numbers(
         envelope["evidence"], evidence_refs
     )
+
+    # Deterministic levels are explicit governed inputs. They remain valid
+    # price references even when the model cites a broader evidence ref.
+    governed_levels = (
+        envelope.get("input_payload", {}).get("deterministic_levels") or []
+    )
+    governed_level_numbers = {
+        number
+        for item in governed_levels
+        if isinstance(item, dict)
+        for number in _numeric_strings(item.get("price"))
+    }
+    cited_evidence_numbers.update(governed_level_numbers)
     unsupported_numbers = sorted(
         {
             number
@@ -170,7 +183,7 @@ def verify_output(
         "numeric_claims_valid": not unsupported_numbers,
         "forbidden_claims_found": bool(forbidden_claims),
         "unsupported_claim_count": len(unsupported_numbers),
-        "verifier_version": "llm-verifier-v2",
+        "verifier_version": "llm-verifier-v3",
         "verdict": "PASS",
         "checked_at": envelope.get("as_of"),
         "details": {
