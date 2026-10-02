@@ -440,14 +440,17 @@ def _open_expiration_menu(page) -> None:
     """Open the rendered expiration selector before discovering its entries."""
     triggers = [
         page.locator("#ctl00_ucSelector_hlExpiration"),
+        page.get_by_text(re.compile(r"^\\s*EXPIRATION\\s*:?\\s*$", re.I)),
+        page.locator("[aria-label*='expiration' i]"),
+        page.locator("[title*='expiration' i]"),
         page.get_by_text("Expiration", exact=True),
         page.get_by_text("Expirations", exact=True),
     ]
     for trigger in triggers:
         try:
-            if trigger.count():
+            if trigger.count() and trigger.first.is_visible():
                 trigger.first.click(timeout=5_000, force=True)
-                page.wait_for_timeout(750)
+                page.wait_for_timeout(1_500)
                 return
         except Exception:
             continue
@@ -491,6 +494,10 @@ def _discover_gold_expirations(page, limit: int = 7) -> list[dict]:
     _open_expiration_menu(page)
 
     links = page.locator(EXPIRATION_LINK_SELECTOR)
+    if links.count() == 0:
+        # The current CME render can expose the dropdown as buttons/options
+        # rather than anchors. Search only interactive expiration entries.
+        links = page.locator("a,button,[role='option'],[role='menuitem'],li")
     if links.count() == 0:
         links = page.locator("a")
 
@@ -576,6 +583,8 @@ def _activate_expiration(page, code: str) -> None:
         return
 
     links = page.locator(EXPIRATION_LINK_SELECTOR)
+    if links.count() == 0:
+        links = page.locator("a,button,[role='option'],[role='menuitem'],li")
     if links.count() == 0:
         links = page.locator("a")
     target = None
