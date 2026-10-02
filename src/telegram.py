@@ -236,10 +236,6 @@ def send(
                 TELEGRAM_PHOTO_API.format(token=token),
                 {"chat_id": cid, "photo": screenshot_url, "caption": "QUIKSTRIKE OI — Source Screenshot"},
             )
-        for text in (*messages, bias_message):
-            # The fifth message should be the trade plan. Keep Bias out of the
-            # canonical five-message bundle unless it is needed for legacy callers.
-            pass
         # Exact 5-message delivery: 2 images + analyst + levels/scenarios + trade plan.
         for text in messages:
             for chunk in _chunk(text):
