@@ -49,6 +49,29 @@ from src.market_state import enrich_market_state, normalize_analyst_output
 
 
 def run():
+    # Analysis cooldown is intentionally separate from Telegram/LINE delivery
+    # cooldown. It prevents repeated repository_dispatch events from paying
+    # QuikStrike + TwelveData + Gemini costs over and over.
+    analysis_cooldown = max(0, int(os.environ.get("OI_BOT_ANALYSIS_COOLDOWN_MINUTES", "10")))
+    force_analysis = os.environ.get("OI_BOT_FORCE_ANALYSIS", "").strip().lower() in {"1", "true", "yes"}
+    if not force_analysis:
+        try:
+            allowed, remaining = can_notify("analysis", analysis_cooldown)
+        except Exception as e:
+            print(f"❌ Analysis cooldown state unavailable; fail-closed before scrape: {e}", file=sys.stderr)
+            return
+        if not allowed:
+            print(
+                f"⏭️  Analysis cooldown active — skip entire pipeline for ~{remaining / 60:.1f} min. "
+                "Use OI_BOT_FORCE_ANALYSIS=1 for an explicit manual run."
+            )
+            return
+    try:
+        mark_notified("analysis")
+    except Exception as e:
+        print(f"❌ Cannot reserve analysis run in delivery state; abort before scrape: {e}", file=sys.stderr)
+        return
+
     print("[1/9] Resolving QuikStrike URL (self-healing)...")
     try:
         url_manager = UrlManager()
