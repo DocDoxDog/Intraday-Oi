@@ -101,7 +101,7 @@ def _format_analysis_message(parsed: dict, ai_result: dict) -> str:
         "",
         "<b>WHY NOW</b>",
         _escape(ai_result.get("financial_engineering") or "-"),
-        _escape(ai_result.get("market_microstructure") or "-"),
+        _escape(ai_result.get("positioning") or "-"),
         "",
         "<b>TECHNICAL</b>",
         _escape(ai_result.get("market_microstructure") or "-"),
