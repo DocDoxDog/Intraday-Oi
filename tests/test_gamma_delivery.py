@@ -76,6 +76,6 @@ def test_full_gamma_table_includes_all_available_strikes():
     }
     compact = render_gamma_table(matrix)
     full = render_gamma_table_full(matrix)
-    assert compact.startswith(b"\\x89PNG")
-    assert full.startswith(b"\\x89PNG")
+    assert compact.startswith(b"\x89PNG")
+    assert full.startswith(b"\x89PNG")
     assert len(full) > len(compact)
