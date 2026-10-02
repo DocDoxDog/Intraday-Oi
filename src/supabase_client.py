@@ -81,6 +81,8 @@ def insert_snapshot(
     screenshot_url: str | None = None,
     gamma_table_path: str | None = None,
     gamma_table_url: str | None = None,
+    gamma_table_full_path: str | None = None,
+    gamma_table_full_url: str | None = None,
 ) -> dict:
     client = get_client()
     row = {
@@ -90,6 +92,8 @@ def insert_snapshot(
         "screenshot_url": screenshot_url,
         "gamma_table_path": gamma_table_path,
         "gamma_table_url": gamma_table_url,
+        "gamma_table_full_path": gamma_table_full_path,
+        "gamma_table_full_url": gamma_table_full_url,
     }
     result = client.table("options_flow_snapshots").insert(row).execute()
     return result.data[0] if result.data else {}
