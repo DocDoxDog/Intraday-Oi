@@ -364,10 +364,56 @@ if __name__ == "__main__":
 
 
 
+def _chart_fingerprint(page) -> str:
+    """Fingerprint the currently rendered OI surface.
+
+    QuikStrike may leave the previous image-map attached while an expiration
+    postback is still updating. We must prove the chart changed before storing
+    it under the new expiration identity.
+    """
+    return page.evaluate("""
+    () => {
+        const parseFields = (value) => {
+            const out = {};
+            for (const item of (value || '').split('~')) {
+                const sep = item.indexOf('|');
+                if (sep < 0) continue;
+                out[item.slice(0, sep)] = item.slice(sep + 1);
+            }
+            return out;
+        };
+        const areas = [...document.querySelectorAll('map area[fields]')];
+        const rows = areas
+            .map(a => parseFields(a.getAttribute('fields')))
+            .filter(f => f.oiCall !== undefined || f.oiPut !== undefined);
+        const sample = rows.slice(0, 3).map(f => ({
+            title: f.title || null,
+            call: f.oiCall || null,
+            put: f.oiPut || null,
+            total: f.oiTotal || null
+        }));
+        const chart = document.querySelector('img.chart');
+        return JSON.stringify({
+            heading: document.querySelector('.viewheader-info h3')?.innerText || '',
+            object_id: document.querySelector('[dataobjectid]')?.getAttribute('dataobjectid') || '',
+            count: rows.length,
+            sample,
+            src: chart?.getAttribute('src') || ''
+        });
+    }
+    """)
+
+
 def _discover_gold_expirations(page, limit: int = 7) -> list[dict]:
-    """Discover real Gold expiration identities without selecting one yet."""
+    """Discover expiration identities from QuikStrike's actual menu.
+
+    Do not hard-code an OG prefix. CME's UI groups expirations by their
+    underlying future and the expiration header carries the option symbol/DTE;
+    the source menu is the authority for which identities are available.
+    """
     links = page.locator(EXPIRATION_LINK_SELECTOR)
     candidates = []
+    seen = set()
     for i in range(links.count()):
         link = links.nth(i)
         try:
@@ -375,7 +421,7 @@ def _discover_gold_expirations(page, limit: int = 7) -> list[dict]:
             text = link.inner_text() or ""
         except Exception:
             continue
-        if not code.startswith("OG"):
+        if not code or code.upper() in seen:
             continue
         match = re.search(r"\(([0-9]+(?:\.[0-9]+)?)\s*DTE\)", text, re.I)
         if not match:
@@ -383,10 +429,8 @@ def _discover_gold_expirations(page, limit: int = 7) -> list[dict]:
         dte = float(match.group(1))
         if dte <= 0:
             continue
-        weekly_friday = bool(re.match(r"^OG\d+[A-Z]\d$", code, re.I))
-        monthly = bool(re.match(r"^OG[A-Z]\d$", code, re.I))
-        if weekly_friday or monthly:
-            candidates.append({"code": code, "dte": dte})
+        seen.add(code.upper())
+        candidates.append({"code": code, "dte": dte})
     candidates.sort(key=lambda x: (x["dte"], x["code"]))
     return candidates[: max(1, int(limit))]
 
@@ -406,25 +450,31 @@ def _activate_expiration(page, code: str) -> None:
     if target is None:
         raise ScrapeError(f"ไม่พบ expiration {code}")
 
+    before = _chart_fingerprint(page)
     try:
         trigger = page.locator("#ctl00_ucSelector_hlExpiration")
         if trigger.count() and not target.is_visible():
             trigger.click(timeout=10_000)
             page.wait_for_timeout(250)
         target.click(force=True, timeout=10_000)
-        for _ in range(30):
+        last_heading = ""
+        for _ in range(45):
             page.wait_for_timeout(1_000)
             heading = (
                 page.locator(".viewheader-info h3").first.inner_text()
                 if page.locator(".viewheader-info h3").count()
                 else ""
             )
-            if code in heading:
+            current = _chart_fingerprint(page)
+            if code in heading and current != before:
                 return
+            last_heading = heading
     except Exception as exc:
         raise ScrapeError(f"เลือก expiration {code} ไม่สำเร็จ: {exc}") from exc
-    raise ScrapeError(f"postback แล้วแต่ heading ไม่เปลี่ยนเป็น {code}")
-
+    raise ScrapeError(
+        f"expiration {code} เปลี่ยน heading เป็น '{last_heading}' แต่ OI chart "
+        "ยังไม่เปลี่ยนจาก snapshot เดิม — หยุดเพื่อป้องกันการติดป้ายข้อมูลผิด"
+    )
 
 def scrape_multi_expiration(url: str | None = None, limit: int = 7) -> dict:
     """Scrape several real Gold expirations in one browser session.
