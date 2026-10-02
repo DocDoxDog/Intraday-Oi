@@ -40,12 +40,31 @@ def enrich(current: dict, baseline: dict | None) -> dict:
     totals = raw.setdefault("totals", {})
     totals["oi_delta_put"] = sum(r["oi_delta_put"] for r in out if r["oi_delta_put"] is not None)
     totals["oi_delta_call"] = sum(r["oi_delta_call"] for r in out if r["oi_delta_call"] is not None)
-    totals["churn"] = sum(r["churn"] for r in out if r["churn"] is not None)
+    baseline_churn = sum(r["churn"] for r in out if r["churn"] is not None)
+
+    # Keep the two meanings separate:
+    # oi_delta_* = current OI minus stored baseline (requires baseline)
+    # oi_change_* = QuikStrike OI Change source view (can exist without baseline)
+    source_churn = sum(
+        value for value in (
+            totals.get("quikstrike_churn_put"),
+            totals.get("quikstrike_churn_call"),
+        )
+        if isinstance(value, (int, float))
+    )
+    if isinstance(totals.get("quikstrike_churn_put"), (int, float)) or isinstance(
+        totals.get("quikstrike_churn_call"), (int, float)
+    ):
+        totals["churn"] = source_churn
+    elif baseline_available:
+        totals["churn"] = baseline_churn
+    else:
+        totals["churn"] = None
+
     if not baseline_available:
         totals["oi_delta_put"] = None
         totals["oi_delta_call"] = None
         totals["oi_delta_total"] = None
-        totals["churn"] = None
     else:
         totals["oi_delta_total"] = totals["oi_delta_put"] + totals["oi_delta_call"]
     totals["oi_baseline_available"] = baseline_available
