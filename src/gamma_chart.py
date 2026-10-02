@@ -48,17 +48,19 @@ def render_gamma_table(gamma_matrix: dict[str, Any], title: str = "Gold Gamma Ta
         cell_text.append(values)
         cell_colors.append(colors)
 
-    totals = ["Panel total"] + [
-        f"{gamma_matrix.get('totals', {}).get(col['code'], 0) / 1_000_000:+.1f}"
-        for col in columns
-    ]
-    cell_text.append(totals)
-    cell_colors.append(["#d0d7de"] + [
-        "#b7e1cd" if gamma_matrix.get("totals", {}).get(col["code"], 0) > 0
-        else "#f4b6b6" if gamma_matrix.get("totals", {}).get(col["code"], 0) < 0
-        else "#d9dee7"
-        for col in columns
-    ])
+    totals_map = gamma_matrix.get("totals", {})
+    total_values = []
+    total_colors = ["#d0d7de"]
+    for col in columns:
+        value = totals_map.get(col["code"])
+        total_values.append("" if value is None else f"{value / 1_000_000:+.1f}")
+        total_colors.append(
+            "#b7e1cd" if isinstance(value, (int, float)) and value > 0
+            else "#f4b6b6" if isinstance(value, (int, float)) and value < 0
+            else "#d9dee7"
+        )
+    cell_text.append(["Panel total"] + total_values)
+    cell_colors.append(total_colors)
 
     table = ax.table(
         cellText=cell_text,
