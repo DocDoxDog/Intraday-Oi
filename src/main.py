@@ -468,8 +468,6 @@ def run():
     print("[7/9] Inserting into Supabase...")
     import json
     
-    # ⚠️ สกัดข้อมูล dte_low_confidence ทิ้งตรงนี้ เพื่อป้องกันบั๊กเวลาส่งลงฐานข้อมูล
-    parsed.pop("dte_low_confidence", None) 
     row = insert_snapshot(
         parsed,
         ai_summary=json.dumps(ai_result, ensure_ascii=False),
