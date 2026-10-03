@@ -76,3 +76,27 @@ def test_source_oi_change_and_churn_survive_without_baseline():
     assert totals["oi_change_call"] == 12
     assert totals["oi_change_put"] == 8
     assert totals["churn"] == 4
+
+
+def test_enrich_recovers_from_null_raw_series():
+    from src.oi_intelligence import enrich
+    current = {"raw_series": None, "future_price": 4200.0}
+    result = enrich(current, None)
+    assert isinstance(result["raw_series"], dict)
+    assert result["raw_series"]["delta_exposure"]["status"] == "UNKNOWN"
+    assert result["raw_series"]["flow_hypotheses"]["unknown_rate"] == 1.0
+
+
+def test_enrich_recovers_from_null_previous_raw_series():
+    from src.oi_intelligence import enrich
+    current = {
+        "raw_series": {
+            "oi_positioning_rows": [
+                {"strike": 4300, "oiCall": 100, "oiPut": 50}
+            ]
+        },
+        "future_price": 4200.0,
+    }
+    result = enrich(current, {"raw_series": None})
+    assert result["raw_series"]["oi_migration"]["shifts"] == []
+    assert result["raw_series"]["history_delta_1h"]["status"] == "UNKNOWN"
