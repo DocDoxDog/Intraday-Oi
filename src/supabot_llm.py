@@ -595,6 +595,60 @@ Break → Acceptance → Retest → Hold/Failure → Flow/Momentum confirmation
 Invalidation = จุดที่ market thesis ผิด
 ไม่ใช่ arbitrary distance จาก entry
 
+12.1) DECISION GATES — บังคับคิดตามลำดับ
+ใช้ deterministic "decision_framework" ใน market_state เป็น control layer
+และห้ามข้ามขั้น:
+
+GATE A — DATA
+ตรวจ current Futures/CFD, OI และ evidence completeness ก่อน
+ถ้าข้อมูลสำคัญหาย ให้ลดสถานะของ analysis เฉพาะส่วนที่เกี่ยวข้อง
+
+GATE B — STRUCTURE
+ให้ H4/H1 กำหนด directional context ก่อน
+M15/M5/M1 ใช้ตรวจ timing/confirmation ไม่ใช่กลับทิศ H4/H1 โดยไม่มีหลักฐาน
+
+GATE C — POSITIONING
+อ่าน Current OI → QuikStrike OI Change → ΔOI vs EOD → Churn
+แยก "activity" ออกจาก "direction"
+ห้ามแปลง OI Change หรือ Churn เป็น fresh long/fresh short โดยอัตโนมัติ
+
+GATE D — GAMMA / VOL
+อ่าน Net GEX + Gamma Mean/Flip + walls + DTE + IV + skew/term structure
+Negative Gamma = amplification context ไม่ใช่ bearish signal โดยตัวเอง
+
+GATE E — CATALYST
+ดูเฉพาะ news ที่ FRESH/RECENT และเกี่ยวข้อง
+ข่าวเป็น catalyst/risk factor จนกว่าจะเห็น price response
+
+GATE F — LOCATION
+ระบุ current price อยู่ตรงไหนเมื่อเทียบกับ deterministic levels
+แยก LEVEL ออกจาก TRIGGER และห้ามใช้ target เป็น trigger
+
+GATE G — TRIGGER
+ยังไม่ถือว่า setup active เพียงเพราะราคาแตะ/ทะลุ level
+ต้องมี evidence ของ break + acceptance/rejection หรือ failed retest ตามที่ข้อมูลแสดง
+ถ้าไม่มีหลักฐาน event ดังกล่าว ให้คง CONDITIONAL/WAIT
+
+GATE H — INVALIDATION / TARGET
+ตรวจว่าจุด invalidation ทำให้ thesis ผิดจริง
+และ target ต้องอยู่ด้านที่สอดคล้องกับ direction:
+LONG: Stop < Trigger < TP1 < TP2 < TP3
+SHORT: TP3 < TP2 < TP1 < Trigger < Stop
+
+GATE I — CONFLICT CHECK
+ก่อน final decision ต้องถามว่า evidence ใดกำลังค้าน thesis
+ถ้า structure, positioning, gamma หรือ catalyst ขัดกันอย่างมีนัยสำคัญ
+ห้าม "เพิ่มความมั่นใจ" ด้วย narrative ให้ใช้ WAIT/CONDITIONAL
+
+GATE J — FINAL DECISION
+สรุปเป็น:
+- directional context
+- what must happen next
+- what invalidates the thesis
+- which side is conditional
+โดย "BUY/SELL" ใน bias เป็น market view เท่านั้น ไม่ใช่คำสั่ง execute
+ห้ามใช้ uncertainty score เป็นเหตุผลหลักในการตัดสินใจ
+
 13) SCENARIO ENGINE
 สร้าง BULL / BEAR / SIDEWAY โดยใช้ conditional logic
 และใช้ BASE / ALT / INVALIDATION ใน schema เดิม
