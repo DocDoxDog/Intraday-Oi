@@ -272,22 +272,19 @@ def _compact_history(parsed: dict[str, Any], history: dict[str, Any] | None) -> 
         "oi_put": current_totals.get("open_interest_view_put", current_totals.get("open_interest_put")),
         "oi_call": current_totals.get("open_interest_view_call", current_totals.get("open_interest_call")),
         "oi_total": current_totals.get("open_interest_view_total", current_totals.get("open_interest_total")),
-        "oi_change_put": (
-            current_totals.get("oi_delta_put")
-            if current_totals.get("oi_delta_put") is not None
-            else current_totals.get("oi_change_put")
-        ),
-        "oi_change_call": (
-            current_totals.get("oi_delta_call")
-            if current_totals.get("oi_delta_call") is not None
-            else current_totals.get("oi_change_call")
-        ),
-        "oi_change_total": (
-            current_totals.get("oi_delta_total")
-            if current_totals.get("oi_delta_total") is not None
-            else current_totals.get("oi_change_total")
-        ),
+        # QuikStrike source fields. Keep separate from EOD-baseline ΔOI.
+        "oi_change_put": current_totals.get("oi_change_put"),
+        "oi_change_call": current_totals.get("oi_change_call"),
+        "oi_change_total": current_totals.get("oi_change_total"),
+        "delta_oi_eod_put": current_totals.get("oi_delta_put"),
+        "delta_oi_eod_call": current_totals.get("oi_delta_call"),
+        "delta_oi_eod_total": current_totals.get("oi_delta_total"),
         "churn": current_totals.get("churn"),
+        "quikstrike_churn_put": current_totals.get("quikstrike_churn_put"),
+        "quikstrike_churn_call": current_totals.get("quikstrike_churn_call"),
+        "eod_oi_put": ((current_raw.get("market_state") or {}).get("flow") or {}).get("eod_oi_put"),
+        "eod_oi_call": ((current_raw.get("market_state") or {}).get("flow") or {}).get("eod_oi_call"),
+        "eod_oi_total": ((current_raw.get("market_state") or {}).get("flow") or {}).get("eod_oi_total"),
         "gex_net": current_gex.get("net_gex"),
         "gamma_flip": current_gex.get("gamma_flip"),
         "call_wall": current_gex.get("call_wall"),
@@ -431,6 +428,10 @@ def _summarize_input(parsed: dict[str, Any], history: dict[str, Any] | None) -> 
                 "oiTotal": row.get("oiTotal"),
                 "oiCallChange": row.get("oiCallChange"),
                 "oiPutChange": row.get("oiPutChange"),
+                "churnCall": row.get("churnCall"),
+                "churnPut": row.get("churnPut"),
+                "eod_oi_call": row.get("eod_oi_call"),
+                "eod_oi_put": row.get("eod_oi_put"),
                 "vol": row.get("vol"),
             }
             for row in sorted(
