@@ -280,6 +280,168 @@ def _skew(parsed: dict[str, Any]) -> float | None:
     return round(candidates[0][1], 5)
 
 
+def _decision_framework(
+    parsed: dict[str, Any],
+    flow: dict[str, Any],
+    gamma: dict[str, Any],
+    levels: dict[str, float | None],
+    history_state: dict[str, Any],
+) -> dict[str, Any]:
+    """Deterministic decision gates; descriptive only, never a trade score."""
+    technical = parsed.get("technical_context") or {}
+    timeframes = technical.get("timeframes") or {}
+    trends = {
+        tf: (ctx or {}).get("trend")
+        for tf, ctx in timeframes.items()
+        if isinstance(ctx, dict)
+    }
+    bullish = [tf for tf, trend in trends.items() if trend == "bullish"]
+    bearish = [tf for tf, trend in trends.items() if trend == "bearish"]
+    h4 = trends.get("h4")
+    h1 = trends.get("h1")
+    htf = "bullish" if h4 == "bullish" and h1 == "bullish" else (
+        "bearish" if h4 == "bearish" and h1 == "bearish" else "mixed"
+    )
+
+    def sign_state(value: Any) -> str:
+        number = _num(value)
+        if number is None:
+            return "UNKNOWN"
+        if number > 0:
+            return "UP"
+        if number < 0:
+            return "DOWN"
+        return "FLAT"
+
+    oi_change_put = flow.get("oi_change_put")
+    oi_change_call = flow.get("oi_change_call")
+    eod_put = flow.get("delta_oi_put")
+    eod_call = flow.get("delta_oi_call")
+    source_churn = flow.get("source_churn_total")
+    net_gex = gamma.get("net_gex")
+
+    positioning = {
+        "source_oi_change": {
+            "put": oi_change_put,
+            "call": oi_change_call,
+            "total": flow.get("oi_change_total"),
+            "put_state": sign_state(oi_change_put),
+            "call_state": sign_state(oi_change_call),
+        },
+        "vs_eod": {
+            "put": eod_put,
+            "call": eod_call,
+            "total": flow.get("delta_oi_total"),
+            "put_state": sign_state(eod_put),
+            "call_state": sign_state(eod_call),
+        },
+        "churn": source_churn,
+        "interpretation": (
+            "EXPANDING"
+            if (sign_state(oi_change_put) == "UP" and sign_state(oi_change_call) == "UP")
+            else "REDUCING"
+            if (sign_state(oi_change_put) == "DOWN" and sign_state(oi_change_call) == "DOWN")
+            else "MIXED"
+            if oi_change_put is not None or oi_change_call is not None
+            else "UNKNOWN"
+        ),
+        "warning": "OI change/churn describe positioning activity; they do not identify aggressor direction by themselves.",
+    }
+
+    gamma_regime = (
+        "NEGATIVE_GAMMA_AMPLIFICATION_CONTEXT"
+        if _num(net_gex) is not None and _num(net_gex) < 0
+        else "POSITIVE_GAMMA_DAMPENING_CONTEXT"
+        if _num(net_gex) is not None and _num(net_gex) > 0
+        else "UNKNOWN"
+    )
+
+    current = _num(parsed.get("cfd_price"))
+    long_trigger = _num(levels.get("resistance_current"))
+    short_trigger = _num(levels.get("support_current"))
+    location = {
+        "current_cfd": current,
+        "relative_to_long_trigger": (
+            "ABOVE" if current is not None and long_trigger is not None and current > long_trigger
+            else "BELOW_OR_EQUAL" if current is not None and long_trigger is not None else "UNKNOWN"
+        ),
+        "relative_to_short_trigger": (
+            "BELOW" if current is not None and short_trigger is not None and current < short_trigger
+            else "ABOVE_OR_EQUAL" if current is not None and short_trigger is not None else "UNKNOWN"
+        ),
+        "long_trigger": long_trigger,
+        "short_trigger": short_trigger,
+    }
+
+    fresh_news = [
+        item for item in (parsed.get("news_context") or [])
+        if isinstance(item, dict) and str(item.get("freshness") or "").upper() in {"FRESH", "RECENT"}
+    ]
+    high_news = [
+        item for item in fresh_news
+        if str(item.get("relevance") or "").upper() in {"HIGH", "CRITICAL"}
+    ]
+
+    gates = {
+        "data": "PASS" if (
+            _num(parsed.get("future_price")) is not None
+            and _num(parsed.get("cfd_price")) is not None
+            and flow.get("oi_total") is not None
+        ) else "FAIL",
+        "htf_structure": (
+            "BULLISH" if htf == "bullish"
+            else "BEARISH" if htf == "bearish"
+            else "MIXED"
+        ),
+        "positioning": (
+            "OBSERVED" if (oi_change_put is not None or oi_change_call is not None or eod_put is not None or eod_call is not None)
+            else "UNKNOWN"
+        ),
+        "gamma": gamma_regime,
+        "catalyst": "ACTIVE" if high_news else "QUIET_OR_UNKNOWN",
+        "trigger": (
+            "LONG_LEVEL_REACHED" if current is not None and long_trigger is not None and current > long_trigger
+            else "SHORT_LEVEL_REACHED" if current is not None and short_trigger is not None and current < short_trigger
+            else "NO_BREAKOUT_CONFIRMED"
+        ),
+        "risk_structure": (
+            "AVAILABLE"
+            if all(_num(levels.get(k)) is not None for k in ("resistance_current", "resistance_main", "support_current", "support_main"))
+            else "INCOMPLETE"
+        ),
+    }
+
+    if htf == "mixed":
+        decision = "WAIT_MIXED_STRUCTURE"
+    elif gates["trigger"] == "NO_BREAKOUT_CONFIRMED":
+        decision = "WAIT_FOR_TRIGGER"
+    elif htf == "bullish" and gates["trigger"] == "LONG_LEVEL_REACHED":
+        decision = "LONG_CONDITIONAL"
+    elif htf == "bearish" and gates["trigger"] == "SHORT_LEVEL_REACHED":
+        decision = "SHORT_CONDITIONAL"
+    else:
+        decision = "WAIT_CONFLICT"
+
+    return {
+        "steps": {
+            "1_market_state": {"htf_structure": htf, "bullish_timeframes": bullish, "bearish_timeframes": bearish},
+            "2_positioning": positioning,
+            "3_gamma": {"regime": gamma_regime, "net_gex": net_gex, "dte": _num(parsed.get("dte"))},
+            "4_history": history_state,
+            "5_catalyst": {"fresh_count": len(fresh_news), "high_relevance_count": len(high_news)},
+            "6_location": location,
+            "7_gates": gates,
+            "8_decision": decision,
+        },
+        "rules": [
+            "Trend defines directional context; OI/GEX/news cannot override price structure alone.",
+            "A trigger being crossed is not proof of a successful hold/retest.",
+            "Trade plan remains conditional until confirmation is observable in supplied data.",
+            "Conflicting or missing evidence resolves to WAIT, not a stronger directional claim.",
+        ],
+    }
+
+
 def enrich_market_state(parsed: dict[str, Any], history: dict[str, Any] | None = None) -> dict[str, Any]:
     history = history or {}
     raw = parsed.setdefault("raw_series", {})
@@ -450,6 +612,13 @@ def enrich_market_state(parsed: dict[str, Any], history: dict[str, Any] | None =
             and _num(parsed.get("basis_diff")) is not None
         ),
     }
+    raw["market_state"]["decision_framework"] = _decision_framework(
+        parsed,
+        raw["market_state"]["flow"],
+        raw["market_state"]["gamma"],
+        raw["market_state"]["levels"],
+        raw["market_state"]["history"],
+    )
     return parsed
 
 
