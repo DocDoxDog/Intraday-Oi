@@ -343,7 +343,7 @@ def _read_secondary_oi_views(page) -> dict:
 
         if link is None:
             label = re.compile(
-                r"^\s*(?:OI\s*Change|Churn)\s*$",
+                r"^\s*(?:OI\s*Change|OI\s*Chg|Churn)(?:\s*\([^)]*\))?\s*$",
                 re.I,
             )
             loc = page.get_by_text(label)
@@ -351,12 +351,15 @@ def _read_secondary_oi_views(page) -> dict:
                 link = loc.first
 
         if link is None:
-            # Last fallback: interactive elements whose visible text matches.
-            label_text = "OI Change" if name == "oi_change" else "Churn"
-            loc = page.locator("a,button,[role='tab'],[role='button']")
-            for i in range(min(loc.count(), 300)):
+            # Last fallback: match the semantic label instead of requiring an
+            # exact DOM id/text. QuikStrike has changed these labels across
+            # renderers and deployments.
+            label_text = "oi change" if name == "oi_change" else "churn"
+            loc = page.locator("a,button,[role='tab'],[role='button'],input")
+            for i in range(min(loc.count(), 500)):
                 try:
-                    if " ".join((loc.nth(i).inner_text() or "").split()).lower() == label_text.lower():
+                    text = " ".join((loc.nth(i).inner_text() or loc.nth(i).get_attribute("value") or "").split()).lower()
+                    if label_text in text:
                         link = loc.nth(i)
                         break
                 except Exception:
