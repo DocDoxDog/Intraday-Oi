@@ -142,3 +142,27 @@ def test_degraded_v2_has_no_trade_levels():
     assert "GOLD MARKET" in message
     assert "GOLD OI UPDATE" not in message
     assert "DEGRADED" in message
+
+
+def test_telegram_escapes_dynamic_trade_level_text():
+    from src import telegram
+    parsed = {}
+    ai = {
+        "bias": "WAIT",
+        "trade_plan": {
+            "status": "CONDITIONAL",
+            "long_trigger": "<4180",
+            "long_stop": "4100",
+            "long_tp1": 4200,
+            "long_tp2": 4250,
+            "long_tp3": 4300,
+            "short_trigger": 4100,
+            "short_stop": 4180,
+            "short_tp1": 4050,
+            "short_tp2": 4000,
+            "short_tp3": 3950,
+        },
+    }
+    message = telegram._format_trade_plan_message(parsed, ai)
+    assert "&lt;4180" in message
+    assert "<4180" not in message
