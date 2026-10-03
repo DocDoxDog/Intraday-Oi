@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import html
 import os
+import re
 import time
 from datetime import datetime, timedelta, timezone
 
@@ -143,7 +144,7 @@ def _format_trade_plan_message(parsed: dict, ai_result: dict) -> str:
     trade = ai_result.get("trade_plan") or {}
 
     def fmt(key):
-        return _show(trade.get(key))
+        return _escape(_show(trade.get(key)))
 
     return "\n".join([
         "<b>TRADE PLAN</b>",
@@ -189,6 +190,17 @@ def _post_with_retry(url: str, payload: dict, timeout: int = 20) -> None:
                 time.sleep(1.0 * (attempt + 1))
                 continue
             detail = (response.text or "").strip()
+            # Telegram HTML parsing is strict. If a dynamic field ever slips
+            # through the renderer, preserve delivery by retrying that message
+            # as plain text rather than losing the entire analyst bundle.
+            if response.status_code == 400 and payload.get("parse_mode") == "HTML":
+                plain_payload = dict(payload)
+                plain_payload.pop("parse_mode", None)
+                plain_payload["text"] = re.sub(r"<[^>]*>", "", str(plain_payload.get("text") or ""))
+                fallback = requests.post(url, json=plain_payload, timeout=timeout)
+                if fallback.status_code < 400:
+                    return
+                detail = (fallback.text or detail).strip()
             raise RuntimeError(f"Telegram API HTTP {response.status_code}: {detail[:500]}")
         except Exception as exc:
             last_error = exc
