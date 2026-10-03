@@ -9,7 +9,7 @@ FOREX_FACTORY_JSON_URL="https://nfs.faireconomy.media/ff_calendar_thisweek.json"
 def _get(url:str, *, params:dict[str,Any]|None=None, timeout:int=20):
     r=requests.get(url,params=params,timeout=timeout,headers={"User-Agent":"Intraday-Oi-News/1.0"}); r.raise_for_status(); return r
 
-def fetch_gdelt(query:str='(war OR conflict OR missile OR sanctions OR ceasefire OR airstrike OR military OR invasion OR attack)', *, timespan:str='6h', maxrecords:int=25)->list[dict[str,Any]]:
+def fetch_gdelt(query:str='(war OR conflict OR missile OR sanctions OR ceasefire OR airstrike OR military OR invasion OR attack)', *, timespan:str='24h', maxrecords:int=25)->list[dict[str,Any]]:
     payload=_get(GDELT_DOC_URL,params={"query":query,"mode":"artlist","maxrecords":max(1,min(int(maxrecords),250)),"timespan":timespan,"sort":"datedesc","format":"json"}).json()
     out=[]
     for a in (payload.get("articles",[]) if isinstance(payload,dict) else []):
