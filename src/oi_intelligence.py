@@ -88,6 +88,7 @@ def enrich(current,previous=None):
     if not isinstance(pr, list):
         pr = []
     raw["oi_migration"] = oi_migration(pr, rows)
+    previous_obj = previous if isinstance(previous, dict) else {}
     
     def side_total(items, field):
         vals=[_f(r.get(field)) for r in items if _f(r.get(field)) is not None]
@@ -112,17 +113,17 @@ def enrich(current,previous=None):
             else None
         ),
         "future_price_change": (
-            _f(current.get("future_price")) - _f(previous.get("future_price"))
-            if _f(current.get("future_price")) is not None and _f(previous.get("future_price")) is not None
+            _f(current.get("future_price")) - _f(previous_obj.get("future_price"))
+            if _f(current.get("future_price")) is not None and _f(previous_obj.get("future_price")) is not None
             else None
         ),
         "vol_change": (
-            _f(current.get("vol")) - _f(previous.get("vol"))
-            if _f(current.get("vol")) is not None and _f(previous.get("vol")) is not None
+            _f(current.get("vol")) - _f(previous_obj.get("vol"))
+            if _f(current.get("vol")) is not None and _f(previous_obj.get("vol")) is not None
             else None
         ),
         "gex_change": (
-            _f((raw.get("gex") or {}).get("net_gex")) - _f(((previous or {}).get("raw_series") or {}).get("gex", {}).get("net_gex"))
+            _f((raw.get("gex") or {}).get("net_gex")) - _f(((previous_obj.get("raw_series") or {}).get("gex") or {}).get("net_gex"))
             if _f((raw.get("gex") or {}).get("net_gex")) is not None and _f(((previous or {}).get("raw_series") or {}).get("gex", {}).get("net_gex")) is not None
             else None
         ),
