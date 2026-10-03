@@ -105,3 +105,21 @@ def test_trade_plan_is_always_conditional_and_deterministic_when_levels_exist():
     assert "คำนวณเมื่อ trigger" not in str(trade)
     assert "4,397.00" in trade["entry"]
     assert "4,247.00" in trade["entry"]
+
+
+def test_source_oi_change_churn_and_eod_are_exposed_separately():
+    parsed = _snapshot("2026-10-02T13:00:00+00:00", 4300, 120, 260)
+    parsed.update({"cfd_price": 4297, "basis_diff": 3, "observed_at": "2026-10-02T13:00:00+00:00"})
+    parsed["raw_series"]["totals"].update({"oi_change_put": -70, "oi_change_call": -84, "oi_change_total": -154, "quikstrike_churn_put": 12.5, "quikstrike_churn_call": 8.5, "churn": 21.0})
+    eod = _snapshot("2026-10-01T21:00:00+00:00", 4250, 100, 200)
+    result = enrich_market_state(parsed, {"oi_baseline": eod})
+    flow = result["raw_series"]["market_state"]["flow"]
+    assert flow["oi_change_put"] == -70
+    assert flow["oi_change_call"] == -84
+    assert flow["oi_change_total"] == -154
+    assert flow["source_churn_put"] == 12.5
+    assert flow["source_churn_call"] == 8.5
+    assert flow["source_churn_total"] == 21.0
+    assert flow["eod_oi_put"] == 100
+    assert flow["eod_oi_call"] == 200
+    assert flow["eod_oi_total"] == 300
