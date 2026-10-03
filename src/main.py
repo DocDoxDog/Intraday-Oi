@@ -186,6 +186,14 @@ def run():
         f"ΔOI put={oi_totals.get('oi_delta_put') if oi_totals.get('oi_delta_put') is not None else 'UNKNOWN'} "
         f"call={oi_totals.get('oi_delta_call') if oi_totals.get('oi_delta_call') is not None else 'UNKNOWN'}"
     )
+    print(
+        f"    QuikStrike OI CHANGE put={oi_totals.get('oi_change_put') if oi_totals.get('oi_change_put') is not None else 'UNKNOWN'} "
+        f"call={oi_totals.get('oi_change_call') if oi_totals.get('oi_change_call') is not None else 'UNKNOWN'} "
+        f"total={oi_totals.get('oi_change_total') if oi_totals.get('oi_change_total') is not None else 'UNKNOWN'} | "
+        f"CHURN put={oi_totals.get('quikstrike_churn_put') if oi_totals.get('quikstrike_churn_put') is not None else 'UNKNOWN'} "
+        f"call={oi_totals.get('quikstrike_churn_call') if oi_totals.get('quikstrike_churn_call') is not None else 'UNKNOWN'} "
+        f"total={oi_totals.get('churn') if oi_totals.get('churn') is not None else 'UNKNOWN'}"
+    )
 
     print("[5.5/9] Building deterministic OI intelligence...")
     try:
