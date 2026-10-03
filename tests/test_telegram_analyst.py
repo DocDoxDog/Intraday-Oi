@@ -221,3 +221,49 @@ def test_invalid_trade_plan_fails_closed_instead_of_swapping_levels():
     assert out["status"] == "NO_TRADE"
     assert out["direction"] == "WAIT"
     assert out["long_tp1"] is None and out["short_tp1"] is None
+
+
+def test_trade_targets_use_source_strikes_not_gamma_mean():
+    from src.market_state import normalize_analyst_output
+
+    parsed = {
+        "future_price": 4162.30,
+        "cfd_price": 4137.63829,
+        "basis_diff": 24.66171,
+        "raw_series": {
+            "gex": {
+                "rows": [{"strike": x, "net_gex": 1.0} for x in (4150, 4155, 4160, 4165, 4170, 4175, 4180, 4185)],
+                "call_wall": 4170,
+                "put_wall": 4155,
+                "net_gex": 8.0,
+            },
+            "multi_expiry_gamma_zones": {
+                "highest_positive_gamma": 4175,
+                "highest_negative_gamma": 4150,
+            },
+        },
+    }
+    parsed["raw_series"]["market_state"] = {
+        "levels": {
+            "resistance_far": 4162.73829,
+            "resistance_main": 4145.33829,
+            "resistance_current": 4140.33829,
+            "support_current": 4132.33829,
+            "support_main": 4130.33829,
+            "support_deep": 4120.33829,
+        },
+        "gamma": {"gamma_mean": 4137.63829, "negative_zone": 4125.0, "positive_zone": 4150.0},
+        "history": {},
+        "cfd_complete": True,
+    }
+    ai = normalize_analyst_output(parsed, {}, {"bias": "WAIT", "analysis_status": "CONFIRMED"})
+    trade = ai["trade_plan"]
+
+    assert trade["long_tp1"] == 4142.03829
+    assert trade["long_tp2"] == 4147.03829
+    assert trade["long_tp3"] == 4152.03829
+    assert trade["short_tp1"] == 4127.63829
+    assert trade["short_tp2"] == 4122.63829
+    assert trade["short_tp3"] == 4117.63829
+    assert trade["long_tp1"] != 4137.63829
+    assert trade["short_tp1"] != 4137.63829
