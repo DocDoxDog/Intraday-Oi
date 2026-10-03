@@ -821,6 +821,27 @@ def normalize_analyst_output(
     plan_status = str(validated_plan.get("status") or "CONDITIONAL").upper()
     plan_direction = str(validated_plan.get("direction") or "WAIT").upper()
 
+    # From this point onward, every rendered field must come from the
+    # validated plan. Never leave a stale pre-validation entry/TP string.
+    plan = {
+        "long": {
+            "entry": validated_plan["long_trigger"],
+            "stop": validated_plan["long_stop"],
+            "tp1": validated_plan["long_tp1"],
+            "tp2": validated_plan["long_tp2"],
+            "tp3": validated_plan["long_tp3"],
+        },
+        "short": {
+            "entry": validated_plan["short_trigger"],
+            "stop": validated_plan["short_stop"],
+            "tp1": validated_plan["short_tp1"],
+            "tp2": validated_plan["short_tp2"],
+            "tp3": validated_plan["short_tp3"],
+        },
+    }
+    long_rr = _rr("LONG", plan["long"])
+    short_rr = _rr("SHORT", plan["short"])
+
     ai["trade_plan"] = {
         "status": plan_status,
         "direction": plan_direction,
