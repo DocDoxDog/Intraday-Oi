@@ -301,6 +301,34 @@ def enrich_market_state(parsed: dict[str, Any], history: dict[str, Any] | None =
     if oi_delta_total is None and oi_delta_put is not None and oi_delta_call is not None:
         oi_delta_total = oi_delta_put + oi_delta_call
 
+    # Keep QuikStrike source OI Change separate from our own EOD-baseline delta.
+    # They are different measurements and must never overwrite each other.
+    source_oi_change_put = _num(totals.get("oi_change_put"))
+    source_oi_change_call = _num(totals.get("oi_change_call"))
+    source_oi_change_total = _num(totals.get("oi_change_total"))
+    if source_oi_change_total is None and (
+        source_oi_change_put is not None or source_oi_change_call is not None
+    ):
+        source_oi_change_total = sum(
+            value for value in (source_oi_change_put, source_oi_change_call)
+            if value is not None
+        )
+
+    # EOD = the explicit stored session baseline used by oi_positioning.
+    # Derive totals from the same baseline rows; never substitute current OI.
+    baseline = history.get("oi_baseline") or {}
+    baseline_raw = baseline.get("raw_series") or {}
+    baseline_totals = baseline_raw.get("totals") or {}
+    eod_oi_put = _num(
+        baseline_totals.get("open_interest_view_put", baseline_totals.get("open_interest_put"))
+    )
+    eod_oi_call = _num(
+        baseline_totals.get("open_interest_view_call", baseline_totals.get("open_interest_call"))
+    )
+    eod_oi_total = _num(
+        baseline_totals.get("open_interest_view_total", baseline_totals.get("open_interest_total"))
+    )
+
     positioning_churn = (
         abs(oi_delta_put) + abs(oi_delta_call)
         if oi_delta_put is not None and oi_delta_call is not None
@@ -366,6 +394,13 @@ def enrich_market_state(parsed: dict[str, Any], history: dict[str, Any] | None =
             "delta_oi_put": oi_delta_put,
             "delta_oi_call": oi_delta_call,
             "delta_oi_total": oi_delta_total,
+            "oi_change_put": source_oi_change_put,
+            "oi_change_call": source_oi_change_call,
+            "oi_change_total": source_oi_change_total,
+            "eod_oi_put": eod_oi_put,
+            "eod_oi_call": eod_oi_call,
+            "eod_oi_total": eod_oi_total,
+            "eod_available": bool(eod_oi_put is not None or eod_oi_call is not None),
             "source_churn_put": _num(totals.get("quikstrike_churn_put")),
             "source_churn_call": _num(totals.get("quikstrike_churn_call")),
             "source_churn_total": _num(totals.get("churn")),
