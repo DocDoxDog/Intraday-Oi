@@ -123,3 +123,41 @@ def test_source_oi_change_churn_and_eod_are_exposed_separately():
     assert flow["eod_oi_put"] == 100
     assert flow["eod_oi_call"] == 200
     assert flow["eod_oi_total"] == 300
+
+
+def test_decision_framework_requires_structure_and_trigger_before_direction():
+    parsed = _snapshot("2026-10-02T13:00:00+00:00", 4300, 120, 260)
+    parsed.update({
+        "cfd_price": 4297, "basis_diff": 3,
+        "observed_at": "2026-10-02T13:00:00+00:00",
+        "technical_context": {
+            "timeframes": {
+                "h4": {"trend": "bearish"}, "h1": {"trend": "bearish"},
+                "m15": {"trend": "bearish"}, "m5": {"trend": "bearish"}, "m1": {"trend": "bearish"},
+            }
+        },
+    })
+    enrich_market_state(parsed, {})
+    framework = parsed["raw_series"]["market_state"]["decision_framework"]
+    assert framework["steps"]["8_decision"] == "WAIT_FOR_TRIGGER"
+    assert framework["steps"]["7_gates"]["htf_structure"] == "BEARISH"
+    assert framework["steps"]["7_gates"]["trigger"] == "NO_BREAKOUT_CONFIRMED"
+
+
+def test_decision_framework_records_source_oi_change_separately_from_eod():
+    parsed = _snapshot("2026-10-02T13:00:00+00:00", 4300, 120, 260)
+    parsed.update({
+        "cfd_price": 4297, "basis_diff": 3,
+        "observed_at": "2026-10-02T13:00:00+00:00",
+    })
+    parsed["raw_series"]["totals"].update({
+        "oi_change_put": -70, "oi_change_call": -84,
+        "oi_change_total": -154, "quikstrike_churn_put": 12,
+        "quikstrike_churn_call": 9, "churn": 21,
+    })
+    result = enrich_market_state(parsed, {})
+    positioning = result["raw_series"]["market_state"]["decision_framework"]["steps"]["2_positioning"]
+    assert positioning["source_oi_change"]["put"] == -70
+    assert positioning["source_oi_change"]["call"] == -84
+    assert positioning["churn"] == 21
+    assert positioning["warning"].startswith("OI change/churn")
