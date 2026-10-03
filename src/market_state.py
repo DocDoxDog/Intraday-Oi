@@ -486,6 +486,36 @@ def _deterministic_trade_levels(
     }
 
 
+def _valid_trade_ladder(plan: dict[str, Any]) -> bool:
+    """Require strict directional ordering before a plan can reach delivery."""
+    values = [
+        _num(plan.get("long_stop")), _num(plan.get("long_trigger")),
+        _num(plan.get("long_tp1")), _num(plan.get("long_tp2")), _num(plan.get("long_tp3")),
+        _num(plan.get("short_tp3")), _num(plan.get("short_tp2")),
+        _num(plan.get("short_tp1")), _num(plan.get("short_trigger")), _num(plan.get("short_stop")),
+    ]
+    if any(value is None for value in values):
+        return False
+    (long_stop, long_trigger, long_tp1, long_tp2, long_tp3,
+     short_tp3, short_tp2, short_tp1, short_trigger, short_stop) = values
+    return (long_stop < long_trigger < long_tp1 < long_tp2 < long_tp3
+            and short_tp3 < short_tp2 < short_tp1 < short_trigger < short_stop)
+
+
+def _validate_or_clear_trade_plan(plan: dict[str, Any]) -> dict[str, Any]:
+    """Never allow a semantically inverted ladder into Telegram/LINE."""
+    if _valid_trade_ladder(plan):
+        return plan
+    return {
+        **plan,
+        "long_trigger": None, "long_stop": None,
+        "long_tp1": None, "long_tp2": None, "long_tp3": None,
+        "short_trigger": None, "short_stop": None,
+        "short_tp1": None, "short_tp2": None, "short_tp3": None,
+        "status": "NO_TRADE", "direction": "WAIT",
+    }
+
+
 def _rr(side: str, p: dict[str, float | None]) -> tuple[float | None, float | None]:
     entry, stop, tp1, tp2 = p["entry"], p["stop"], p["tp1"], p["tp2"]
     if any(x is None for x in (entry, stop)):
