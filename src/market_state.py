@@ -794,6 +794,25 @@ def normalize_analyst_output(
             f"RR1 {_fmt(rr[0])}R | RR2 {_fmt(rr[1])}R"
         )
 
+    # The deterministic decision gate controls the actionability language.
+    # Keep the LLM's bias as a contextual view, but never let its free-form
+    # narrative invent a trigger or override contradictory structure.
+    decision = ((state.get("decision_framework") or {}).get("steps") or {}).get("8_decision")
+    if decision == "LONG_CONDITIONAL":
+        deterministic_idea = (
+            f"โครงสร้าง H4/H1 สนับสนุนฝั่งขึ้นและราคาผ่าน long trigger แล้ว "
+            f"แต่ยังต้องเห็น acceptance/retest ก่อนถือว่า setup ทำงานจริง"
+        )
+    elif decision == "SHORT_CONDITIONAL":
+        deterministic_idea = (
+            f"โครงสร้าง H4/H1 สนับสนุนฝั่งลงและราคาหลุด short trigger แล้ว "
+            f"แต่ยังต้องเห็น failed retest/continuation ก่อนถือว่า setup ทำงานจริง"
+        )
+    elif decision == "WAIT_MIXED_STRUCTURE":
+        deterministic_idea = "โครงสร้างหลักยังขัดกัน จึงรอให้ H4/H1 ให้ทิศทางสอดคล้องก่อน"
+    else:
+        deterministic_idea = "Directional context มีอยู่ แต่ trigger/confirmation ยังไม่ครบ จึงรอ event confirmation"
+
     ai["trade_plan"] = {
         "status": "CONDITIONAL",
         "direction": bias if bias in {"BUY", "SELL"} and has_any_numeric_plan else "WAIT",
@@ -822,5 +841,8 @@ def normalize_analyst_output(
         "sideway": f"ราคาอยู่ระหว่าง {_fmt(plan['short']['entry'])} และ {_fmt(plan['long']['entry'])} โดยยังไม่มี breakout confirmation ให้มองเป็น range",
     }
 
+    # Replace model-authored execution language with the deterministic gate
+    # interpretation. The model still supplies the broader thesis fields.
+    ai["final_trade_idea"] = deterministic_idea
     ai["market_state"] = state
     return ai
