@@ -65,6 +65,9 @@ def _chunk(text: str, limit: int = MAX_MESSAGE_LEN) -> list[str]:
 def _format_analysis_message(parsed: dict, ai_result: dict) -> str:
     status = str(ai_result.get("analysis_status") or "CONFIRMED").upper()
     bias = str(ai_result.get("bias") or "WAIT").upper()
+    raw = parsed.get("raw_series") or {}
+    market_state = raw.get("market_state") or {}
+    flow = market_state.get("flow") or {}
     return "\n".join([
         "<b>GOLD MARKET</b>",
         _thai_datetime_str(),
@@ -74,6 +77,13 @@ def _format_analysis_message(parsed: dict, ai_result: dict) -> str:
         f"Basis {_show(parsed.get('basis_diff'))} | DTE {_show(parsed.get('dte'))} | "
         f"<b>{_escape(ai_result.get('market_regime') or 'UNKNOWN')}</b> | "
         f"IV {_show(parsed.get('vol'))}%",
+        "",
+        "<b>OI POSITIONING</b>",
+        f"Current OI   Put {_show(flow.get('oi_put'), 0)} | Call {_show(flow.get('oi_call'), 0)} | Total {_show(flow.get('oi_total'), 0)}",
+        f"EOD OI       Put {_show(flow.get('eod_oi_put'), 0)} | Call {_show(flow.get('eod_oi_call'), 0)} | Total {_show(flow.get('eod_oi_total'), 0)}",
+        f"OI CHANGE    Put {_show(flow.get('oi_change_put'), 0)} | Call {_show(flow.get('oi_change_call'), 0)} | Total {_show(flow.get('oi_change_total'), 0)}",
+        f"ΔOI vs EOD   Put {_show(flow.get('delta_oi_put'), 0)} | Call {_show(flow.get('delta_oi_call'), 0)} | Total {_show(flow.get('delta_oi_total'), 0)}",
+        f"CHURN        Put {_show(flow.get('source_churn_put'), 2)} | Call {_show(flow.get('source_churn_call'), 2)} | Total {_show(flow.get('source_churn_total'), 2)}",
         "",
         "────────────────────────",
         "",
