@@ -39,6 +39,7 @@ from src.multi_expiry import build_gamma_matrix, summarize_gamma_zones, merge_ex
 from src.gamma_chart import render_gamma_table, render_gamma_table_full
 from src.news_announcement import collect_news, format_news_announcement
 from src.market_state import enrich_market_state, normalize_analyst_output
+from intelligence.news.free_feed import collect_free_news
 
 
 def run():
@@ -242,12 +243,37 @@ def run():
     print("[5.8/9] Fetching governed macro/news announcements...")
     new_news_rows = []
     try:
-        news_items = collect_news()
-        news_dicts = [item.as_dict() for item in news_items]
+        governed_items = collect_news()
+        free_items, _free_clusters = collect_free_news()
+
+        # Keep the legacy governed feeds, but add free macro-calendar and
+        # geopolitical discovery. De-duplicate exact source/url/headline/time
+        # collisions and keep the most recently observed item.
+        combined = [item.as_dict() for item in governed_items]
+        combined.extend(item.as_legacy_dict() for item in free_items)
+        deduped = {}
+        for item in combined:
+            key = (
+                str(item.get("source") or "").strip().lower(),
+                str(item.get("url") or "").strip(),
+                str(item.get("headline") or "").strip().lower(),
+                str(item.get("published_at") or "").strip(),
+            )
+            deduped[key] = item
+        news_dicts = sorted(
+            deduped.values(),
+            key=lambda item: str(item.get("published_at") or ""),
+            reverse=True,
+        )[:30]
+
         new_news_rows = insert_news_announcements(news_dicts)
-        parsed["news_context"] = [item.as_dict() for item in news_items[:10]]
+        parsed["news_context"] = news_dicts[:12]
         parsed.setdefault("raw_series", {})["news_context"] = parsed["news_context"]
-        print(f"    news candidates={len(news_items)} | new announcements={len(new_news_rows)}")
+        print(
+            f"    news candidates={len(news_dicts)} "
+            f"(governed={len(governed_items)} free={len(free_items)}) "
+            f"| new announcements={len(new_news_rows)}"
+        )
     except Exception as e:
         parsed["news_context"] = []
         print(f"⚠️  News collection failed (analysis continues without news): {e}", file=sys.stderr)
