@@ -161,3 +161,5 @@ def test_decision_framework_records_source_oi_change_separately_from_eod():
     assert positioning["source_oi_change"]["call"] == -84
     assert positioning["churn"] == 21
     assert positioning["warning"].startswith("OI change/churn")
+
+# CI verification branch: sequential decision-gate regression coverage.
