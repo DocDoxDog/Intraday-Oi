@@ -63,11 +63,31 @@ def oi_migration(previous_rows,current_rows):
                 if qty>0:shifts.append({"side":side,"from_strike":fs,"to_strike":ts,"estimated_oi":qty})
     return {"shifts":shifts,"method":"nearest-strike OI redistribution hypothesis","confidence":"low_without_trade_volume"}
 def enrich(current,previous=None):
-    raw=current.setdefault("raw_series",{}); rows=raw.get("oi_positioning_rows") or raw.get("strike_rows") or []
+    # History/parse payloads can legitimately contain null JSON objects.
+    # Never let a missing raw_series turn deterministic intelligence into a
+    # NoneType exception; preserve UNKNOWN instead.
+    if not isinstance(current, dict):
+        raise TypeError("OI_INTELLIGENCE_CURRENT_MUST_BE_DICT")
+    raw = current.get("raw_series")
+    if not isinstance(raw, dict):
+        raw = {}
+        current["raw_series"] = raw
+    rows = raw.get("oi_positioning_rows")
+    if not isinstance(rows, list):
+        rows = raw.get("strike_rows")
+    if not isinstance(rows, list):
+        rows = []
     raw["delta_exposure"]=delta_adjusted_exposure(rows)
     raw["flow_hypotheses"]=build_flow_hypotheses(rows,current.get("future_chg"))
-    pr=((previous or {}).get("raw_series") or {}).get("oi_positioning_rows") or ((previous or {}).get("raw_series") or {}).get("strike_rows") or []
-    raw["oi_migration"]=oi_migration(pr,rows)
+    previous_raw = previous.get("raw_series") if isinstance(previous, dict) else {}
+    if not isinstance(previous_raw, dict):
+        previous_raw = {}
+    pr = previous_raw.get("oi_positioning_rows")
+    if not isinstance(pr, list):
+        pr = previous_raw.get("strike_rows")
+    if not isinstance(pr, list):
+        pr = []
+    raw["oi_migration"] = oi_migration(pr, rows)
     
     def side_total(items, field):
         vals=[_f(r.get(field)) for r in items if _f(r.get(field)) is not None]
