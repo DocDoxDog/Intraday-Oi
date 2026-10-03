@@ -663,17 +663,16 @@ def _deterministic_trade_levels(
     ]
     long_entry = levels.get("resistance_current")
     short_entry = levels.get("support_current")
-    structural = [
-        _num(gamma.get("negative_zone")),
-        _num(gamma.get("gamma_mean")),
-        _num(gamma.get("positive_zone")),
-    ]
+    # Targets must be actual source strikes. Gamma Mean / positive / negative
+    # zones are structural reference points, not invented execution targets.
+    # This prevents a target such as Gamma Mean 0.07 below the short trigger
+    # from being presented as S1.
     long_candidates = _unique_sorted([
-        value for value in strikes_cfd + structural
+        value for value in strikes_cfd
         if value is not None and long_entry is not None and value > long_entry
     ])
     short_candidates = _unique_sorted([
-        value for value in strikes_cfd + structural
+        value for value in strikes_cfd
         if value is not None and short_entry is not None and value < short_entry
     ], reverse=True)
     return {
@@ -813,13 +812,22 @@ def normalize_analyst_output(
     else:
         deterministic_idea = "Directional context มีอยู่ แต่ trigger/confirmation ยังไม่ครบ จึงรอ event confirmation"
 
-    ai["trade_plan"] = {
+    deterministic_plan = {
+        **deterministic,
         "status": "CONDITIONAL",
         "direction": bias if bias in {"BUY", "SELL"} and has_any_numeric_plan else "WAIT",
-        "long_trigger": deterministic["long_trigger"], "long_stop": deterministic["long_stop"],
-        "long_tp1": deterministic["long_tp1"], "long_tp2": deterministic["long_tp2"], "long_tp3": deterministic["long_tp3"],
-        "short_trigger": deterministic["short_trigger"], "short_stop": deterministic["short_stop"],
-        "short_tp1": deterministic["short_tp1"], "short_tp2": deterministic["short_tp2"], "short_tp3": deterministic["short_tp3"],
+    }
+    validated_plan = _validate_or_clear_trade_plan(deterministic_plan)
+    plan_status = str(validated_plan.get("status") or "CONDITIONAL").upper()
+    plan_direction = str(validated_plan.get("direction") or "WAIT").upper()
+
+    ai["trade_plan"] = {
+        "status": plan_status,
+        "direction": plan_direction,
+        "long_trigger": validated_plan["long_trigger"], "long_stop": validated_plan["long_stop"],
+        "long_tp1": validated_plan["long_tp1"], "long_tp2": validated_plan["long_tp2"], "long_tp3": validated_plan["long_tp3"],
+        "short_trigger": validated_plan["short_trigger"], "short_stop": validated_plan["short_stop"],
+        "short_tp1": validated_plan["short_tp1"], "short_tp2": validated_plan["short_tp2"], "short_tp3": validated_plan["short_tp3"],
         "entry": plan_line("LONG", plan["long"]) + " | " + plan_line("SHORT", plan["short"]),
         "stop_loss": f"LONG invalidation {_fmt(plan['long']['stop'])} | SHORT invalidation {_fmt(plan['short']['stop'])}",
         "take_profit_1": f"LONG {_fmt(plan['long']['tp1'])} | SHORT {_fmt(plan['short']['tp1'])}",
@@ -835,11 +843,18 @@ def normalize_analyst_output(
         "risk_note": old_trade.get("risk_note") or "Conditional roadmap จาก deterministic evidence; ไม่ใช่คำสั่ง execute",
     }
 
-    ai["scenarios"] = {
-        "bull": f"ยืนเหนือ {_fmt(plan['long']['entry'])} และ hold/retest ได้ → TP1 {_fmt(plan['long']['tp1'])} → TP2 {_fmt(plan['long']['tp2'])} → TP3 {_fmt(plan['long']['tp3'])}; invalidation ใต้ {_fmt(plan['long']['stop'])}",
-        "bear": f"หลุด {_fmt(plan['short']['entry'])} และ failed retest → TP1 {_fmt(plan['short']['tp1'])} → TP2 {_fmt(plan['short']['tp2'])} → TP3 {_fmt(plan['short']['tp3'])}; invalidation เหนือ {_fmt(plan['short']['stop'])}",
-        "sideway": f"ราคาอยู่ระหว่าง {_fmt(plan['short']['entry'])} และ {_fmt(plan['long']['entry'])} โดยยังไม่มี breakout confirmation ให้มองเป็น range",
-    }
+    if plan_status == "CONDITIONAL":
+        ai["scenarios"] = {
+            "bull": f"ถ้าราคาเบรกเหนือ {_fmt(plan['long']['entry'])} แล้วกลับมาทดสอบและยืนได้ → เป้าหมาย {_fmt(plan['long']['tp1'])} → {_fmt(plan['long']['tp2'])} → {_fmt(plan['long']['tp3'])}; ยกเลิกแผนถ้าหลุด {_fmt(plan['long']['stop'])}",
+            "bear": f"ถ้าราคาหลุด {_fmt(plan['short']['entry'])} แล้วรีเทสต์ไม่ผ่าน → เป้าหมาย {_fmt(plan['short']['tp1'])} → {_fmt(plan['short']['tp2'])} → {_fmt(plan['short']['tp3'])}; ยกเลิกแผนถ้ากลับเหนือ {_fmt(plan['short']['stop'])}",
+            "sideway": f"ถ้าราคายังอยู่ระหว่าง {_fmt(plan['short']['entry'])} กับ {_fmt(plan['long']['entry'])} และยังไม่มีการยืนยันการเบรก ให้ถือว่ายังเป็นกรอบรอ",
+        }
+    else:
+        ai["scenarios"] = {
+            "bull": "ยังไม่มีแผนฝั่งขึ้นที่ผ่านการตรวจสอบลำดับราคา",
+            "bear": "ยังไม่มีแผนฝั่งลงที่ผ่านการตรวจสอบลำดับราคา",
+            "sideway": "รอข้อมูลระดับราคาให้ครบก่อนสร้างแผน",
+        }
 
     # Replace model-authored execution language with the deterministic gate
     # interpretation. The model still supplies the broader thesis fields.
