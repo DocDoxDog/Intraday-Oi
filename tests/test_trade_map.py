@@ -29,10 +29,16 @@ def test_trade_map_uses_structural_walls_and_non_adjacent_source_strikes():
     plan = _deterministic_trade_levels(parsed, levels, {})
     assert plan["long_trigger"] == 4140.42
     assert plan["short_trigger"] == 4100.42
-    assert plan["long_tp1"] in {4145.21, 4155.21, 4175.21}
-    assert plan["short_tp1"] in {4090.42, 4075.42, 4055.42}
-    assert plan["long_tp1"] != 4145.21 or plan["long_tp2"] is None or abs(plan["long_tp2"] - plan["long_tp1"]) >= 15
-    assert plan["short_tp1"] != 4090.42 or plan["short_tp2"] is None or abs(plan["short_tp1"] - plan["short_tp2"]) >= 15
+    assert plan["long_tp1"] == 4155.21
+    assert plan["long_tp2"] == 4175.21
+    assert plan["long_tp3"] == 4195.21
+    assert plan["short_tp1"] == 4075.21
+    assert plan["short_tp2"] == 4055.21
+    assert plan["short_tp3"] == 4035.21
+    assert abs(plan["long_tp2"] - plan["long_tp1"]) >= 15
+    assert abs(plan["long_tp3"] - plan["long_tp2"]) >= 15
+    assert abs(plan["short_tp1"] - plan["short_tp2"]) >= 15
+    assert abs(plan["short_tp2"] - plan["short_tp3"]) >= 15
     assert 4139.85 not in {
         plan["long_tp1"], plan["long_tp2"], plan["long_tp3"],
         plan["short_tp1"], plan["short_tp2"], plan["short_tp3"],
