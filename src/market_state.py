@@ -149,12 +149,9 @@ def _history_for(parsed: dict[str, Any], history: dict[str, Any]) -> dict[str, A
 
 
 def _levels(parsed: dict[str, Any]) -> dict[str, float | None]:
+    """Expose structural trigger levels only; execution targets are built separately."""
     raw = parsed.get("raw_series") or {}
     gex = raw.get("gex") or {}
-    rows = [
-        row for row in (gex.get("rows") or [])
-        if isinstance(row, dict) and _num(row.get("strike")) is not None
-    ]
     future = _num(parsed.get("future_price"))
     cfd = _num(parsed.get("cfd_price"))
     if future is None or cfd is None:
@@ -167,27 +164,18 @@ def _levels(parsed: dict[str, Any]) -> dict[str, float | None]:
             "support_deep": None,
         }
 
-    strikes = sorted({_num(row.get("strike")) for row in rows if _num(row.get("strike")) is not None})
-    above = [x for x in strikes if x > future]
-    below = [x for x in strikes if x < future]
+    # The primary trigger is the structural wall, not the nearest $5 strike.
+    # Nearest strikes are useful for local context but are too noisy to define
+    # the breakout trigger.
     call_wall = _num(gex.get("call_wall"))
     put_wall = _num(gex.get("put_wall"))
-
-    resistance_main = _cfd_level(call_wall, future, cfd)
-    support_main = _cfd_level(put_wall, future, cfd)
-    resistance_current_fut = above[0] if above else call_wall
-    support_current_fut = below[-1] if below else put_wall
-
-    above_wall = [x for x in strikes if call_wall is not None and x > call_wall]
-    below_wall = [x for x in strikes if put_wall is not None and x < put_wall]
-
     return {
-        "resistance_far": _cfd_level(above_wall[0] if above_wall else None, future, cfd),
-        "resistance_main": resistance_main,
-        "resistance_current": _cfd_level(resistance_current_fut, future, cfd),
-        "support_current": _cfd_level(support_current_fut, future, cfd),
-        "support_main": support_main,
-        "support_deep": _cfd_level(below_wall[-1] if below_wall else None, future, cfd),
+        "resistance_far": None,
+        "resistance_main": _cfd_level(call_wall, future, cfd),
+        "resistance_current": _cfd_level(call_wall, future, cfd),
+        "support_current": _cfd_level(put_wall, future, cfd),
+        "support_main": _cfd_level(put_wall, future, cfd),
+        "support_deep": None,
     }
 
 
@@ -648,68 +636,103 @@ def _deterministic_trade_levels(
     levels: dict[str, float | None],
     gamma: dict[str, Any],
 ) -> dict[str, Any]:
-    """Build complete targets only from normalized QuikStrike strikes/gamma levels."""
+    """Build a single, source-derived market map for both scenarios.
+
+    Important:
+    - trigger = structural call/put wall, normalized to CFD
+    - targets = real source strikes only
+    - Gamma Mean / gamma zones are context, never execution targets
+    - targets are deliberately separated so adjacent $5 strikes do not become
+      fake R1/R2/R3 or S1/S2/S3.
+    """
     future = _num(parsed.get("future_price"))
     cfd = _num(parsed.get("cfd_price"))
-    raw_rows = ((parsed.get("raw_series") or {}).get("gex") or {}).get("rows") or []
-    strikes_futures = _unique_sorted([
-        _num(row.get("strike"))
-        for row in raw_rows
+    raw = parsed.get("raw_series") or {}
+    gex = raw.get("gex") or {}
+    rows = [
+        row for row in (gex.get("rows") or [])
         if isinstance(row, dict) and _num(row.get("strike")) is not None
-    ])
-    strikes_cfd = [
-        value for value in (_cfd_level(strike, future, cfd) for strike in strikes_futures)
-        if value is not None
     ]
-    # Use the primary structural walls as breakout triggers. The nearest
-    # strike is only a local level; it is too close to spot to be a meaningful
-    # directional trigger and produces artificial $5 ladders.
-    long_entry = levels.get("resistance_main")
-    short_entry = levels.get("support_main")
-    # Targets must be actual source strikes. Gamma Mean / positive / negative
-    # zones are structural reference points, not invented execution targets.
-    # This prevents a target such as Gamma Mean 0.07 below the short trigger
-    # from being presented as S1.
-    # Gold option strikes are commonly listed at $5 increments. Do not
-    # turn every adjacent strike into a "key level": that creates a noisy
-    # $5 ladder with no useful decision distance. Keep source-derived strikes
-    # only, but require at least $10 between execution targets.
-    def spaced_levels(candidates: list[float], anchor: float, *, reverse: bool = False) -> list[float]:
-        ordered = _unique_sorted(candidates, reverse=reverse)
-        out: list[float] = []
-        for value in ordered:
-            if not out:
-                if abs(value - anchor) < 10.0:
-                    continue
-                out.append(value)
-                continue
-            if round(abs(value - out[-1]), 5) >= 10.0:
-                out.append(value)
-            if len(out) == 3:
-                break
-        return out
 
-    print("DEBUG SPACING", long_entry, short_entry, strikes_cfd)
-    long_candidates = spaced_levels(
-        [value for value in strikes_cfd if value is not None and long_entry is not None and value > long_entry],
-        long_entry,
-    )
-    short_candidates = spaced_levels(
-        [value for value in strikes_cfd if value is not None and short_entry is not None and value < short_entry],
-        short_entry,
-        reverse=True,
-    )
+    long_trigger = _num(levels.get("resistance_main"))
+    short_trigger = _num(levels.get("support_main"))
+
+    def source_candidates(side: str, anchor: float | None) -> list[dict[str, float]]:
+        if anchor is None or future is None or cfd is None:
+            return []
+        out = []
+        for row in rows:
+            strike = _num(row.get("strike"))
+            if strike is None:
+                continue
+            level = _cfd_level(strike, future, cfd)
+            if level is None:
+                continue
+            if side == "LONG" and level <= anchor:
+                continue
+            if side == "SHORT" and level >= anchor:
+                continue
+            oi = _num(row.get("oiTotal"))
+            if oi is None:
+                oi = _num(row.get("openInterest"))
+            gex_value = _num(row.get("net_gex"))
+            out.append({
+                "level": level,
+                "strike": strike,
+                "oi": oi or 0.0,
+                "gex": abs(gex_value or 0.0),
+            })
+        return sorted(out, key=lambda x: x["level"], reverse=side == "SHORT")
+
+    def choose_targets(side: str, anchor: float | None) -> list[float]:
+        candidates = source_candidates(side, anchor)
+        if not candidates:
+            return []
+
+        # Use observed source structure to rank significance. Normalize each
+        # component so a large OI number cannot drown out GEX solely by units.
+        max_oi = max((x["oi"] for x in candidates), default=0.0)
+        max_gex = max((x["gex"] for x in candidates), default=0.0)
+        for item in candidates:
+            item["score"] = (
+                (item["oi"] / max_oi if max_oi else 0.0)
+                + (item["gex"] / max_gex if max_gex else 0.0)
+            )
+
+        # Select structural peaks first, but preserve price order in the final
+        # map. A 15-point minimum keeps $5/$10 adjacent strikes from becoming
+        # artificial execution ladders while still using real source strikes.
+        min_gap = 15.0
+        selected: list[dict[str, float]] = []
+        for item in sorted(candidates, key=lambda x: (-x["score"], x["level"])):
+            if all(abs(item["level"] - picked["level"]) >= min_gap for picked in selected):
+                selected.append(item)
+        selected.sort(key=lambda x: x["level"], reverse=side == "SHORT")
+
+        # If prominence is sparse, fill from real source strikes at the same
+        # spacing rule. Never manufacture a price between strikes.
+        for item in candidates:
+            if len(selected) >= 3:
+                break
+            if all(abs(item["level"] - picked["level"]) >= min_gap for picked in selected):
+                selected.append(item)
+                selected.sort(key=lambda x: x["level"], reverse=side == "SHORT")
+        return [item["level"] for item in selected[:3]]
+
+    long_targets = choose_targets("LONG", long_trigger)
+    short_targets = choose_targets("SHORT", short_trigger)
+
     return {
-        "long_trigger": long_entry,
-        "long_stop": short_entry,
-        "long_tp1": long_candidates[0] if len(long_candidates) > 0 else None,
-        "long_tp2": long_candidates[1] if len(long_candidates) > 1 else None,
-        "long_tp3": long_candidates[2] if len(long_candidates) > 2 else None,
-        "short_trigger": short_entry,
-        "short_stop": long_entry,
-        "short_tp1": short_candidates[0] if len(short_candidates) > 0 else None,
-        "short_tp2": short_candidates[1] if len(short_candidates) > 1 else None,
-        "short_tp3": short_candidates[2] if len(short_candidates) > 2 else None,
+        "long_trigger": long_trigger,
+        "long_stop": short_trigger,
+        "long_tp1": long_targets[0] if len(long_targets) > 0 else None,
+        "long_tp2": long_targets[1] if len(long_targets) > 1 else None,
+        "long_tp3": long_targets[2] if len(long_targets) > 2 else None,
+        "short_trigger": short_trigger,
+        "short_stop": long_trigger,
+        "short_tp1": short_targets[0] if len(short_targets) > 0 else None,
+        "short_tp2": short_targets[1] if len(short_targets) > 1 else None,
+        "short_tp3": short_targets[2] if len(short_targets) > 2 else None,
     }
 
 
@@ -730,17 +753,31 @@ def _valid_trade_ladder(plan: dict[str, Any]) -> bool:
 
 
 def _validate_or_clear_trade_plan(plan: dict[str, Any]) -> dict[str, Any]:
-    """Never allow a semantically inverted ladder into Telegram/LINE."""
-    if _valid_trade_ladder(plan):
-        return plan
-    return {
-        **plan,
-        "long_trigger": None, "long_stop": None,
-        "long_tp1": None, "long_tp2": None, "long_tp3": None,
-        "short_trigger": None, "short_stop": None,
-        "short_tp1": None, "short_tp2": None, "short_tp3": None,
-        "status": "NO_TRADE", "direction": "WAIT",
-    }
+    """Validate LONG and SHORT independently; one bad side must not erase the other."""
+    out = dict(plan)
+    long_values = [out.get(k) for k in ("long_stop","long_trigger","long_tp1","long_tp2","long_tp3")]
+    short_values = [out.get(k) for k in ("short_tp3","short_tp2","short_tp1","short_trigger","short_stop")]
+
+    long_ok = all(_num(v) is not None for v in long_values) and all(
+        _num(long_values[i]) < _num(long_values[i + 1]) for i in range(len(long_values) - 1)
+    )
+    short_ok = all(_num(v) is not None for v in short_values) and all(
+        _num(short_values[i]) < _num(short_values[i + 1]) for i in range(len(short_values) - 1)
+    )
+
+    out["long_status"] = "CONDITIONAL" if long_ok else "NO_TRADE"
+    out["short_status"] = "CONDITIONAL" if short_ok else "NO_TRADE"
+    out["status"] = "CONDITIONAL" if long_ok or short_ok else "NO_TRADE"
+    if out.get("direction") not in {"BUY", "SELL"}:
+        out["direction"] = "WAIT"
+
+    if not long_ok:
+        for key in ("long_trigger","long_stop","long_tp1","long_tp2","long_tp3"):
+            out[key] = None
+    if not short_ok:
+        for key in ("short_trigger","short_stop","short_tp1","short_tp2","short_tp3"):
+            out[key] = None
+    return out
 
 
 def _rr(side: str, p: dict[str, float | None]) -> tuple[float | None, float | None]:
