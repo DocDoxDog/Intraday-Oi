@@ -130,6 +130,7 @@ def _format_levels_message(parsed: dict, ai_result: dict) -> str:
         f"R3  {show(trade.get('long_tp3'))}",
         f"R2  {show(trade.get('long_tp2'))}",
         f"R1  {show(trade.get('long_tp1'))}",
+        f"Positive Gamma Zone  {show(gamma_state.get('positive_zone') if gamma_state.get('positive_zone') is not None else gamma_zones.get('highest_positive_gamma'))}",
         f"Gamma Mean  {show(gamma_state.get('gamma_mean'))}",
         f"Negative GEX Zone  {show(gamma_state.get('negative_zone') if gamma_state.get('negative_zone') is not None else gamma_zones.get('highest_negative_gamma'))}",
         f"🔴 <b>SHORT TRIGGER</b> < {show(trade.get('short_trigger') or levels.get('support_current'))}",
