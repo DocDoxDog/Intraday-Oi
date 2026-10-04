@@ -178,7 +178,7 @@ def test_trade_plan_ladders_are_directionally_monotonic():
         "basis_diff": 24.66171,
         "raw_series": {
             "gex": {
-                "rows": [{"strike": x, "net_gex": 1.0} for x in (4150, 4155, 4160, 4165, 4170, 4175, 4180, 4185)],
+                "rows": [{"strike": x, "net_gex": 1.0} for x in (4145, 4150, 4155, 4160, 4165, 4170, 4175, 4180, 4185)],
                 "call_wall": 4170,
                 "put_wall": 4155,
                 "net_gex": 8.0,
@@ -204,9 +204,6 @@ def test_trade_plan_ladders_are_directionally_monotonic():
     }
     ai = normalize_analyst_output(parsed, {}, {"bias": "SELL", "analysis_status": "CONFIRMED"})
     trade = ai["trade_plan"]
-    from src.market_state import _deterministic_trade_levels
-    print("DEBUG DETERMINISTIC", _deterministic_trade_levels(parsed, parsed["raw_series"]["market_state"]["levels"], parsed["raw_series"]["market_state"]["gamma"]))
-    print("DEBUG TRADE", trade)
     assert trade["long_stop"] < trade["long_trigger"] < trade["long_tp1"] < trade["long_tp2"] < trade["long_tp3"]
     assert trade["short_tp3"] < trade["short_tp2"] < trade["short_tp1"] < trade["short_trigger"] < trade["short_stop"]
 
