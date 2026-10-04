@@ -235,7 +235,7 @@ def test_trade_targets_use_source_strikes_not_gamma_mean():
         "basis_diff": 24.66171,
         "raw_series": {
             "gex": {
-                "rows": [{"strike": x, "net_gex": 1.0} for x in (4100, 4105, 4110, 4115, 4120, 4125, 4130, 4135, 4140, 4145, 4150, 4155, 4160, 4165, 4170, 4175, 4180, 4185)],
+                "rows": [{"strike": x, "net_gex": 1.0} for x in (4100, 4105, 4110, 4115, 4120, 4125, 4130, 4135, 4140, 4145, 4150, 4155, 4160, 4165, 4170, 4175, 4180, 4185, 4190, 4210, 4230)],
                 "call_wall": 4170,
                 "put_wall": 4155,
                 "net_gex": 8.0,
