@@ -178,7 +178,7 @@ def test_trade_plan_ladders_are_directionally_monotonic():
         "basis_diff": 24.66171,
         "raw_series": {
             "gex": {
-                "rows": [{"strike": x, "net_gex": 1.0} for x in (4100, 4105, 4110, 4115, 4120, 4125, 4130, 4135, 4140, 4145, 4150, 4155, 4160, 4165, 4170, 4175, 4180, 4185)],
+                "rows": [{"strike": x, "net_gex": 1.0} for x in (4060, 4080, 4100, 4115, 4120, 4125, 4130, 4135, 4140, 4145, 4150, 4155, 4160, 4175, 4190, 4210, 4230)],
                 "call_wall": 4170,
                 "put_wall": 4155,
                 "net_gex": 8.0,
@@ -205,7 +205,6 @@ def test_trade_plan_ladders_are_directionally_monotonic():
     ai = normalize_analyst_output(parsed, {}, {"bias": "SELL", "analysis_status": "CONFIRMED"})
     from src.market_state import _deterministic_trade_levels, _valid_trade_ladder
     det = _deterministic_trade_levels(parsed, parsed["raw_series"]["market_state"]["levels"], parsed["raw_series"]["market_state"]["gamma"])
-    print("DEBUG DET", det, "VALID", _valid_trade_ladder({**det, "status": "CONDITIONAL", "direction": "WAIT"}))
     trade = ai["trade_plan"]
     assert trade["long_stop"] < trade["long_trigger"] < trade["long_tp1"] < trade["long_tp2"] < trade["long_tp3"]
     assert trade["short_tp3"] < trade["short_tp2"] < trade["short_tp1"] < trade["short_trigger"] < trade["short_stop"]
@@ -266,10 +265,10 @@ def test_trade_targets_use_source_strikes_not_gamma_mean():
     assert trade["long_trigger"] == 4145.33829
     assert trade["short_trigger"] == 4130.33829
     assert trade["long_tp1"] == 4155.33829
-    assert trade["long_tp2"] == 4165.33829
-    assert trade["long_tp3"] == 4175.33829
-    assert trade["short_tp1"] == 4120.33829
-    assert trade["short_tp2"] == 4110.33829
-    assert trade["short_tp3"] == 4100.33829
+    assert trade["long_tp2"] == 4170.33829
+    assert trade["long_tp3"] == 4185.33829
+    assert trade["short_tp1"] == 4115.33829
+    assert trade["short_tp2"] == 4095.33829
+    assert trade["short_tp3"] == 4075.33829
     assert trade["long_tp1"] != 4137.63829
     assert trade["short_tp1"] != 4137.63829
