@@ -126,12 +126,23 @@ def _format_levels_message(parsed: dict, ai_result: dict) -> str:
     def show(value):
         return _escape(_show(value))
 
+    # Backward-compatible adapter for direct renderer callers. It only maps
+    # already-supplied validated trade fields; it never creates a price.
+    if not market_map:
+        market_map = {
+            "R3": trade.get("long_tp3"),
+            "R2": trade.get("long_tp2"),
+            "R1": trade.get("long_tp1"),
+            "long_trigger": trade.get("long_trigger"),
+            "short_trigger": trade.get("short_trigger"),
+            "S1": trade.get("short_tp1"),
+            "S2": trade.get("short_tp2"),
+            "S3": trade.get("short_tp3"),
+            "long_status": "CONDITIONAL" if all(trade.get(k) is not None for k in ("long_trigger","long_stop","long_tp1","long_tp2","long_tp3")) else "NO_TRADE",
+            "short_status": "CONDITIONAL" if all(trade.get(k) is not None for k in ("short_trigger","short_stop","short_tp1","short_tp2","short_tp3")) else "NO_TRADE",
+        }
     long_trigger = market_map.get("long_trigger")
-    if long_trigger is None:
-        long_trigger = trade.get("long_trigger")
     short_trigger = market_map.get("short_trigger")
-    if short_trigger is None:
-        short_trigger = trade.get("short_trigger")
 
     return "\n".join([
         "<b>KEY LEVELS — แผนที่ราคา</b>",
