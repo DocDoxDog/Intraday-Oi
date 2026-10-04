@@ -203,8 +203,6 @@ def test_trade_plan_ladders_are_directionally_monotonic():
         "cfd_complete": True,
     }
     ai = normalize_analyst_output(parsed, {}, {"bias": "SELL", "analysis_status": "CONFIRMED"})
-    from src.market_state import _deterministic_trade_levels
-    print("DEBUG DET", _deterministic_trade_levels(parsed, parsed["raw_series"]["market_state"]["levels"], parsed["raw_series"]["market_state"]["gamma"]))
     trade = ai["trade_plan"]
     assert trade["long_stop"] < trade["long_trigger"] < trade["long_tp1"] < trade["long_tp2"] < trade["long_tp3"]
     assert trade["short_tp3"] < trade["short_tp2"] < trade["short_tp1"] < trade["short_trigger"] < trade["short_stop"]
