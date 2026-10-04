@@ -661,8 +661,11 @@ def _deterministic_trade_levels(
         value for value in (_cfd_level(strike, future, cfd) for strike in strikes_futures)
         if value is not None
     ]
-    long_entry = levels.get("resistance_current")
-    short_entry = levels.get("support_current")
+    # Use the primary structural walls as breakout triggers. The nearest
+    # strike is only a local level; it is too close to spot to be a meaningful
+    # directional trigger and produces artificial $5 ladders.
+    long_entry = levels.get("resistance_main")
+    short_entry = levels.get("support_main")
     # Targets must be actual source strikes. Gamma Mean / positive / negative
     # zones are structural reference points, not invented execution targets.
     # This prevents a target such as Gamma Mean 0.07 below the short trigger
@@ -677,12 +680,12 @@ def _deterministic_trade_levels(
     ], reverse=True)
     return {
         "long_trigger": long_entry,
-        "long_stop": levels.get("support_current"),
+        "long_stop": short_entry,
         "long_tp1": long_candidates[0] if len(long_candidates) > 0 else None,
         "long_tp2": long_candidates[1] if len(long_candidates) > 1 else None,
         "long_tp3": long_candidates[2] if len(long_candidates) > 2 else None,
         "short_trigger": short_entry,
-        "short_stop": levels.get("resistance_current"),
+        "short_stop": long_entry,
         "short_tp1": short_candidates[0] if len(short_candidates) > 0 else None,
         "short_tp2": short_candidates[1] if len(short_candidates) > 1 else None,
         "short_tp3": short_candidates[2] if len(short_candidates) > 2 else None,
