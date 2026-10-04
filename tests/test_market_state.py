@@ -91,7 +91,7 @@ def test_history_summary_always_covers_three_horizons():
     assert "YESTERDAY:" in summary
 
 
-def test_trade_plan_is_always_conditional_and_deterministic_when_levels_exist():
+def test_trade_plan_fails_closed_when_source_targets_are_incomplete():
     parsed = _snapshot("2026-10-02T13:00:00+00:00", 4300, 100, 200)
     parsed.update({"cfd_price": 4297, "basis_diff": 3, "observed_at": "2026-10-02T13:00:00+00:00"})
     enrich_market_state(parsed, {})
@@ -101,10 +101,9 @@ def test_trade_plan_is_always_conditional_and_deterministic_when_levels_exist():
         {"analysis_status": "CONFIRMED", "bias": "WAIT", "trade_plan": {"status": "NO_TRADE"}},
     )
     trade = ai["trade_plan"]
-    assert trade["status"] == "CONDITIONAL"
-    assert "คำนวณเมื่อ trigger" not in str(trade)
-    assert "4,397.00" in trade["entry"]
-    assert "4,247.00" in trade["entry"]
+    assert trade["status"] == "NO_TRADE"
+    assert trade["direction"] == "WAIT"
+    assert trade["long_tp1"] is None or trade["short_tp3"] is None
 
 
 def test_source_oi_change_churn_and_eod_are_exposed_separately():
