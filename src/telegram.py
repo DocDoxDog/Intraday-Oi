@@ -112,6 +112,7 @@ def _format_analysis_message(parsed: dict, ai_result: dict) -> str:
 
 
 def _format_levels_message(parsed: dict, ai_result: dict) -> str:
+    """Render the canonical market map; never manufacture fallback execution levels."""
     raw = parsed.get("raw_series") or {}
     gamma = raw.get("multi_expiry_gamma") or {}
     levels = ai_result.get("levels") or {}
@@ -120,23 +121,33 @@ def _format_levels_message(parsed: dict, ai_result: dict) -> str:
     gamma_state = state.get("gamma") or {}
     gamma_zones = raw.get("multi_expiry_gamma_zones") or {}
     trade = ai_result.get("trade_plan") or {}
+    market_map = ai_result.get("market_map") or {}
 
     def show(value):
         return _escape(_show(value))
 
+    long_trigger = market_map.get("long_trigger")
+    if long_trigger is None:
+        long_trigger = trade.get("long_trigger")
+    short_trigger = market_map.get("short_trigger")
+    if short_trigger is None:
+        short_trigger = trade.get("short_trigger")
+
     return "\n".join([
         "<b>KEY LEVELS — แผนที่ราคา</b>",
-        f"🟢 <b>LONG TRIGGER</b>  &gt; {show(trade.get('long_trigger') or levels.get('resistance_current'))}",
-        f"R3  {show(trade.get('long_tp3'))}",
-        f"R2  {show(trade.get('long_tp2'))}",
-        f"R1  {show(trade.get('long_tp1'))}",
+        f"R3  {show(market_map.get('R3'))}",
+        f"R2  {show(market_map.get('R2'))}",
+        f"R1  {show(market_map.get('R1'))}",
+        f"🟢 <b>LONG TRIGGER</b>  &gt; {show(long_trigger)}",
         f"Positive Gamma Zone  {show(gamma_state.get('positive_zone') if gamma_state.get('positive_zone') is not None else gamma_zones.get('highest_positive_gamma'))}",
         f"Gamma Mean  {show(gamma_state.get('gamma_mean'))}",
         f"Negative GEX Zone  {show(gamma_state.get('negative_zone') if gamma_state.get('negative_zone') is not None else gamma_zones.get('highest_negative_gamma'))}",
-        f"🔴 <b>SHORT TRIGGER</b> &lt; {show(trade.get('short_trigger') or levels.get('support_current'))}",
-        f"S1  {show(trade.get('short_tp1'))}",
-        f"S2  {show(trade.get('short_tp2'))}",
-        f"S3  {show(trade.get('short_tp3'))}",
+        f"🔴 <b>SHORT TRIGGER</b> &lt; {show(short_trigger)}",
+        f"S1  {show(market_map.get('S1'))}",
+        f"S2  {show(market_map.get('S2'))}",
+        f"S3  {show(market_map.get('S3'))}",
+        "",
+        f"LONG: <b>{_escape(market_map.get('long_status') or 'NO_TRADE')}</b> | SHORT: <b>{_escape(market_map.get('short_status') or 'NO_TRADE')}</b>",
         "",
         "<b>GAMMA TERM STRUCTURE</b>",
         f"<b>{len(gamma.get('columns') or [])}</b> expirations",
@@ -153,31 +164,50 @@ def _format_levels_message(parsed: dict, ai_result: dict) -> str:
 
 
 def _format_trade_plan_message(parsed: dict, ai_result: dict) -> str:
+    """Render the same canonical map used by KEY LEVELS and SCENARIO."""
     trade = ai_result.get("trade_plan") or {}
+    market_map = ai_result.get("market_map") or {}
 
-    def fmt(key):
-        return _escape(_show(trade.get(key)))
+    def fmt(value):
+        return _escape(_show(value))
 
-    return "\n".join([
+    long_ok = str(market_map.get("long_status") or "NO_TRADE").upper() == "CONDITIONAL"
+    short_ok = str(market_map.get("short_status") or "NO_TRADE").upper() == "CONDITIONAL"
+
+    lines = [
         "<b>TRADE PLAN</b>",
         "",
         "🟢 <b>LONG — แผนฝั่งขึ้น</b>",
-        f"เข้าเมื่อ: เบรกเหนือ {fmt('long_trigger')} แล้วกลับมาทดสอบและยืนได้",
-        f"ยกเลิกแผนเมื่อ: หลุด {fmt('long_stop')}",
-        f"เป้าหมาย 1: {fmt('long_tp1')}",
-        f"เป้าหมาย 2: {fmt('long_tp2')}",
-        f"เป้าหมาย 3: {fmt('long_tp3')}",
+    ]
+    if long_ok:
+        lines += [
+            f"เข้าเมื่อ: เบรกเหนือ {fmt(market_map.get('long_trigger'))} แล้วกลับมาทดสอบและยืนได้",
+            f"ยกเลิกแผนเมื่อ: หลุด {fmt(trade.get('long_stop'))}",
+            f"เป้าหมาย 1: {fmt(market_map.get('R1'))}",
+            f"เป้าหมาย 2: {fmt(market_map.get('R2'))}",
+            f"เป้าหมาย 3: {fmt(market_map.get('R3'))}",
+        ]
+    else:
+        lines.append("NO_TRADE — ระดับฝั่งขึ้นไม่ครบหรือไม่ผ่าน validation")
+
+    lines += ["", "🔴 <b>SHORT — แผนฝั่งลง</b>"]
+    if short_ok:
+        lines += [
+            f"เข้าเมื่อ: หลุด {fmt(market_map.get('short_trigger'))} แล้วรีเทสต์ไม่ผ่าน",
+            f"ยกเลิกแผนเมื่อ: กลับเหนือ {fmt(trade.get('short_stop'))}",
+            f"เป้าหมาย 1: {fmt(market_map.get('S1'))}",
+            f"เป้าหมาย 2: {fmt(market_map.get('S2'))}",
+            f"เป้าหมาย 3: {fmt(market_map.get('S3'))}",
+        ]
+    else:
+        lines.append("NO_TRADE — ระดับฝั่งลงไม่ครบหรือไม่ผ่าน validation")
+
+    lines += [
         "",
-        "🔴 <b>SHORT — แผนฝั่งลง</b>",
-        f"เข้าเมื่อ: หลุด {fmt('short_trigger')} แล้วรีเทสต์ไม่ผ่าน",
-        f"ยกเลิกแผนเมื่อ: กลับเหนือ {fmt('short_stop')}",
-        f"เป้าหมาย 1: {fmt('short_tp1')}",
-        f"เป้าหมาย 2: {fmt('short_tp2')}",
-        f"เป้าหมาย 3: {fmt('short_tp3')}",
-        "",
-        f"Status: <b>{_escape(str(trade.get('status') or 'CONDITIONAL').upper())}</b> | "
+        f"Status: <b>{_escape(str(trade.get('status') or 'NO_TRADE').upper())}</b> | "
         f"Bias: <b>{_escape(str(ai_result.get('bias') or 'WAIT').upper())}</b>",
-    ])
+    ]
+    return "\n".join(lines)
 
 
 def format_message(parsed: dict, ai_result: dict) -> str:
