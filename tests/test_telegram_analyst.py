@@ -260,6 +260,8 @@ def test_trade_targets_use_source_strikes_not_gamma_mean():
     ai = normalize_analyst_output(parsed, {}, {"bias": "WAIT", "analysis_status": "CONFIRMED"})
     trade = ai["trade_plan"]
 
+    assert trade["long_trigger"] == 4140.33829
+    assert trade["short_trigger"] == 4100.33829
     assert trade["long_tp1"] == 4145.33829
     assert trade["long_tp2"] == 4150.33829
     assert trade["long_tp3"] == 4155.33829
