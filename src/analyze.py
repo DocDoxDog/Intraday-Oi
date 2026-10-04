@@ -9,6 +9,43 @@ analyze.py
 import os
 import json
 import requests
+from pathlib import Path
+
+DEFAULT_MODEL = "gemini-3.5-flash-lite"
+API_URL = "https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
+
+ANALYST_BOOTSTRAP = """\
+You are the Gold Market Analyst for the OI/GEX intelligence system.
+
+MANDATORY:
+- Read and follow the repository root SKILL.md before analyzing any market snapshot.
+- SKILL.md is the governing analytical contract; this bootstrap must not override it.
+- Numbers and execution levels come from deterministic source data. Do not invent levels.
+- Treat GEX/DEX, dealer positioning, IV, OI, macro and technical evidence according to their stated assumptions and evidence classes.
+- Produce conditional scenarios, not unsupported predictions.
+- If evidence is insufficient, use UNKNOWN / WAIT / NO_TRADE.
+"""
+
+def _load_analyst_skill() -> str:
+    skill_path = Path(__file__).resolve().parents[1] / "SKILL.md"
+    try:
+        return skill_path.read_text(encoding="utf-8")
+    except OSError:
+        return "SKILL.md unavailable at runtime. Apply the bootstrap rules conservatively and do not manufacture missing evidence."
+
+SYSTEM_PROMPT = ANALYST_BOOTSTRAP + "\n\n===== REPOSITORY ANALYST SKILL =====\n" + _load_analyst_skill() + "\n===== END REPOSITORY ANALYST SKILL =====\n"
+""
+analyze.py
+==========
+ส่งข้อมูลที่ parse แล้วเข้า Gemini API ให้สรุปเป็นรายงานสไตล์นักวิเคราะห์ (ภาษาไทย)
+รูปแบบอัปเดต: ภาพรวมตลาดเชิงลึก, โซนสำคัญ (แนวต้านไกล-ใกล้ / แนวรับใกล้-ไกล),
+และ Scenario แยกชัดเจน (Bull Case, Bear Case, Sideway Case) พร้อม Bias และแผนเทรด
+"""
+
+import os
+import json
+import requests
+from pathlib import Path
 
 DEFAULT_MODEL = "gemini-3.5-flash-lite"
 API_URL = "https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
