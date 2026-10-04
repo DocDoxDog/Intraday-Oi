@@ -103,10 +103,11 @@ def test_telegram_renders_three_text_message_sections():
     assert "4,232.49" in m4 and "GAMMA TERM STRUCTURE" in m4 and "7" in m4 and "🟢" in m4 and "🔴" in m4 and "🟡" in m4
     assert "Status: <b>CONDITIONAL</b>" in m5
     assert "Bias:" in m5
-    assert "Trigger:" in m5
-    assert "SL:" in m5
-    assert "TP1:" in m5
-    assert "TP2:" in m5
+    assert "เข้าเมื่อ:" in m5
+    assert "ยกเลิกแผนเมื่อ:" in m5
+    assert "เป้าหมาย 1:" in m5
+    assert "เป้าหมาย 2:" in m5
+    assert "เป้าหมาย 3:" in m5
 
 
 def test_line_renders_canonical_analysis_without_local_trade_plan():
@@ -259,11 +260,11 @@ def test_trade_targets_use_source_strikes_not_gamma_mean():
     ai = normalize_analyst_output(parsed, {}, {"bias": "WAIT", "analysis_status": "CONFIRMED"})
     trade = ai["trade_plan"]
 
-    assert trade["long_tp1"] == 4145.03829
-    assert trade["long_tp2"] == 4150.03829
-    assert trade["long_tp3"] == 4155.03829
-    assert trade["short_tp1"] == 4130.03829
-    assert trade["short_tp2"] == 4125.03829
-    assert trade["short_tp3"] == 4120.03829
+    assert trade["long_tp1"] == 4145.33829
+    assert trade["long_tp2"] == 4150.33829
+    assert trade["long_tp3"] == 4155.33829
+    assert trade["short_tp1"] == 4130.33829
+    assert trade["short_tp2"] == 4125.33829
+    assert trade["short_tp3"] == 4120.33829
     assert trade["long_tp1"] != 4137.63829
     assert trade["short_tp1"] != 4137.63829
