@@ -707,6 +707,8 @@ def _deterministic_trade_levels(
         for item in sorted(candidates, key=lambda x: (-x["score"], x["level"])):
             if all(abs(item["level"] - picked["level"]) >= min_gap for picked in selected):
                 selected.append(item)
+            if len(selected) >= 3:
+                break
         selected.sort(key=lambda x: x["level"], reverse=side == "SHORT")
 
         # If prominence is sparse, fill from real source strikes at the same
