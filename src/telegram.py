@@ -137,7 +137,7 @@ def _format_levels_message(parsed: dict, ai_result: dict) -> str:
         f"S3  {show(trade.get('short_tp3'))}",
         "",
         "<b>GAMMA TERM STRUCTURE</b>",
-        f"<b>{len(gamma.get('columns') or [])} expirations</b>",
+        f"<b>{len(gamma.get('columns') or [])}</b> expirations",
         "",
         "────────────────────────",
         "",
