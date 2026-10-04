@@ -689,7 +689,7 @@ def _deterministic_trade_levels(
                 break
         return out
 
-    print("DEBUG SPACING", long_entry, short_entry, strikes_cfd) if os.getenv("DEBUG_TRADE_LEVELS") else None
+    print("DEBUG SPACING", long_entry, short_entry, strikes_cfd)
     long_candidates = spaced_levels(
         [value for value in strikes_cfd if value is not None and long_entry is not None and value > long_entry],
         long_entry,
