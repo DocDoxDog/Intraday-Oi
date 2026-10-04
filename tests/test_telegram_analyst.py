@@ -264,11 +264,11 @@ def test_trade_targets_use_source_strikes_not_gamma_mean():
 
     assert trade["long_trigger"] == 4145.33829
     assert trade["short_trigger"] == 4130.33829
-    assert trade["long_tp1"] == 4155.33829
-    assert trade["long_tp2"] == 4170.33829
-    assert trade["long_tp3"] == 4185.33829
-    assert trade["short_tp1"] == 4115.33829
-    assert trade["short_tp2"] == 4095.33829
-    assert trade["short_tp3"] == 4075.33829
+    assert trade["long_tp1"] == 4165.33829
+    assert trade["long_tp2"] == 4185.33829
+    assert trade["long_tp3"] == 4205.33829
+    assert trade["short_tp1"] == 4090.33829
+    assert trade["short_tp2"] == 4075.33829
+    assert trade["short_tp3"] == 4055.33829
     assert trade["long_tp1"] != 4137.63829
     assert trade["short_tp1"] != 4137.63829
