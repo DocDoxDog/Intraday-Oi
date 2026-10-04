@@ -879,8 +879,13 @@ def normalize_analyst_output(
         "direction": bias if bias in {"BUY", "SELL"} and has_any_numeric_plan else "WAIT",
     }
     validated_plan = _validate_or_clear_trade_plan(deterministic_plan)
-    plan_status = str(validated_plan.get("status") or "CONDITIONAL").upper()
-    plan_direction = str(validated_plan.get("direction") or "WAIT").upper()
+    plan_status = str(validated_plan.get("status") or "NO_TRADE").upper()
+    requested_direction = str(validated_plan.get("direction") or "WAIT").upper()
+    plan_direction = (
+        "BUY" if requested_direction == "BUY" and validated_plan.get("long_status") == "CONDITIONAL"
+        else "SELL" if requested_direction == "SELL" and validated_plan.get("short_status") == "CONDITIONAL"
+        else "WAIT"
+    )
 
     # Canonical market map: KEY LEVELS, SCENARIO and TRADE PLAN must all
     # consume exactly the same deterministic object. Structural gamma references
