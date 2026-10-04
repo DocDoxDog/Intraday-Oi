@@ -204,6 +204,7 @@ def test_trade_plan_ladders_are_directionally_monotonic():
     }
     ai = normalize_analyst_output(parsed, {}, {"bias": "SELL", "analysis_status": "CONFIRMED"})
     trade = ai["trade_plan"]
+    print("DEBUG TRADE", trade)
     assert trade["long_stop"] < trade["long_trigger"] < trade["long_tp1"] < trade["long_tp2"] < trade["long_tp3"]
     assert trade["short_tp3"] < trade["short_tp2"] < trade["short_tp1"] < trade["short_trigger"] < trade["short_stop"]
 
