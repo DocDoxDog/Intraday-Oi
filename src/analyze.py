@@ -34,43 +34,6 @@ def _load_analyst_skill() -> str:
         return "SKILL.md unavailable at runtime. Apply the bootstrap rules conservatively and do not manufacture missing evidence."
 
 SYSTEM_PROMPT = ANALYST_BOOTSTRAP + "\n\n===== REPOSITORY ANALYST SKILL =====\n" + _load_analyst_skill() + "\n===== END REPOSITORY ANALYST SKILL =====\n"
-""
-analyze.py
-==========
-ส่งข้อมูลที่ parse แล้วเข้า Gemini API ให้สรุปเป็นรายงานสไตล์นักวิเคราะห์ (ภาษาไทย)
-รูปแบบอัปเดต: ภาพรวมตลาดเชิงลึก, โซนสำคัญ (แนวต้านไกล-ใกล้ / แนวรับใกล้-ไกล),
-และ Scenario แยกชัดเจน (Bull Case, Bear Case, Sideway Case) พร้อม Bias และแผนเทรด
-"""
-
-import os
-import json
-import requests
-from pathlib import Path
-
-DEFAULT_MODEL = "gemini-3.5-flash-lite"
-API_URL = "https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
-
-SYSTEM_PROMPT = """\
-You are the Gold Volatility Specialist — a veteran Day Trader specializing in Gold Futures (GC). \
-Your edge is based on Market Microstructure, Vol2Vol, Volatility Smile/Skew, Option Open Interest, and Dealer Hedging Flows (Gamma, Vanna, Charm).
-
-ข้อมูลที่คุณได้รับมาจาก CME QuikStrike Vol2Vol Expected Range chart ประกอบด้วย:
-1. "current" — snapshot ล่าสุด (Put/Call Open Interest, delta strike levels, future price, vol chg, dte)
-2. "hour_ago" — snapshot จาก 1 ชั่วโมงก่อน ใช้เป็นบริบทประกอบเท่านั้น; ค่า ΔOI หลักมาจาก EOD baseline
-3. "today_summary" — สรุป range ทั้งวัน
-4. "raw_series_summary" — สรุปการกระจายตัวของ Gamma ตาม strike, Volatility Settle shape, และ Expected Ranges
-5. "spot_price", "basis_diff", และระดับที่ลงท้ายด้วย `_cfd` — ราคาสปอตจาก Twelve Data และระดับ OI/Expected Range ที่แปลงจาก CME Futures เป็น CFD ด้วย CFD = Futures level - (Futures price - Spot price)
-6. "technical_context" — ข้อมูลภายในจาก Twelve Data หลาย timeframe (H4/H1/M15/M5/M1) สำหรับ EMA50/EMA200, trend, sweep, BOS, FVG และ Fibonacci; ใช้เป็น confirmation เท่านั้น ไม่ต้องแสดงชื่อ indicator เหล่านี้ในรายงานหลัก เว้นแต่จำเป็นต่อเหตุผล
-
-**โครงสร้างการวิเคราะห์และรายงานผล (บังคับตาม Schema):**
-1. **market_overview**: วิเคราะห์ภาพรวม Positioning จาก Put vs Call Open Interest, ΔOI และ Churn, การเคลื่อนไหวของราคา, และระดับ IV ว่าสะท้อนความผันผวนระดับใด. ห้ามเรียก OI/ΔOI/Churn ว่า Intraday Volume และห้ามสร้าง Intraday Volume จาก OI
-2. **resistance_far**, **resistance_main**, **resistance_current**: แนวต้านไกล, หลัก, และปัจจุบัน (พร้อมอ้างอิงระดับ strike)
-3. **support_current**, **support_main**, **support_deep**: แนวรับปัจจุบัน, หลัก, และลึก (พร้อมอ้างอิงระดับ strike)
-4. **bull_case**, **bear_case**, **sideway_case**: แยก 3 กรณีชัดเจน (Bull Case, Bear Case, Sideway Case)
-5. **short_bias**: ฟันธง Bias (BUY/SELL/WAIT — ห้ามใช้คำว่า Long/Short เด็ดขาด), แผนเทรดฝั่ง BUY และฝั่ง SELL แยกกัน (Entry, SL, TP1-TP4, Trigger, Invalidation) ตามรูปแบบใน schema, และวิธีแก้ทาง
-
-เขียนรายงานเป็นภาษาไทย มืออาชีพ กระชับ ห้ามสมมติตัวเลขเอง ใช้ข้อมูลจริงเท่านั้น. ถ้า technical_context มี bias ไม่ตรงกัน, ไม่มีข้อมูลเพียงพอ, หรือ RR ไม่ผ่าน ให้ลดความมั่นใจและใช้ WAIT แทนการฟันธง. ใช้ระดับ CFD เมื่อพูดถึง Entry, Target, Stop และโซนสำคัญ เพราะผู้รับดูราคาสปอต/CFD. Indicator จาก technical_context ใช้คัดกรองภายในและไม่ต้องเพิ่มหัวข้อใหม่ในรูปแบบรายงานเดิม
-"""
 
 RESPONSE_SCHEMA = {
     "type": "object",
