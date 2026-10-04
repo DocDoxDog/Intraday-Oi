@@ -882,6 +882,24 @@ def normalize_analyst_output(
     plan_status = str(validated_plan.get("status") or "CONDITIONAL").upper()
     plan_direction = str(validated_plan.get("direction") or "WAIT").upper()
 
+    # Canonical market map: KEY LEVELS, SCENARIO and TRADE PLAN must all
+    # consume exactly the same deterministic object. Structural gamma references
+    # stay separate and can never silently become execution targets.
+    ai["market_map"] = {
+        "R3": validated_plan["long_tp3"],
+        "R2": validated_plan["long_tp2"],
+        "R1": validated_plan["long_tp1"],
+        "long_trigger": validated_plan["long_trigger"],
+        "short_trigger": validated_plan["short_trigger"],
+        "S1": validated_plan["short_tp1"],
+        "S2": validated_plan["short_tp2"],
+        "S3": validated_plan["short_tp3"],
+        "long_status": validated_plan.get("long_status", "NO_TRADE"),
+        "short_status": validated_plan.get("short_status", "NO_TRADE"),
+        "source": "QUIKSTRIKE_GEX_STRIKES_NORMALIZED_TO_CFD",
+        "execution_targets_exclude": ["gamma_mean", "positive_gamma_zone", "negative_gex_zone"],
+    }
+
     # From this point onward, every rendered field must come from the
     # validated plan. Never leave a stale pre-validation entry/TP string.
     plan = {
@@ -926,16 +944,31 @@ def normalize_analyst_output(
     }
 
     if plan_status == "CONDITIONAL":
+        bull = (
+            f"ถ้าราคาเบรกเหนือ {_fmt(plan['long']['entry'])} แล้ว acceptance/retest ยืนได้"
+            f" → {_fmt(plan['long']['tp1'])} → {_fmt(plan['long']['tp2'])} → {_fmt(plan['long']['tp3'])}"
+            if validated_plan.get("long_status") == "CONDITIONAL"
+            else "NO_TRADE — ระดับฝั่งขึ้นยังไม่ครบ"
+        )
+        bear = (
+            f"ถ้าราคาหลุด {_fmt(plan['short']['entry'])} แล้ว failed retest"
+            f" → {_fmt(plan['short']['tp1'])} → {_fmt(plan['short']['tp2'])} → {_fmt(plan['short']['tp3'])}"
+            if validated_plan.get("short_status") == "CONDITIONAL"
+            else "NO_TRADE — ระดับฝั่งลงยังไม่ครบ"
+        )
         ai["scenarios"] = {
-            "bull": f"ถ้าราคาเบรกเหนือ {_fmt(plan['long']['entry'])} แล้วกลับมาทดสอบและยืนได้ → เป้าหมาย {_fmt(plan['long']['tp1'])} → {_fmt(plan['long']['tp2'])} → {_fmt(plan['long']['tp3'])}; ยกเลิกแผนถ้าหลุด {_fmt(plan['long']['stop'])}",
-            "bear": f"ถ้าราคาหลุด {_fmt(plan['short']['entry'])} แล้วรีเทสต์ไม่ผ่าน → เป้าหมาย {_fmt(plan['short']['tp1'])} → {_fmt(plan['short']['tp2'])} → {_fmt(plan['short']['tp3'])}; ยกเลิกแผนถ้ากลับเหนือ {_fmt(plan['short']['stop'])}",
-            "sideway": f"ถ้าราคายังอยู่ระหว่าง {_fmt(plan['short']['entry'])} กับ {_fmt(plan['long']['entry'])} และยังไม่มีการยืนยันการเบรก ให้ถือว่ายังเป็นกรอบรอ",
+            "bull": bull,
+            "bear": bear,
+            "sideway": (
+                f"ถ้ายังอยู่ระหว่าง {_fmt(plan['short']['entry'])} กับ {_fmt(plan['long']['entry'])}"
+                " และไม่มี acceptance/failed retest ให้ WAIT"
+            ),
         }
     else:
         ai["scenarios"] = {
-            "bull": "ยังไม่มีแผนฝั่งขึ้นที่ผ่านการตรวจสอบลำดับราคา",
-            "bear": "ยังไม่มีแผนฝั่งลงที่ผ่านการตรวจสอบลำดับราคา",
-            "sideway": "รอข้อมูลระดับราคาให้ครบก่อนสร้างแผน",
+            "bull": "NO_TRADE — ฝั่งขึ้นไม่ผ่าน deterministic validation",
+            "bear": "NO_TRADE — ฝั่งลงไม่ผ่าน deterministic validation",
+            "sideway": "WAIT — ข้อมูลหรือโครงสร้างยังไม่พอสำหรับ execution",
         }
 
     # Replace model-authored execution language with the deterministic gate
