@@ -683,7 +683,7 @@ def _deterministic_trade_levels(
                     continue
                 out.append(value)
                 continue
-            if abs(value - out[-1]) >= 10.0:
+            if round(abs(value - out[-1]), 5) >= 10.0:
                 out.append(value)
             if len(out) == 3:
                 break
