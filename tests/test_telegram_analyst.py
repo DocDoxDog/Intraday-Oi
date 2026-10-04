@@ -235,7 +235,7 @@ def test_trade_targets_use_source_strikes_not_gamma_mean():
         "basis_diff": 24.66171,
         "raw_series": {
             "gex": {
-                "rows": [{"strike": x, "net_gex": 1.0} for x in (4100, 4105, 4110, 4115, 4120, 4125, 4130, 4135, 4140, 4145, 4150, 4155, 4160, 4165, 4170, 4175, 4180, 4185, 4190, 4210, 4230)],
+                "rows": [{"strike": x, "net_gex": 1.0} for x in (4060, 4080, 4100, 4105, 4110, 4115, 4120, 4125, 4130, 4135, 4140, 4145, 4150, 4155, 4160, 4165, 4170, 4175, 4180, 4185, 4190, 4210, 4230)],
                 "call_wall": 4170,
                 "put_wall": 4155,
                 "net_gex": 8.0,
@@ -262,13 +262,16 @@ def test_trade_targets_use_source_strikes_not_gamma_mean():
     ai = normalize_analyst_output(parsed, {}, {"bias": "WAIT", "analysis_status": "CONFIRMED"})
     trade = ai["trade_plan"]
 
+    # Triggers come from structural GEX walls, normalized to CFD.
     assert trade["long_trigger"] == 4145.33829
     assert trade["short_trigger"] == 4130.33829
+    # Execution targets must be real source strikes with structural spacing;
+    # Gamma Mean / gamma zones are context only.
     assert trade["long_tp1"] == 4150.33829
     assert trade["long_tp2"] == 4165.33829
     assert trade["long_tp3"] == 4185.33829
-    assert trade["short_tp1"] == 4110.33829
-    assert trade["short_tp2"] == 4090.33829
-    assert trade["short_tp3"] == 4075.33829
+    assert trade["short_tp1"] == 4075.33829
+    assert trade["short_tp2"] == 4055.33829
+    assert trade["short_tp3"] == 4035.33829
     assert trade["long_tp1"] != 4137.63829
     assert trade["short_tp1"] != 4137.63829
