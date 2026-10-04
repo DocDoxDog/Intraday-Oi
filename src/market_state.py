@@ -768,7 +768,11 @@ def _validate_or_clear_trade_plan(plan: dict[str, Any]) -> dict[str, Any]:
     out["long_status"] = "CONDITIONAL" if long_ok else "NO_TRADE"
     out["short_status"] = "CONDITIONAL" if short_ok else "NO_TRADE"
     out["status"] = "CONDITIONAL" if long_ok or short_ok else "NO_TRADE"
-    if out.get("direction") not in {"BUY", "SELL"}:
+    # Direction is actionable only when its corresponding side survives validation.
+    # Never preserve a stale BUY/SELL bias after both ladders fail.
+    if not long_ok and not short_ok:
+        out["direction"] = "WAIT"
+    elif out.get("direction") not in {"BUY", "SELL"}:
         out["direction"] = "WAIT"
 
     if not long_ok:
