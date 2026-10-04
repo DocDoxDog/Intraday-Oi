@@ -670,14 +670,34 @@ def _deterministic_trade_levels(
     # zones are structural reference points, not invented execution targets.
     # This prevents a target such as Gamma Mean 0.07 below the short trigger
     # from being presented as S1.
-    long_candidates = _unique_sorted([
-        value for value in strikes_cfd
-        if value is not None and long_entry is not None and value > long_entry
-    ])
-    short_candidates = _unique_sorted([
-        value for value in strikes_cfd
-        if value is not None and short_entry is not None and value < short_entry
-    ], reverse=True)
+    # Gold option strikes are commonly listed at $5 increments. Do not
+    # turn every adjacent strike into a "key level": that creates a noisy
+    # $5 ladder with no useful decision distance. Keep source-derived strikes
+    # only, but require at least $10 between execution targets.
+    def spaced_levels(candidates: list[float], anchor: float, *, reverse: bool = False) -> list[float]:
+        ordered = _unique_sorted(candidates, reverse=reverse)
+        out: list[float] = []
+        for value in ordered:
+            if not out:
+                if abs(value - anchor) < 10.0:
+                    continue
+                out.append(value)
+                continue
+            if abs(value - out[-1]) >= 10.0:
+                out.append(value)
+            if len(out) == 3:
+                break
+        return out
+
+    long_candidates = spaced_levels(
+        [value for value in strikes_cfd if value is not None and long_entry is not None and value > long_entry],
+        long_entry,
+    )
+    short_candidates = spaced_levels(
+        [value for value in strikes_cfd if value is not None and short_entry is not None and value < short_entry],
+        short_entry,
+        reverse=True,
+    )
     return {
         "long_trigger": long_entry,
         "long_stop": short_entry,
