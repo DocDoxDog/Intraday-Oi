@@ -118,6 +118,7 @@ def _format_levels_message(parsed: dict, ai_result: dict) -> str:
     scenarios = ai_result.get("scenarios") or {}
     state = raw.get("market_state") or {}
     gamma_state = state.get("gamma") or {}
+    gamma_zones = raw.get("multi_expiry_gamma_zones") or {}
     trade = ai_result.get("trade_plan") or {}
 
     def show(value):
@@ -130,7 +131,7 @@ def _format_levels_message(parsed: dict, ai_result: dict) -> str:
         f"R2  {show(trade.get('long_tp2'))}",
         f"R1  {show(trade.get('long_tp1'))}",
         f"Gamma Mean  {show(gamma_state.get('gamma_mean'))}",
-        f"Negative GEX Zone  {show(gamma_state.get('negative_zone'))}",
+        f"Negative GEX Zone  {show(gamma_state.get('negative_zone') if gamma_state.get('negative_zone') is not None else gamma_zones.get('highest_negative_gamma'))}",
         f"🔴 <b>SHORT TRIGGER</b> < {show(trade.get('short_trigger') or levels.get('support_current'))}",
         f"S1  {show(trade.get('short_tp1'))}",
         f"S2  {show(trade.get('short_tp2'))}",
