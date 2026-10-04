@@ -126,9 +126,9 @@ def _format_levels_message(parsed: dict, ai_result: dict) -> str:
     return "\n".join([
         "<b>KEY LEVELS — แผนที่ราคา</b>",
         f"🟢 <b>LONG TRIGGER</b>  > {show(trade.get('long_trigger') or levels.get('resistance_current'))}",
-        f"R1  {show(trade.get('long_tp1'))}",
-        f"R2  {show(trade.get('long_tp2'))}",
         f"R3  {show(trade.get('long_tp3'))}",
+        f"R2  {show(trade.get('long_tp2'))}",
+        f"R1  {show(trade.get('long_tp1'))}",
         f"Gamma Mean  {show(gamma_state.get('gamma_mean'))}",
         f"Negative GEX Zone  {show(gamma_state.get('negative_zone'))}",
         f"🔴 <b>SHORT TRIGGER</b> < {show(trade.get('short_trigger') or levels.get('support_current'))}",
