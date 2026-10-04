@@ -167,6 +167,21 @@ def _format_trade_plan_message(parsed: dict, ai_result: dict) -> str:
     """Render the same canonical map used by KEY LEVELS and SCENARIO."""
     trade = ai_result.get("trade_plan") or {}
     market_map = ai_result.get("market_map") or {}
+    # Backward-compatible adapter for direct renderer tests/callers that pass
+    # an already validated trade_plan. This does not invent any price.
+    if not market_map:
+        market_map = {
+            "R3": trade.get("long_tp3"),
+            "R2": trade.get("long_tp2"),
+            "R1": trade.get("long_tp1"),
+            "long_trigger": trade.get("long_trigger"),
+            "short_trigger": trade.get("short_trigger"),
+            "S1": trade.get("short_tp1"),
+            "S2": trade.get("short_tp2"),
+            "S3": trade.get("short_tp3"),
+            "long_status": "CONDITIONAL" if all(trade.get(k) is not None for k in ("long_trigger","long_stop","long_tp1","long_tp2","long_tp3")) else "NO_TRADE",
+            "short_status": "CONDITIONAL" if all(trade.get(k) is not None for k in ("short_trigger","short_stop","short_tp1","short_tp2","short_tp3")) else "NO_TRADE",
+        }
 
     def fmt(value):
         return _escape(_show(value))
