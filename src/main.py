@@ -130,7 +130,9 @@ def run():
     else:
         print("    ⏭️  ข้าม technical confirmation (ไม่มี Twelve Data key)")
 
-    print("[4/9] Uploading Gamma Table + OI screenshot to Supabase Storage...")
+    print("[4/9] Preparing Gamma Table + OI screenshot assets...")
+    # Gamma rendering waits until history is available so the image header can
+    # show the same timestamp/market context and a deterministic 1H GEX change.
     screenshot_bytes = parsed.pop("screenshot", None)
     screenshot_path = None
     screenshot_url = None
@@ -138,40 +140,6 @@ def run():
     gamma_table_url = None
     gamma_table_full_path = None
     gamma_table_full_url = None
-
-    gamma_matrix = (parsed.get("raw_series") or {}).get("multi_expiry_gamma")
-    if gamma_matrix and gamma_matrix.get("status") == "VALID":
-        try:
-            gamma_bytes = render_gamma_table(gamma_matrix)
-            uploaded_gamma = upload_screenshot(
-                gamma_bytes, contract=f"{parsed.get('contract')}_GAMMA_COMPACT"
-            )
-            if uploaded_gamma:
-                gamma_table_path = uploaded_gamma["path"]
-                gamma_table_url = uploaded_gamma["signed_url"]
-
-            full_bytes = render_gamma_table_full(gamma_matrix)
-            uploaded_full = upload_screenshot(
-                full_bytes, contract=f"{parsed.get('contract')}_GAMMA_FULL"
-            )
-            if uploaded_full:
-                gamma_table_full_path = uploaded_full["path"]
-                gamma_table_full_url = uploaded_full["signed_url"]
-            print("    ✅ Gamma Table compact + full uploaded")
-        except Exception as e:
-            print(f"⚠️  Gamma Table upload failed (continuing): {e}", file=sys.stderr)
-    if screenshot_bytes:
-        try:
-            uploaded = upload_screenshot(screenshot_bytes, contract=parsed.get("contract"))
-            if uploaded:
-                screenshot_path = uploaded["path"]
-                screenshot_url = uploaded["signed_url"]
-            print("    ✅ Screenshot uploaded")
-        except Exception as e:
-            print(f"⚠️  Screenshot upload failed (continuing without it): {e}", file=sys.stderr)
-    else:
-        print("    ⚠️  ไม่มี screenshot จากขั้นตอน scrape (ข้ามขั้นตอนนี้)")
-
     print("[5/9] Fetching history context (1H + 2H + today + yesterday)...")
     hist_context = history.get_context(contract=parsed.get("contract"))
     hr_ago_status = "พบ" if hist_context.get("hour_ago") else "ไม่พบ"
@@ -247,6 +215,69 @@ def run():
         }
     except Exception as e:
         print(f"⚠️  History comparison enrichment failed: {e}", file=sys.stderr)
+
+    print("[5.7/9] Rendering + uploading Gamma Table with snapshot context...")
+    gamma_matrix = (parsed.get("raw_series") or {}).get("multi_expiry_gamma")
+    if gamma_matrix and gamma_matrix.get("status") == "VALID":
+        try:
+            raw_series = parsed.get("raw_series") or {}
+            gex = raw_series.get("gex") or {}
+            current_gex = gex.get("net_gex")
+            hour_raw = (hist_context.get("hour_ago") or {}).get("raw_series") or {}
+            hour_gex = (hour_raw.get("gex") or {}).get("net_gex")
+            try:
+                current_gex = float(current_gex) if current_gex is not None else None
+            except (TypeError, ValueError):
+                current_gex = None
+            try:
+                hour_gex = float(hour_gex) if hour_gex is not None else None
+            except (TypeError, ValueError):
+                hour_gex = None
+
+            display_context = {
+                "observed_at": parsed.get("observed_at") or parsed.get("retrieved_at"),
+                "future_price": parsed.get("future_price"),
+                "cfd_price": parsed.get("cfd_price"),
+                "basis_diff": parsed.get("basis_diff"),
+                "iv": parsed.get("vol"),
+                "gex_change_1h": (
+                    current_gex - hour_gex
+                    if current_gex is not None and hour_gex is not None
+                    else None
+                ),
+            }
+            gamma_matrix["display_context"] = display_context
+
+            gamma_bytes = render_gamma_table(gamma_matrix, context=display_context)
+            uploaded_gamma = upload_screenshot(
+                gamma_bytes, contract=f"{parsed.get('contract')}_GAMMA_COMPACT"
+            )
+            if uploaded_gamma:
+                gamma_table_path = uploaded_gamma["path"]
+                gamma_table_url = uploaded_gamma["signed_url"]
+
+            full_bytes = render_gamma_table_full(gamma_matrix, context=display_context)
+            uploaded_full = upload_screenshot(
+                full_bytes, contract=f"{parsed.get('contract')}_GAMMA_FULL"
+            )
+            if uploaded_full:
+                gamma_table_full_path = uploaded_full["path"]
+                gamma_table_full_url = uploaded_full["signed_url"]
+            print("    ✅ Gamma Table compact(30 rows) + full uploaded")
+        except Exception as e:
+            print(f"⚠️  Gamma Table upload failed (continuing): {e}", file=sys.stderr)
+
+    if screenshot_bytes:
+        try:
+            uploaded = upload_screenshot(screenshot_bytes, contract=parsed.get("contract"))
+            if uploaded:
+                screenshot_path = uploaded["path"]
+                screenshot_url = uploaded["signed_url"]
+            print("    ✅ Screenshot uploaded")
+        except Exception as e:
+            print(f"⚠️  Screenshot upload failed (continuing without it): {e}", file=sys.stderr)
+    else:
+        print("    ⚠️  ไม่มี screenshot จากขั้นตอน scrape (ข้ามขั้นตอนนี้)")
 
     print("[5.8/9] Fetching governed macro/news announcements...")
     new_news_rows = []
