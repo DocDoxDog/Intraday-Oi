@@ -78,8 +78,8 @@ def _render(gamma_matrix: dict[str, Any], *, full: bool) -> bytes:
     all_columns = _observed_columns(gamma_matrix)
     display_columns = gamma_matrix.get("display_columns") or all_columns[:7]
     columns = all_columns if full else list(display_columns)
-    rows = list(gamma_matrix.get("matrix") or [])
-    if not columns or not rows:
+    all_rows = list(gamma_matrix.get("matrix") or [])
+    if not columns or not all_rows:
         raise ValueError("GAMMA_MATRIX_EMPTY")
 
     rows = all_rows if full else _compact_rows(gamma_matrix)
@@ -209,7 +209,7 @@ def _render(gamma_matrix: dict[str, Any], *, full: bool) -> bytes:
     else:
         subtitle = (
             f"All available observed strikes and series ({len(all_columns)}) "
-            "• $M per 1% move • blank = no source observation"
+            "• USD M per 1% move • blank = no source observation"
         )
 
     fig.suptitle(
