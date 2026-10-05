@@ -1,4 +1,8 @@
-from src.gamma_chart import render_gamma_table
+from src.gamma_chart import (
+    _compact_rows,
+    _display_strike,
+    render_gamma_table,
+)
 from src.telegram import format_message
 
 
@@ -80,3 +84,52 @@ def test_full_gamma_table_includes_all_available_strikes():
     assert compact.startswith(b"\x89PNG")
     assert full.startswith(b"\x89PNG")
     assert len(full) > len(compact)
+
+
+
+def test_compact_gamma_window_is_30_real_source_rows():
+    matrix = {
+        "current_price": 4200.0,
+        "columns": [{"code": "OGV6", "dte": 0.5}],
+        "matrix": [
+            {"strike": float(x), "OGV6": 1_000_000.0}
+            for x in range(4000, 4405, 5)
+        ],
+    }
+    rows = _compact_rows(matrix)
+    assert len(rows) == 30
+    assert max(row["strike"] for row in rows) - min(row["strike"] for row in rows) == 145.0
+    assert all(row in matrix["matrix"] for row in rows)
+
+
+def test_gamma_price_column_converts_futures_strike_to_cfd():
+    context = {
+        "future_price": 4200.0,
+        "cfd_price": 4175.0,
+    }
+    assert _display_strike(4250.0, context) == 4225.0
+
+
+def test_gamma_renderer_accepts_snapshot_metadata():
+    matrix = {
+        "current_price": 4200.0,
+        "columns": [{"code": "OGV6", "dte": 0.5}],
+        "matrix": [
+            {"strike": 4200.0, "OGV6": 1_000_000.0},
+            {"strike": 4205.0, "OGV6": -500_000.0},
+        ],
+        "totals": {"OGV6": 500_000.0},
+        "status": "VALID",
+    }
+    image = render_gamma_table(
+        matrix,
+        context={
+            "observed_at": "2026-10-05T13:02:00+00:00",
+            "future_price": 4200.0,
+            "cfd_price": 4175.0,
+            "basis_diff": 25.0,
+            "iv": 15.5,
+            "gex_change_1h": -2_000_000.0,
+        },
+    )
+    assert image.startswith(b"\x89PNG")
