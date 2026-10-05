@@ -204,7 +204,7 @@ def _render(gamma_matrix: dict[str, Any], *, full: bool) -> bytes:
         subtitle = (
             f"{len(rows)} source strikes around current Futures"
             + (f" • ~{source_span:.0f} source span" if source_span is not None else "")
-            + " • PRICE converted to CFD • DTE in header • $M per 1% move"
+            + " • PRICE converted to CFD • DTE in header • USD M per 1% move"
         )
     else:
         subtitle = (
