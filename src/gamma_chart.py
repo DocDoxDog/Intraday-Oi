@@ -2,8 +2,13 @@
 
 from __future__ import annotations
 
+from datetime import datetime, timedelta, timezone
 from io import BytesIO
 from typing import Any
+
+
+BANGKOK_TZ = timezone(timedelta(hours=7))
+COMPACT_ROW_COUNT = 30
 
 
 def _observed_columns(gamma_matrix: dict[str, Any]) -> list[dict[str, Any]]:
@@ -12,6 +17,57 @@ def _observed_columns(gamma_matrix: dict[str, Any]) -> list[dict[str, Any]]:
         if c.get("status") == "OBSERVED"
     ]
     return columns or list(gamma_matrix.get("columns") or [])
+
+
+def _compact_rows(
+    gamma_matrix: dict[str, Any],
+    *,
+    row_count: int = COMPACT_ROW_COUNT,
+) -> list[dict[str, Any]]:
+    """Select up to 30 real source strikes around current Futures price."""
+    rows = [
+        row for row in (gamma_matrix.get("matrix") or [])
+        if isinstance(row, dict) and isinstance(row.get("strike"), (int, float))
+    ]
+    current_price = gamma_matrix.get("current_price")
+    if isinstance(current_price, (int, float)) and len(rows) > row_count:
+        rows = sorted(
+            rows,
+            key=lambda row: abs(float(row["strike"]) - float(current_price)),
+        )[:row_count]
+    return sorted(rows, key=lambda row: float(row["strike"]), reverse=True)
+
+
+def _num(value: Any) -> float | None:
+    if value is None or value == "":
+        return None
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _format_time(value: Any) -> str:
+    if value is None or value == "":
+        return "UNKNOWN"
+    try:
+        dt = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+    except (TypeError, ValueError):
+        return str(value)
+    if dt.tzinfo is None:
+        return str(value)
+    return dt.astimezone(BANGKOK_TZ).strftime("%d %b %Y %H:%M ICT")
+
+
+def _display_strike(strike_futures: Any, context: dict[str, Any]) -> float | None:
+    strike = _num(strike_futures)
+    future = _num(context.get("future_price"))
+    cfd = _num(context.get("cfd_price"))
+    if strike is None:
+        return None
+    if future is None or cfd is None:
+        return strike
+    return round(strike - future + cfd, 5)
 
 
 def _render(gamma_matrix: dict[str, Any], *, full: bool) -> bytes:
@@ -26,20 +82,15 @@ def _render(gamma_matrix: dict[str, Any], *, full: bool) -> bytes:
     if not columns or not rows:
         raise ValueError("GAMMA_MATRIX_EMPTY")
 
-    current_price = gamma_matrix.get("current_price")
-    if (
-        not full
-        and isinstance(current_price, (int, float))
-        and len(rows) > 31
-    ):
-        rows = sorted(
-            rows,
-            key=lambda row: abs(
-                float(row.get("strike", 0)) - float(current_price)
-            ),
-        )[:25]
+    rows = all_rows if full else _compact_rows(gamma_matrix)
+    if not rows:
+        raise ValueError("GAMMA_MATRIX_EMPTY")
 
-    rows = sorted(rows, key=lambda row: float(row["strike"]), reverse=True)
+    context = gamma_matrix.get("display_context") or {}
+    display_in_cfd = (
+        _num(context.get("future_price")) is not None
+        and _num(context.get("cfd_price")) is not None
+    )
 
     ncols = len(columns)
     fig_width = max(12.5, 2.0 + 1.65 * ncols)
@@ -56,7 +107,9 @@ def _render(gamma_matrix: dict[str, Any], *, full: bool) -> bytes:
     )
     ax.axis("off")
 
-    headers = ["PRICE"] + [
+    headers = [
+        "PRICE (CFD)" if display_in_cfd else "PRICE (FUTURES)"
+    ] + [
         (
             f"{col.get('code', 'UNKNOWN')}\n"
             f"DTE {float(col['dte']):.2f}"
@@ -70,7 +123,10 @@ def _render(gamma_matrix: dict[str, Any], *, full: bool) -> bytes:
     cell_colors: list[list[str]] = []
 
     for row in rows:
-        values = [f"{float(row['strike']):.2f}"]
+        displayed_strike = _display_strike(row.get("strike"), context)
+        values = [
+            f"{displayed_strike:,.2f}" if displayed_strike is not None else "UNKNOWN"
+        ]
         colors = ["#eeeeee"]
         for col in columns:
             value = row.get(col["code"])
@@ -134,17 +190,54 @@ def _render(gamma_matrix: dict[str, Any], *, full: bool) -> bytes:
         if full
         else "GOLD GAMMA TABLE — Multi-Expiration"
     )
-    subtitle = (
-        f"All available observed strikes and series ({len(all_columns)}) • $M per 1% move • blank = no source observation"
-        if full
-        else "25 strikes around current Futures price • DTE shown in header • $M per 1% move"
-    )
+    if not full:
+        source_strikes = [
+            _num(row.get("strike"))
+            for row in rows
+            if _num(row.get("strike")) is not None
+        ]
+        source_span = (
+            max(source_strikes) - min(source_strikes)
+            if len(source_strikes) >= 2
+            else None
+        )
+        subtitle = (
+            f"{len(rows)} source strikes around current Futures"
+            + (f" • ~{source_span:.0f} source span" if source_span is not None else "")
+            + " • PRICE converted to CFD • DTE in header • $M per 1% move"
+        )
+    else:
+        subtitle = (
+            f"All available observed strikes and series ({len(all_columns)}) "
+            "• $M per 1% move • blank = no source observation"
+        )
 
     fig.suptitle(
         title,
         fontsize=17 if not full else 15,
         weight="bold",
         y=0.985,
+    )
+
+    meta_parts = [
+        f"TIME {_format_time(context.get('observed_at'))}",
+        f"CFD {_num(context.get('cfd_price')):,.2f}" if _num(context.get("cfd_price")) is not None else "CFD UNKNOWN",
+        f"FUTURES {_num(context.get('future_price')):,.2f}" if _num(context.get("future_price")) is not None else "FUTURES UNKNOWN",
+        f"BASIS {_num(context.get('basis_diff')):,.2f}" if _num(context.get("basis_diff")) is not None else "BASIS UNKNOWN",
+        f"IV {_num(context.get('iv')):.2f}%" if _num(context.get("iv")) is not None else "IV UNKNOWN",
+        (
+            f"GEX CHANGE (1H) {_num(context.get('gex_change_1h')) / 1_000_000:+.2f}M"
+            if _num(context.get("gex_change_1h")) is not None
+            else "GEX CHANGE (1H) UNKNOWN"
+        ),
+    ]
+    fig.text(
+        0.5,
+        0.945 if not full else 0.96,
+        " | ".join(meta_parts),
+        ha="center",
+        fontsize=9.5 if not full else 9,
+        weight="bold",
     )
     fig.text(0.5, 0.015, subtitle, ha="center", fontsize=8)
 
@@ -166,11 +259,19 @@ def _render(gamma_matrix: dict[str, Any], *, full: bool) -> bytes:
 def render_gamma_table(
     gamma_matrix: dict[str, Any],
     title: str = "Gold Gamma Table",
+    context: dict[str, Any] | None = None,
 ) -> bytes:
     """Compact table for the primary user-facing Gamma image."""
+    if context:
+        gamma_matrix = dict(gamma_matrix, display_context=dict(context))
     return _render(gamma_matrix, full=False)
 
 
-def render_gamma_table_full(gamma_matrix: dict[str, Any]) -> bytes:
+def render_gamma_table_full(
+    gamma_matrix: dict[str, Any],
+    context: dict[str, Any] | None = None,
+) -> bytes:
     """Full available observed matrix, every stored strike."""
+    if context:
+        gamma_matrix = dict(gamma_matrix, display_context=dict(context))
     return _render(gamma_matrix, full=True)
