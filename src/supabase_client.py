@@ -133,7 +133,26 @@ def insert_news_announcements(items: list[dict]) -> list[dict]:
     if not new_items:
         return []
 
-    result = client.table("news_announcements").insert(new_items).execute()
+    # Keep persistence compatible with the deployed news_announcements schema.
+    # freshness/market_channels are derived analyst metadata and remain in the
+    # in-memory news_context; older deployments do not have those columns.
+    persistable_keys = {
+        "source",
+        "external_id",
+        "headline",
+        "summary",
+        "url",
+        "published_at",
+        "detected_at",
+        "category",
+        "relevance",
+        "rights_status",
+    }
+    payload = [
+        {key: value for key, value in item.items() if key in persistable_keys}
+        for item in new_items
+    ]
+    result = client.table("news_announcements").insert(payload).execute()
     return result.data or []
 
 def can_notify(channel: str, cooldown_minutes: int = 30) -> tuple[bool, float | None]:
