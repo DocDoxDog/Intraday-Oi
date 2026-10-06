@@ -33,12 +33,14 @@ def _side_confirmation(state: dict[str, Any], side: str, current: float | None, 
     if current is None or trigger is None:
         return {"state": "DATA_INSUFFICIENT", "conditions": []}
 
+    htf = str((((state.get("decision_framework") or {}).get("steps") or {}).get("1_market_state") or {}).get("htf_structure") or "mixed").lower()
     if side == "LONG":
-        aligned = _trend(state, "m15") == "bullish" and _trend(state, "m5") == "bullish"
+        aligned = htf == "bullish" and _trend(state, "m15") == "bullish" and _trend(state, "m5") == "bullish"
         bos_ok = _bos(state, "m5") in {"bullish", "bull", "up", "bos_up", "break_up"}
         momentum = _momentum(state, "m5")
         location = current > trigger
         conditions = [
+            "htf_bullish" if htf == "bullish" else "htf_not_bullish",
             "price_above_trigger" if location else "waiting_break_above_trigger",
             "m15_bullish" if _trend(state, "m15") == "bullish" else "m15_not_bullish",
             "m5_bullish" if _trend(state, "m5") == "bullish" else "m5_not_bullish",
@@ -50,11 +52,12 @@ def _side_confirmation(state: dict[str, Any], side: str, current: float | None, 
             return {"state": "TRIGGERED_WAIT_CONFIRMATION", "conditions": conditions, "momentum": momentum}
         return {"state": "ARMED", "conditions": conditions, "momentum": momentum}
 
-    aligned = _trend(state, "m15") == "bearish" and _trend(state, "m5") == "bearish"
+    aligned = htf == "bearish" and _trend(state, "m15") == "bearish" and _trend(state, "m5") == "bearish"
     bos_ok = _bos(state, "m5") in {"bearish", "bear", "down", "bos_down", "break_down"}
     momentum = _momentum(state, "m5")
     location = current < trigger
     conditions = [
+        "htf_bearish" if htf == "bearish" else "htf_not_bearish",
         "price_below_trigger" if location else "waiting_break_below_trigger",
         "m15_bearish" if _trend(state, "m15") == "bearish" else "m15_not_bearish",
         "m5_bearish" if _trend(state, "m5") == "bearish" else "m5_not_confirmed",
