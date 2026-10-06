@@ -113,10 +113,11 @@ def test_trade_plan_accepts_sparse_source_targets_but_needs_tp1():
     assert market_map["S2"] is None or market_map["S3"] is None
 
 
-def test_trade_plan_is_no_trade_when_no_source_tp1_exists():
+def test_trade_plan_keeps_trigger_roadmap_without_source_tp1():
     parsed = _snapshot("2026-10-02T13:00:00+00:00", 4300, 100, 200)
     parsed.update({"cfd_price": 4297, "basis_diff": 3, "observed_at": "2026-10-02T13:00:00+00:00"})
-    # Remove every strike beyond both structural walls.
+    # Remove every strike beyond both structural walls: there is no TP1,
+    # but the Call/Put walls remain valid trigger/invalidation levels.
     parsed["raw_series"]["gex"]["rows"] = [
         {"strike": 4200, "net_gex": -100},
         {"strike": 4400, "net_gex": 100},
@@ -128,9 +129,16 @@ def test_trade_plan_is_no_trade_when_no_source_tp1_exists():
         {"analysis_status": "CONFIRMED", "bias": "WAIT", "trade_plan": {"status": "NO_TRADE"}},
     )
     trade = ai["trade_plan"]
-    assert trade["status"] == "NO_TRADE"
-    assert ai["market_map"]["long_status"] == "NO_TRADE"
-    assert ai["market_map"]["short_status"] == "NO_TRADE"
+    market_map = ai["market_map"]
+    assert trade["status"] == "CONDITIONAL"
+    assert market_map["long_status"] == "CONDITIONAL"
+    assert market_map["short_status"] == "CONDITIONAL"
+    assert market_map["long_trigger"] == 4297.0
+    assert market_map["short_trigger"] == 4097.0
+    assert trade["long_tp1"] is None
+    assert trade["short_tp1"] is None
+    assert trade["execution_plan"]["long"]["state"] in {"ARMED", "TRIGGERED_WAIT_RISK_REWARD"}
+    assert trade["execution_plan"]["short"]["state"] in {"ARMED", "TRIGGERED_WAIT_RISK_REWARD"}
 
 
 def test_source_oi_change_churn_and_eod_are_exposed_separately():
