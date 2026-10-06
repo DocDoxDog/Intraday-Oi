@@ -98,8 +98,16 @@ def enrich_quant_metrics(parsed: dict[str, Any], history: dict[str, Any] | None 
         if put_chg is not None and call_chg is not None
         else None
     )
-    activity_share_call = _ratio(abs(call_chg), activity_total)
-    activity_share_put = _ratio(abs(put_chg), activity_total)
+    activity_share_call = (
+        _ratio(abs(call_chg), activity_total)
+        if call_chg is not None and activity_total is not None
+        else None
+    )
+    activity_share_put = (
+        _ratio(abs(put_chg), activity_total)
+        if put_chg is not None and activity_total is not None
+        else None
+    )
 
     gex_per_oi = _ratio(gex, oi_total)
 
