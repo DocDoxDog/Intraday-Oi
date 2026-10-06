@@ -116,6 +116,15 @@
       "output_schema": "schemas/llm/news_score_v1.json",
       "output_schema_version": "news-score.v1",
       "enabled": true
+    },
+    "market.analyst_v3": {
+      "route": "standard",
+      "fallback": "fast",
+      "temperature": 0.1,
+      "max_output_tokens": 4200,
+      "output_schema": "schemas/llm/market_analyst_v3.json",
+      "output_schema_version": "market-analyst.v3",
+      "enabled": true
     }
   },
   "source_of_truth": "repository_config"
