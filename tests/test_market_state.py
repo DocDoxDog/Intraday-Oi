@@ -91,7 +91,7 @@ def test_history_summary_always_covers_three_horizons():
     assert "YESTERDAY:" in summary
 
 
-def test_trade_plan_fails_closed_when_source_targets_are_incomplete():
+def test_trade_plan_accepts_sparse_source_targets_but_needs_tp1():
     parsed = _snapshot("2026-10-02T13:00:00+00:00", 4300, 100, 200)
     parsed.update({"cfd_price": 4297, "basis_diff": 3, "observed_at": "2026-10-02T13:00:00+00:00"})
     enrich_market_state(parsed, {})
@@ -101,9 +101,36 @@ def test_trade_plan_fails_closed_when_source_targets_are_incomplete():
         {"analysis_status": "CONFIRMED", "bias": "WAIT", "trade_plan": {"status": "NO_TRADE"}},
     )
     trade = ai["trade_plan"]
+    market_map = ai["market_map"]
+    # The fixture has only one usable source target per side. That is enough
+    # for a conditional roadmap; missing TP2/TP3 must remain UNKNOWN.
+    assert trade["status"] == "AVAILABLE"
+    assert market_map["long_status"] == "AVAILABLE"
+    assert market_map["short_status"] == "AVAILABLE"
+    assert market_map["R1"] is not None
+    assert market_map["S1"] is not None
+    assert market_map["R2"] is None or market_map["R3"] is None
+    assert market_map["S2"] is None or market_map["S3"] is None
+
+
+def test_trade_plan_is_no_trade_when_no_source_tp1_exists():
+    parsed = _snapshot("2026-10-02T13:00:00+00:00", 4300, 100, 200)
+    parsed.update({"cfd_price": 4297, "basis_diff": 3, "observed_at": "2026-10-02T13:00:00+00:00"})
+    # Remove every strike beyond both structural walls.
+    parsed["raw_series"]["gex"]["rows"] = [
+        {"strike": 4200, "net_gex": -100},
+        {"strike": 4400, "net_gex": 100},
+    ]
+    enrich_market_state(parsed, {})
+    ai = normalize_analyst_output(
+        parsed,
+        {},
+        {"analysis_status": "CONFIRMED", "bias": "WAIT", "trade_plan": {"status": "NO_TRADE"}},
+    )
+    trade = ai["trade_plan"]
     assert trade["status"] == "NO_TRADE"
-    assert trade["direction"] == "WAIT"
-    assert trade["long_tp1"] is None or trade["short_tp3"] is None
+    assert ai["market_map"]["long_status"] == "UNAVAILABLE"
+    assert ai["market_map"]["short_status"] == "UNAVAILABLE"
 
 
 def test_source_oi_change_churn_and_eod_are_exposed_separately():
@@ -160,3 +187,19 @@ def test_decision_framework_records_source_oi_change_separately_from_eod():
     assert positioning["source_oi_change"]["call"] == -84
     assert positioning["churn"] == 21
     assert positioning["warning"].startswith("OI change/churn")
+
+def test_market_map_exposes_gamma_band_location():
+    parsed = _snapshot("2026-10-02T13:00:00+00:00", 4300, 100, 200)
+    parsed.update({"cfd_price": 4297, "basis_diff": 3, "observed_at": "2026-10-02T13:00:00+00:00"})
+    enrich_market_state(parsed, {})
+    ai = normalize_analyst_output(
+        parsed,
+        {},
+        {"analysis_status": "CONFIRMED", "bias": "WAIT", "trade_plan": {"status": "NO_TRADE"}},
+    )
+    market_map = ai["market_map"]
+    assert market_map["roles"]["long_trigger"] == "CALL_WALL"
+    assert market_map["roles"]["short_trigger"] == "PUT_WALL"
+    assert market_map["location_state"] == "INSIDE_GAMMA_BAND"
+
+
