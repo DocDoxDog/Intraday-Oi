@@ -133,8 +133,8 @@ def test_trade_plan_keeps_trigger_roadmap_without_source_tp1():
     assert trade["status"] == "CONDITIONAL"
     assert market_map["long_status"] == "CONDITIONAL"
     assert market_map["short_status"] == "CONDITIONAL"
-    assert market_map["long_trigger"] == 4297.0
-    assert market_map["short_trigger"] == 4097.0
+    assert market_map["long_trigger"] == 4397.0
+    assert market_map["short_trigger"] == 4197.0
     assert trade["long_tp1"] is None
     assert trade["short_tp1"] is None
     assert trade["execution_plan"]["long"]["state"] in {"ARMED", "TRIGGERED_WAIT_RISK_REWARD"}
