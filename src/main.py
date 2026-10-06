@@ -39,6 +39,7 @@ from src.multi_expiry import build_gamma_matrix, summarize_gamma_zones, merge_ex
 from src.gamma_chart import render_gamma_table, render_gamma_table_full
 from src.news_announcement import collect_news, format_news_announcement
 from src.market_state import enrich_market_state, normalize_analyst_output
+from src.quant_metrics import enrich_quant_metrics
 from intelligence.news.free_feed import collect_free_news
 
 
@@ -320,6 +321,7 @@ def run():
     # Deterministic state is prepared AFTER news so the same governed input
     # reaches both the analyst and the Telegram/LINE renderers.
     parsed = enrich_market_state(parsed, hist_context)
+    parsed = enrich_quant_metrics(parsed, hist_context)
     market_state = (parsed.get("raw_series") or {}).get("market_state") or {}
     print(
         f"    market state: CFD={'OK' if market_state.get('cfd_complete') else 'UNKNOWN'} | "
