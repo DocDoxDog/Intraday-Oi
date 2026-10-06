@@ -38,7 +38,7 @@ def _side_confirmation(state: dict[str, Any], side: str, current: float | None, 
         aligned = htf == "bullish" and _trend(state, "m15") == "bullish" and _trend(state, "m5") == "bullish"
         bos_ok = _bos(state, "m5") in {"bullish", "bull", "up", "bos_up", "break_up"}
         momentum = _momentum(state, "m5")
-        location = current > trigger
+        location = current >= trigger
         conditions = [
             "htf_bullish" if htf == "bullish" else "htf_not_bullish",
             "price_above_trigger" if location else "waiting_break_above_trigger",
@@ -55,7 +55,7 @@ def _side_confirmation(state: dict[str, Any], side: str, current: float | None, 
     aligned = htf == "bearish" and _trend(state, "m15") == "bearish" and _trend(state, "m5") == "bearish"
     bos_ok = _bos(state, "m5") in {"bearish", "bear", "down", "bos_down", "break_down"}
     momentum = _momentum(state, "m5")
-    location = current < trigger
+    location = current <= trigger
     conditions = [
         "htf_bearish" if htf == "bearish" else "htf_not_bearish",
         "price_below_trigger" if location else "waiting_break_below_trigger",
