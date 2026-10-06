@@ -118,6 +118,8 @@ def verify_output(
             for key in (
                 "market_overview", "what", "why", "positioning",
                 "levels", "scenarios", "trade_plan", "bias",
+                "regime", "facts", "interpretations", "conflicts",
+                "why_not_long", "why_not_short", "uncertainties", "narrative",
             )
             if key in output
         }
@@ -162,6 +164,14 @@ def verify_output(
         "limit order",
         "stop loss order",
         "take profit order",
+        "dealer is short gamma",
+        "dealer is long gamma",
+        "market maker is short gamma",
+        "market maker is long gamma",
+        "dealers are short gamma",
+        "dealers are long gamma",
+        "market makers are short gamma",
+        "market makers are long gamma",
     )
     forbidden_claims = [
         pattern for pattern in forbidden_patterns if pattern in claim_text
