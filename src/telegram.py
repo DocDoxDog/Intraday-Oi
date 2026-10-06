@@ -126,9 +126,12 @@ def _format_levels_message(parsed: dict, ai_result: dict) -> str:
     def show(value):
         return _escape(_show(value))
 
-    # Backward-compatible adapter for direct renderer callers. It only maps
-    # already-supplied validated trade fields; it never creates a price.
+    # Backward-compatible adapter for direct renderer callers. A side is
+    # available when trigger + stop + TP1 exist; TP2/TP3 may legitimately be
+    # absent in sparse/near-expiry source books.
     if not market_map:
+        long_available = all(trade.get(k) is not None for k in ("long_trigger", "long_stop", "long_tp1"))
+        short_available = all(trade.get(k) is not None for k in ("short_trigger", "short_stop", "short_tp1"))
         market_map = {
             "R3": trade.get("long_tp3"),
             "R2": trade.get("long_tp2"),
@@ -138,27 +141,30 @@ def _format_levels_message(parsed: dict, ai_result: dict) -> str:
             "S1": trade.get("short_tp1"),
             "S2": trade.get("short_tp2"),
             "S3": trade.get("short_tp3"),
-            "long_status": "CONDITIONAL" if all(trade.get(k) is not None for k in ("long_trigger","long_stop","long_tp1","long_tp2","long_tp3")) else "NO_TRADE",
-            "short_status": "CONDITIONAL" if all(trade.get(k) is not None for k in ("short_trigger","short_stop","short_tp1","short_tp2","short_tp3")) else "NO_TRADE",
+            "long_status": "AVAILABLE" if long_available else "UNAVAILABLE",
+            "short_status": "AVAILABLE" if short_available else "UNAVAILABLE",
         }
     long_trigger = market_map.get("long_trigger")
     short_trigger = market_map.get("short_trigger")
+    current_cfd = (state.get("price") or {}).get("cfd")
+    pivot = market_map.get("pivot")
 
     return "\n".join([
         "<b>KEY LEVELS — แผนที่ราคา</b>",
         f"R3  {show(market_map.get('R3'))}",
         f"R2  {show(market_map.get('R2'))}",
         f"R1  {show(market_map.get('R1'))}",
-        f"🟢 <b>LONG TRIGGER</b>  &gt; {show(long_trigger)}",
+        f"🟢 <b>LONG TRIGGER</b>  &gt; {show(long_trigger)} ({_escape((market_map.get('roles') or {}).get('long_trigger') or 'CALL_WALL')})",
+        f"Gamma Mean / Pivot  {show(pivot if pivot is not None else gamma_state.get('gamma_mean'))}",
         f"Positive Gamma Zone  {show(gamma_state.get('positive_zone') if gamma_state.get('positive_zone') is not None else gamma_zones.get('highest_positive_gamma'))}",
-        f"Gamma Mean  {show(gamma_state.get('gamma_mean'))}",
         f"Negative GEX Zone  {show(gamma_state.get('negative_zone') if gamma_state.get('negative_zone') is not None else gamma_zones.get('highest_negative_gamma'))}",
-        f"🔴 <b>SHORT TRIGGER</b> &lt; {show(short_trigger)}",
+        f"🔴 <b>SHORT TRIGGER</b> &lt; {show(short_trigger)} ({_escape((market_map.get('roles') or {}).get('short_trigger') or 'PUT_WALL')})",
         f"S1  {show(market_map.get('S1'))}",
         f"S2  {show(market_map.get('S2'))}",
         f"S3  {show(market_map.get('S3'))}",
         "",
-        f"LONG: <b>{_escape(market_map.get('long_status') or 'NO_TRADE')}</b> | SHORT: <b>{_escape(market_map.get('short_status') or 'NO_TRADE')}</b>",
+        f"Price location: <b>{_escape(market_map.get('location_state') or 'UNKNOWN')}</b>",
+        f"LONG levels: <b>{_escape(market_map.get('long_status') or 'UNAVAILABLE')}</b> | SHORT levels: <b>{_escape(market_map.get('short_status') or 'UNAVAILABLE')}</b>",
         "",
         "<b>GAMMA TERM STRUCTURE</b>",
         f"<b>{len(gamma.get('columns') or [])}</b> expirations",
@@ -178,9 +184,11 @@ def _format_trade_plan_message(parsed: dict, ai_result: dict) -> str:
     """Render the same canonical map used by KEY LEVELS and SCENARIO."""
     trade = ai_result.get("trade_plan") or {}
     market_map = ai_result.get("market_map") or {}
-    # Backward-compatible adapter for direct renderer tests/callers that pass
-    # an already validated trade_plan. This does not invent any price.
+    # Backward-compatible adapter for direct renderer tests/callers.
+    # A valid side needs trigger + stop + TP1. Later targets are optional.
     if not market_map:
+        long_available = all(trade.get(k) is not None for k in ("long_trigger", "long_stop", "long_tp1"))
+        short_available = all(trade.get(k) is not None for k in ("short_trigger", "short_stop", "short_tp1"))
         market_map = {
             "R3": trade.get("long_tp3"),
             "R2": trade.get("long_tp2"),
@@ -190,47 +198,58 @@ def _format_trade_plan_message(parsed: dict, ai_result: dict) -> str:
             "S1": trade.get("short_tp1"),
             "S2": trade.get("short_tp2"),
             "S3": trade.get("short_tp3"),
-            "long_status": "CONDITIONAL" if all(trade.get(k) is not None for k in ("long_trigger","long_stop","long_tp1","long_tp2","long_tp3")) else "NO_TRADE",
-            "short_status": "CONDITIONAL" if all(trade.get(k) is not None for k in ("short_trigger","short_stop","short_tp1","short_tp2","short_tp3")) else "NO_TRADE",
+            "long_status": "AVAILABLE" if long_available else "UNAVAILABLE",
+            "short_status": "AVAILABLE" if short_available else "UNAVAILABLE",
         }
 
     def fmt(value):
         return _escape(_show(value))
 
-    long_ok = str(market_map.get("long_status") or "NO_TRADE").upper() == "CONDITIONAL"
-    short_ok = str(market_map.get("short_status") or "NO_TRADE").upper() == "CONDITIONAL"
+    execution = trade.get("execution_plan") or {}
+    long_exec = execution.get("long") or {}
+    short_exec = execution.get("short") or {}
+    long_state = str(long_exec.get("state") or ("ARMED" if market_map.get("long_status") == "AVAILABLE" else "UNAVAILABLE")).upper()
+    short_state = str(short_exec.get("state") or ("ARMED" if market_map.get("short_status") == "AVAILABLE" else "UNAVAILABLE")).upper()
+
+    def target_lines(side: str, labels: tuple[str, ...]) -> list[str]:
+        prefix = "" if side == "LONG" else "S"
+        source = [market_map.get(label) for label in labels]
+        return [f"เป้าหมาย {i + 1}: {fmt(value)}" for i, value in enumerate(source) if value is not None]
 
     lines = [
         "<b>TRADE PLAN</b>",
+        f"Overall state: <b>{_escape(str(execution.get('state') or trade.get('status') or 'UNKNOWN').upper())}</b>",
         "",
-        "🟢 <b>LONG — แผนฝั่งขึ้น</b>",
+        f"🟢 <b>LONG — { _escape(long_state) }</b>",
     ]
-    if long_ok:
+    if long_state not in {"UNAVAILABLE", "DATA_INSUFFICIENT"}:
         lines += [
-            f"เข้าเมื่อ: เบรกเหนือ {fmt(market_map.get('long_trigger'))} แล้วกลับมาทดสอบและยืนได้",
-            f"ยกเลิกแผนเมื่อ: หลุด {fmt(trade.get('long_stop'))}",
-            f"เป้าหมาย 1: {fmt(market_map.get('R1'))}",
-            f"เป้าหมาย 2: {fmt(market_map.get('R2'))}",
-            f"เป้าหมาย 3: {fmt(market_map.get('R3'))}",
+            f"Trigger: {fmt(market_map.get('long_trigger'))} → break/accept + M15/M5 confirmation",
+            f"Invalidation: {fmt(trade.get('long_stop'))}",
+            *target_lines("LONG", ("R1", "R2", "R3")),
         ]
+        rr = long_exec.get("rr") or []
+        if any(x is not None for x in rr):
+            lines.append("RR: " + " | ".join(f"{i + 1}R={fmt(x)}" for i, x in enumerate(rr) if x is not None))
     else:
-        lines.append("NO_TRADE — ระดับฝั่งขึ้นไม่ครบหรือไม่ผ่าน validation")
+        lines.append("ยังสร้างแผนไม่ได้ — source trigger/stop/TP1 ไม่ครบ")
 
-    lines += ["", "🔴 <b>SHORT — แผนฝั่งลง</b>"]
-    if short_ok:
+    lines += ["", f"🔴 <b>SHORT — { _escape(short_state) }</b>"]
+    if short_state not in {"UNAVAILABLE", "DATA_INSUFFICIENT"}:
         lines += [
-            f"เข้าเมื่อ: หลุด {fmt(market_map.get('short_trigger'))} แล้วรีเทสต์ไม่ผ่าน",
-            f"ยกเลิกแผนเมื่อ: กลับเหนือ {fmt(trade.get('short_stop'))}",
-            f"เป้าหมาย 1: {fmt(market_map.get('S1'))}",
-            f"เป้าหมาย 2: {fmt(market_map.get('S2'))}",
-            f"เป้าหมาย 3: {fmt(market_map.get('S3'))}",
+            f"Trigger: {fmt(market_map.get('short_trigger'))} → break/retest-fail + M15/M5 confirmation",
+            f"Invalidation: {fmt(trade.get('short_stop'))}",
+            *target_lines("SHORT", ("S1", "S2", "S3")),
         ]
+        rr = short_exec.get("rr") or []
+        if any(x is not None for x in rr):
+            lines.append("RR: " + " | ".join(f"{i + 1}R={fmt(x)}" for i, x in enumerate(rr) if x is not None))
     else:
-        lines.append("NO_TRADE — ระดับฝั่งลงไม่ครบหรือไม่ผ่าน validation")
+        lines.append("ยังสร้างแผนไม่ได้ — source trigger/stop/TP1 ไม่ครบ")
 
     lines += [
         "",
-        f"Status: <b>{_escape(str(trade.get('status') or 'NO_TRADE').upper())}</b> | "
+        f"Status: <b>{_escape(str(execution.get('state') or trade.get('status') or 'UNKNOWN').upper())}</b> | "
         f"Bias: <b>{_escape(str(ai_result.get('bias') or 'WAIT').upper())}</b>",
     ]
     return "\n".join(lines)
