@@ -6,7 +6,7 @@ def _state(price=4210.0):
         "price": {"cfd": price},
         "levels": {"resistance_current": 4200.0, "support_current": 4175.0,
                    "resistance_main": 4200.0, "support_main": 4175.0},
-        "market_map": {"R1": 4220.0, "R2": 4240.0, "R3": 4260.0,
+        "market_map": {"R1": 4230.0, "R2": 4250.0, "R3": 4270.0,
                        "S1": 4160.0, "S2": 4140.0, "S3": 4120.0},
         "decision_framework": {"steps": {"1_market_state": {"htf_structure": "bullish"}}},
         "technical": {
