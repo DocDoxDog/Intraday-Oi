@@ -104,9 +104,9 @@ def test_trade_plan_accepts_sparse_source_targets_but_needs_tp1():
     market_map = ai["market_map"]
     # The fixture has only one usable source target per side. That is enough
     # for a conditional roadmap; missing TP2/TP3 must remain UNKNOWN.
-    assert trade["status"] == "AVAILABLE"
-    assert market_map["long_status"] == "AVAILABLE"
-    assert market_map["short_status"] == "AVAILABLE"
+    assert trade["status"] == "CONDITIONAL"
+    assert market_map["long_status"] == "CONDITIONAL"
+    assert market_map["short_status"] == "CONDITIONAL"
     assert market_map["R1"] is not None
     assert market_map["S1"] is not None
     assert market_map["R2"] is None or market_map["R3"] is None
