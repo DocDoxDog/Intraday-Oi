@@ -107,14 +107,22 @@ def build_trade_execution_plan(state: dict[str, Any]) -> dict[str, Any]:
 
     def side_payload(side: str, trigger: float | None, stop: float | None, targets: list[float | None], conf: dict[str, Any]) -> dict[str, Any]:
         rr = [_risk_reward(side, trigger, stop, x) for x in targets]
+        risk_per_unit = abs(trigger - stop) if trigger is not None and stop is not None else None
+        rr1_ok = rr[0] is not None and rr[0] >= 1.0
+        effective_state = conf["state"]
+        if effective_state == "CONFIRMED" and not rr1_ok:
+            effective_state = "TRIGGERED_WAIT_RISK_REWARD"
         return {
             "side": side,
-            "state": conf["state"],
+            "state": effective_state,
             "trigger": trigger,
             "entry_reference": trigger,
             "stop": stop,
             "targets": targets,
             "rr": rr,
+            "risk_per_unit": risk_per_unit,
+            "minimum_rr1": 1.0,
+            "rr1_eligible": rr1_ok,
             "confirmation": conf["conditions"],
             "position_sizing": "risk_budget / abs(entry_reference - stop); execution engine applies contract value, tick size and max-risk limits",
             "cancel_if": (
@@ -127,7 +135,9 @@ def build_trade_execution_plan(state: dict[str, Any]) -> dict[str, Any]:
 
     # A confirmed side is still only a research signal; Ai-trader must enforce
     # portfolio risk and broker constraints before execution.
-    status = "CONFIRMED" if long_conf["state"] == "CONFIRMED" or short_conf["state"] == "CONFIRMED" else (
+    long_payload = side_payload("LONG", long_trigger, long_stop, long_targets, long_conf)
+    short_payload = side_payload("SHORT", short_trigger, short_stop, short_targets, short_conf)
+    status = "CONFIRMED" if long_payload["state"] == "CONFIRMED" or short_payload["state"] == "CONFIRMED" else (
         "TRIGGERED" if long_conf["state"] == "TRIGGERED_WAIT_CONFIRMATION" or short_conf["state"] == "TRIGGERED_WAIT_CONFIRMATION" else "ARMED"
     )
 
@@ -136,8 +146,8 @@ def build_trade_execution_plan(state: dict[str, Any]) -> dict[str, Any]:
         "state": status,
         "htf_context": htf,
         "current_price": current,
-        "long": side_payload("LONG", long_trigger, long_stop, long_targets, long_conf),
-        "short": side_payload("SHORT", short_trigger, short_stop, short_targets, short_conf),
+        "long": long_payload,
+        "short": short_payload,
         "rules": [
             "Trigger is a structural level; touching it is not confirmation.",
             "Confirmation requires price beyond trigger plus M15/M5 alignment and M5 BOS confirmation.",
