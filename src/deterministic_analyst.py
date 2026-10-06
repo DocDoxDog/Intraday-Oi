@@ -75,6 +75,12 @@ def build_deterministic_fallback(
     call_change = _num(flow.get("oi_change_call"))
     churn = _num(flow.get("source_churn_total"))
     news = parsed.get("news_context") or []
+    quant = state.get("quant_metrics") or {}
+    q_returns = quant.get("returns") or {}
+    q_oi = quant.get("open_interest") or {}
+    q_gamma = quant.get("gamma") or {}
+    q_vol = quant.get("volatility") or {}
+    q_risk = quant.get("risk_flags") or []
     fresh_news = [
         x for x in news
         if isinstance(x, dict)
@@ -157,7 +163,9 @@ def build_deterministic_fallback(
             if fresh_news else "ไม่มี fresh/recent macro catalyst ที่พร้อมยืนยัน direction"
         ),
         "financial_engineering": (
-            f"Net GEX {_fmt(net_gex,1)} | IV {_fmt(iv,2)}% | DTE {_fmt(dte,2)} | {gamma_context}"
+            f"Net GEX {_fmt(net_gex,1)} | IV {_fmt(iv,2)}% | DTE {_fmt(dte,2)} | {gamma_context}; "
+            f"IV-realized proxy={_fmt(q_vol.get('iv_minus_realized_proxy'),4)} | "
+            f"GEX/total OI={_fmt(q_gamma.get('gex_per_total_oi'),2)}"
         ),
         "market_microstructure": (
             f"H4={h4 or 'UNKNOWN'} H1={h1 or 'UNKNOWN'} "
@@ -173,9 +181,12 @@ def build_deterministic_fallback(
         "positioning": (
             f"Current OI Put {_fmt(put_oi,0)} / Call {_fmt(call_oi,0)}; "
             f"OI Change Put {_fmt(put_change,0)} / Call {_fmt(call_change,0)}; "
+            f"Call/Put OI={_fmt(q_oi.get('call_put_ratio'),2)} | OI imbalance={_fmt(q_oi.get('imbalance'),3)} | "
             f"Churn {_fmt(churn,2)}"
         ),
         "history_comparison": (
+            f"Return 1H={_fmt(q_returns.get('1h'),4)} | 2H={_fmt(q_returns.get('2h'),4)} | "
+            f"Session={_fmt(q_returns.get('session'),4)}; "
             "ใช้ history เพื่อยืนยัน acceleration/deceleration เมื่อ metric มี baseline; "
             "ไม่มี baseline จะระบุ UNKNOWN เฉพาะ metric นั้น"
         ),
@@ -217,6 +228,7 @@ def build_deterministic_fallback(
         ),
         "data_limitations": [
             "LLM output unavailable or rejected: " + str(error)[:300],
+            "Quant risk flags: " + (", ".join(q_risk) if q_risk else "NONE/UNKNOWN"),
             "Fallback does not infer dealer positioning from GEX.",
             "OI Change/Churn are activity evidence, not aggressor direction.",
         ],
