@@ -138,7 +138,7 @@ def build_trade_execution_plan(state: dict[str, Any]) -> dict[str, Any]:
     long_payload = side_payload("LONG", long_trigger, long_stop, long_targets, long_conf)
     short_payload = side_payload("SHORT", short_trigger, short_stop, short_targets, short_conf)
     status = "CONFIRMED" if long_payload["state"] == "CONFIRMED" or short_payload["state"] == "CONFIRMED" else (
-        "TRIGGERED" if long_conf["state"] == "TRIGGERED_WAIT_CONFIRMATION" or short_conf["state"] == "TRIGGERED_WAIT_CONFIRMATION" else "ARMED"
+        "TRIGGERED" if long_payload["state"] in {"TRIGGERED_WAIT_CONFIRMATION", "TRIGGERED_WAIT_RISK_REWARD"} or short_payload["state"] in {"TRIGGERED_WAIT_CONFIRMATION", "TRIGGERED_WAIT_RISK_REWARD"} else "ARMED"
     )
 
     return {
