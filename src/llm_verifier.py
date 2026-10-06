@@ -33,6 +33,19 @@ def _cited_evidence_numbers(evidence: dict[str, Any], refs: list[str]) -> set[st
     return numbers
 
 
+def _strip_non_market_numeric(value: Any) -> Any:
+    """Remove model-confidence metadata before market-number verification."""
+    if isinstance(value, dict):
+        return {
+            key: _strip_non_market_numeric(child)
+            for key, child in value.items()
+            if key not in {"confidence", "uncertainty"}
+        }
+    if isinstance(value, list):
+        return [_strip_non_market_numeric(child) for child in value]
+    return value
+
+
 def _number_is_supported(claim_number: str, evidence_numbers: set[str]) -> bool:
     """Accept exact evidence numbers plus ordinary display rounding.
 
@@ -126,7 +139,7 @@ def verify_output(
     else:
         claim_payload = output
 
-    output_numbers = _numeric_strings(claim_payload)
+    output_numbers = _numeric_strings(_strip_non_market_numeric(claim_payload))
     cited_evidence_numbers = _cited_evidence_numbers(
         envelope["evidence"], evidence_refs
     )
