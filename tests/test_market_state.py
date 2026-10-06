@@ -129,8 +129,8 @@ def test_trade_plan_is_no_trade_when_no_source_tp1_exists():
     )
     trade = ai["trade_plan"]
     assert trade["status"] == "NO_TRADE"
-    assert ai["market_map"]["long_status"] == "UNAVAILABLE"
-    assert ai["market_map"]["short_status"] == "UNAVAILABLE"
+    assert ai["market_map"]["long_status"] == "NO_TRADE"
+    assert ai["market_map"]["short_status"] == "NO_TRADE"
 
 
 def test_source_oi_change_churn_and_eod_are_exposed_separately():
