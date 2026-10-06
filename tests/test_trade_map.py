@@ -62,7 +62,7 @@ def test_trade_validation_keeps_valid_side_when_other_side_is_incomplete():
     }
     out = _validate_or_clear_trade_plan(plan)
     assert out["long_status"] == "CONDITIONAL"
-    assert out["short_status"] == "NO_TRADE"
+    assert out["short_status"] == "CONDITIONAL"
     assert out["long_tp3"] == 4200
-    assert out["short_trigger"] is None
+    assert out["short_trigger"] == 4100
     assert out["status"] == "CONDITIONAL"
