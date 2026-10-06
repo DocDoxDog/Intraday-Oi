@@ -805,8 +805,12 @@ def _validate_or_clear_trade_plan(plan: dict[str, Any]) -> dict[str, Any]:
             if (side == "LONG" and tp2 <= tp1) or (side == "SHORT" and tp2 >= tp1):
                 out[tp2_key] = None
         if tp3 is not None:
-            previous = _num(out.get(tp2_key)) or tp1
-            if (side == "LONG" and tp3 <= previous) or (side == "SHORT" and tp3 >= previous):
+            valid_tp2 = _num(out.get(tp2_key))
+            previous = valid_tp2 if valid_tp2 is not None else None
+            # TP3 without a valid TP2 is not a contiguous target ladder.
+            if previous is None:
+                out[tp3_key] = None
+            elif (side == "LONG" and tp3 <= previous) or (side == "SHORT" and tp3 >= previous):
                 out[tp3_key] = None
         return True
 
