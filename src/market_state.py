@@ -699,22 +699,10 @@ def _deterministic_trade_levels(
                 + (item["gex"] / max_gex if max_gex else 0.0)
             )
 
-        # Use the observed strike grid rather than a hard-coded $15 gap.
-        # Near expiry the source book can be sparse; a fixed gap can erase every
-        # usable target. We still keep separation at ~2 observed strike steps.
-        observed_strikes = sorted({
-            strike
-            for candidate in candidates
-            for strike in (candidate.get("strike"),)
-            if strike is not None
-        })
-        strike_steps = [
-            observed_strikes[i + 1] - observed_strikes[i]
-            for i in range(len(observed_strikes) - 1)
-            if observed_strikes[i + 1] > observed_strikes[i]
-        ]
-        median_step = sorted(strike_steps)[len(strike_steps) // 2] if strike_steps else 5.0
-        min_gap = max(5.0, float(median_step) * 2.0)
+        # Preserve the existing structural spacing rule. The important
+        # change is that fewer than three targets are now allowed; sparse books
+        # must not erase TP1 simply because TP2/TP3 are unavailable.
+        min_gap = 15.0
         selected: list[dict[str, float]] = []
         for item in sorted(candidates, key=lambda x: (-x["score"], x["level"])):
             if all(abs(item["level"] - picked["level"]) >= min_gap for picked in selected):
@@ -823,12 +811,17 @@ def _validate_or_clear_trade_plan(plan: dict[str, Any]) -> dict[str, Any]:
         "SHORT",
     )
 
-    out["long_status"] = "AVAILABLE" if long_ok else "UNAVAILABLE"
-    out["short_status"] = "AVAILABLE" if short_ok else "UNAVAILABLE"
-    out["status"] = "AVAILABLE" if long_ok or short_ok else "NO_TRADE"
+    out["long_status"] = "CONDITIONAL" if long_ok else "NO_TRADE"
+    out["short_status"] = "CONDITIONAL" if short_ok else "NO_TRADE"
+    out["status"] = "CONDITIONAL" if long_ok or short_ok else "NO_TRADE"
 
     # Bias remains a directional view, not proof that execution is confirmed.
-    if out.get("direction") not in {"BUY", "SELL", "WAIT"}:
+    requested = str(out.get("direction") or "WAIT").upper()
+    if requested == "BUY" and not long_ok:
+        out["direction"] = "WAIT"
+    elif requested == "SELL" and not short_ok:
+        out["direction"] = "WAIT"
+    elif requested not in {"BUY", "SELL", "WAIT"}:
         out["direction"] = "WAIT"
 
     if not long_ok:
@@ -1059,8 +1052,8 @@ def normalize_analyst_output(
 
     long_exec = execution_plan.get("long") or {}
     short_exec = execution_plan.get("short") or {}
-    long_available = validated_plan.get("long_status") == "AVAILABLE"
-    short_available = validated_plan.get("short_status") == "AVAILABLE"
+    long_available = validated_plan.get("long_status") == "CONDITIONAL"
+    short_available = validated_plan.get("short_status") == "CONDITIONAL"
     ai["scenarios"] = {
         "bull": _scenario_line("LONG", long_exec, long_available),
         "bear": _scenario_line("SHORT", short_exec, short_available),
