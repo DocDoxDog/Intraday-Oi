@@ -813,6 +813,9 @@ def _rr(side: str, p: dict[str, float | None]) -> tuple[float | None, float | No
     )
 
 
+from src.trade_plan_engine import build_trade_execution_plan
+
+
 def normalize_analyst_output(
     parsed: dict[str, Any],
     history: dict[str, Any] | None,
@@ -911,6 +914,10 @@ def normalize_analyst_output(
         "execution_targets_exclude": ["gamma_mean", "positive_gamma_zone", "negative_gex_zone"],
     }
 
+    # Give the state machine the exact same canonical map used by rendering.
+    state["market_map"] = ai["market_map"]
+    execution_plan = build_trade_execution_plan(state)
+
     # From this point onward, every rendered field must come from the
     # validated plan. Never leave a stale pre-validation entry/TP string.
     plan = {
@@ -985,5 +992,7 @@ def normalize_analyst_output(
     # Replace model-authored execution language with the deterministic gate
     # interpretation. The model still supplies the broader thesis fields.
     ai["final_trade_idea"] = deterministic_idea
+    ai["trade_plan"]["execution_state"] = execution_plan["state"]
+    ai["trade_plan"]["execution_plan"] = execution_plan
     ai["market_state"] = state
     return ai
