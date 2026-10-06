@@ -224,32 +224,33 @@ def _format_trade_plan_message(parsed: dict, ai_result: dict) -> str:
     ]
     if long_state not in {"UNAVAILABLE", "DATA_INSUFFICIENT"}:
         lines += [
-            f"Trigger: {fmt(market_map.get('long_trigger'))} → break/accept + M15/M5 confirmation",
-            f"Invalidation: {fmt(trade.get('long_stop'))}",
+            f"เข้าเมื่อ: เบรกเหนือ {fmt(market_map.get('long_trigger'))} แล้ว acceptance/retest + M15/M5 confirmation",
+            f"ยกเลิกแผนเมื่อ: หลุด {fmt(trade.get('long_stop'))}",
             *target_lines("LONG", ("R1", "R2", "R3")),
         ]
         rr = long_exec.get("rr") or []
         if any(x is not None for x in rr):
             lines.append("RR: " + " | ".join(f"{i + 1}R={fmt(x)}" for i, x in enumerate(rr) if x is not None))
     else:
-        lines.append("ยังสร้างแผนไม่ได้ — source trigger/stop/TP1 ไม่ครบ")
+        lines.append(f"ยัง activate ไม่ได้ — source trigger={fmt(market_map.get('long_trigger'))}; ต้องมี trigger/stop/TP1 ครบ")
 
     lines += ["", f"🔴 <b>SHORT — { _escape(short_state) }</b>"]
     if short_state not in {"UNAVAILABLE", "DATA_INSUFFICIENT"}:
         lines += [
-            f"Trigger: {fmt(market_map.get('short_trigger'))} → break/retest-fail + M15/M5 confirmation",
-            f"Invalidation: {fmt(trade.get('short_stop'))}",
+            f"เข้าเมื่อ: หลุด {fmt(market_map.get('short_trigger'))} แล้ว failed retest + M15/M5 confirmation",
+            f"ยกเลิกแผนเมื่อ: กลับเหนือ {fmt(trade.get('short_stop'))}",
             *target_lines("SHORT", ("S1", "S2", "S3")),
         ]
         rr = short_exec.get("rr") or []
         if any(x is not None for x in rr):
             lines.append("RR: " + " | ".join(f"{i + 1}R={fmt(x)}" for i, x in enumerate(rr) if x is not None))
     else:
-        lines.append("ยังสร้างแผนไม่ได้ — source trigger/stop/TP1 ไม่ครบ")
+        lines.append(f"ยัง activate ไม่ได้ — source trigger={fmt(market_map.get('short_trigger'))}; ต้องมี trigger/stop/TP1 ครบ")
 
     lines += [
         "",
-        f"Status: <b>{_escape(str(execution.get('state') or trade.get('status') or 'UNKNOWN').upper())}</b> | "
+        f"Execution state: <b>{_escape(str(execution.get('state') or 'UNKNOWN').upper())}</b>",
+        f"Status: <b>{_escape(str(trade.get('status') or 'UNKNOWN').upper())}</b> | "
         f"Bias: <b>{_escape(str(ai_result.get('bias') or 'WAIT').upper())}</b>",
     ]
     return "\n".join(lines)
