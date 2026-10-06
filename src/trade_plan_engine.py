@@ -137,9 +137,17 @@ def build_trade_execution_plan(state: dict[str, Any]) -> dict[str, Any]:
     # portfolio risk and broker constraints before execution.
     long_payload = side_payload("LONG", long_trigger, long_stop, long_targets, long_conf)
     short_payload = side_payload("SHORT", short_trigger, short_stop, short_targets, short_conf)
-    status = "CONFIRMED" if long_payload["state"] == "CONFIRMED" or short_payload["state"] == "CONFIRMED" else (
-        "TRIGGERED" if long_payload["state"] in {"TRIGGERED_WAIT_CONFIRMATION", "TRIGGERED_WAIT_RISK_REWARD"} or short_payload["state"] in {"TRIGGERED_WAIT_CONFIRMATION", "TRIGGERED_WAIT_RISK_REWARD"} else "ARMED"
-    )
+    if long_payload["state"] == "CONFIRMED" or short_payload["state"] == "CONFIRMED":
+        status = "CONFIRMED"
+    elif (
+        long_payload["state"] in {"TRIGGERED_WAIT_CONFIRMATION", "TRIGGERED_WAIT_RISK_REWARD"}
+        or short_payload["state"] in {"TRIGGERED_WAIT_CONFIRMATION", "TRIGGERED_WAIT_RISK_REWARD"}
+    ):
+        status = "TRIGGERED"
+    elif long_payload["state"] == "ARMED" or short_payload["state"] == "ARMED":
+        status = "ARMED"
+    else:
+        status = "DATA_INSUFFICIENT"
 
     return {
         "version": "trade-plan-v2",
@@ -149,8 +157,8 @@ def build_trade_execution_plan(state: dict[str, Any]) -> dict[str, Any]:
         "long": long_payload,
         "short": short_payload,
         "rules": [
-            "Trigger is a structural level; touching it is not confirmation.",
-            "Confirmation requires price beyond trigger plus M15/M5 alignment and M5 BOS confirmation.",
+            "Reaching a structural trigger moves the setup to TRIGGERED; it is not confirmation.",
+            "Confirmation requires trigger reached plus M15/M5 alignment and M5 BOS confirmation.",
             "Stop is structural invalidation; position size must be derived from actual risk budget.",
             "Targets are source-derived levels only; missing targets remain UNKNOWN.",
             "No order is placed by this module.",
