@@ -760,10 +760,11 @@ def _validate_or_clear_trade_plan(plan: dict[str, Any]) -> dict[str, Any]:
     A side needs:
     - structural trigger
     - structural stop/invalidation
-    - at least one real source-derived target (TP1)
+    - TP1 is preferred for executable RR gating, but optional for keeping the
+      conditional roadmap visible.
 
-    TP2/TP3 are optional. Sparse/near-expiry option books often do not provide
-    three well-separated levels; that must not erase an otherwise valid setup.
+    TP2/TP3 are optional. Sparse/near-expiry option books may provide no target
+    beyond the structural wall; that must not erase Trigger/Invalidation.
     """
     out = dict(plan)
 
@@ -778,15 +779,23 @@ def _validate_or_clear_trade_plan(plan: dict[str, Any]) -> dict[str, Any]:
         tp2 = _num(out.get(tp2_key))
         tp3 = _num(out.get(tp3_key))
 
-        if any(v is None for v in (stop, trigger, tp1)):
+        # Trigger + structural stop are enough to keep a conditional roadmap
+        # alive. TP1 is required for execution confirmation/RR gating, but its
+        # absence must not erase the usable trigger/invalidation map.
+        if stop is None or trigger is None:
             return False
 
-        ordered = (
-            stop < trigger < tp1
-            if side == "LONG"
-            else tp1 < trigger < stop
-        )
-        if not ordered:
+        if side == "LONG" and stop >= trigger:
+            return False
+        if side == "SHORT" and trigger >= stop:
+            return False
+
+        if tp1 is None:
+            out[tp2_key] = None
+            out[tp3_key] = None
+            return True
+
+        if (side == "LONG" and tp1 <= trigger) or (side == "SHORT" and tp1 >= trigger):
             return False
 
         if tp2 is not None:
@@ -794,11 +803,10 @@ def _validate_or_clear_trade_plan(plan: dict[str, Any]) -> dict[str, Any]:
                 out[tp2_key] = None
         if tp3 is not None:
             valid_tp2 = _num(out.get(tp2_key))
-            previous = valid_tp2 if valid_tp2 is not None else None
             # TP3 without a valid TP2 is not a contiguous target ladder.
-            if previous is None:
+            if valid_tp2 is None:
                 out[tp3_key] = None
-            elif (side == "LONG" and tp3 <= previous) or (side == "SHORT" and tp3 >= previous):
+            elif (side == "LONG" and tp3 <= valid_tp2) or (side == "SHORT" and tp3 >= valid_tp2):
                 out[tp3_key] = None
         return True
 
