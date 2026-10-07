@@ -224,13 +224,13 @@ def _format_trade_plan_message(parsed: dict, ai_result: dict) -> str:
             f"ทำแบบนี้: {_escape(action)}",
         ]
         if trigger is not None:
-            lines.append(f"เข้าอ้างอิง: <b>{fmt(trigger)}</b>")
+            lines.append(f"เข้าเมื่อ: <b>{fmt(trigger)}</b>")
         else:
             watch = p.get("watch_level")
             ref = "ยังไม่มีโซนใกล้ราคา"
             if watch is not None:
                 ref += f" • เฝ้า {fmt(watch)}"
-            lines.append(f"เข้าอ้างอิง: <b>{ref}</b>")
+            lines.append(f"เข้าเมื่อ: <b>{ref}</b>")
         lines.append(f"🛑 SL: <b>{fmt(stop)}</b>")
         for i, value in enumerate(targets[:5], 1):
             lines.append(f"🎯 TP{i}: <b>{fmt(value)}</b>")
