@@ -103,31 +103,48 @@ function DataClockPanel({ clock }: { clock: any }) {
   );
 }
 
-function SetupCard({ title, tone, setup }: { title: string; tone: "long" | "short"; setup: any }) {
+function PlanCard({ title, tone, setup }: { title: string; tone: "long" | "short"; setup: any }) {
   if (!setup) return null;
   const state = setup.state ?? "UNKNOWN";
-  const targets = Array.isArray(setup.targets) ? setup.targets.filter((x: any) => typeof x === "number") : [];
-  const isLong = tone === "long";
-  const action = isLong
-    ? "รอราคาเบรก/ยืนเหนือโซน และ M15/M5 ยืนยันขึ้น"
-    : "รอเด้งกลับทดสอบโซน แล้วไม่ผ่าน + M15/M5 ยืนยันลง";
+  const targets = Array.isArray(setup.targets) ? setup.targets : [];
+  const action = setup.action ?? (
+    tone === "long"
+      ? "รอ Action ฝั่งซื้อในโซน"
+      : "รอ Action ฝั่งขายในโซน"
+  );
+  const risk = setup.risk ?? {};
+  const riskBlocked = setup.risk_blocked || risk.status === "NO_TRADE";
 
   return (
     <article className={"setup-card " + tone}>
       <div className="setup-head">
         <div>
-          <span className="eyebrow">{isLong ? "🟢 LONG" : "🔴 SHORT"}</span>
+          <span className="eyebrow">{tone === "long" ? "🟢 BUY" : "🔴 SELL"}</span>
           <h3>{title}</h3>
         </div>
-        <StatePill value={state} />
+        <StatePill value={state}/>
       </div>
+
       <div className="setup-action">{action}</div>
+
       <div className="trade-numbers">
-        <div><span>เข้า</span><strong>{price(setup.trigger ?? setup.entry_reference)}</strong></div>
+        <div><span>จุดเข้าอ้างอิง</span><strong>{price(setup.trigger ?? setup.entry_reference)}</strong></div>
         <div><span>SL</span><strong>{price(setup.stop)}</strong></div>
-        <div className="targets"><span>TP</span><strong>{targets.length ? targets.map(price).join(" → ") : "ยังไม่มี"}</strong></div>
       </div>
-      {setup.rr1_eligible === false && <div className="risk-warn">Risk/Reward ยังไม่ผ่านเกณฑ์ → ไม่ฝืนเข้า</div>}
+
+      <div className="tp-ladder">
+        {[0, 1, 2, 3, 4].map((idx) => (
+          <div key={idx} className="tp-row">
+            <span>TP{idx + 1}</span>
+            <strong>{price(targets[idx])}</strong>
+          </div>
+        ))}
+      </div>
+
+      {riskBlocked && <div className="risk-warn">Risk gate: {risk.reason ? String(risk.reason).replaceAll("_", " ") : "ยังไม่ผ่าน"} → ไม่ฝืนเข้า</div>}
+      {Array.isArray(setup.confirmation) && setup.confirmation.length > 0 && (
+        <div className="confirm-line">ต้องรอ: {setup.event_required ?? "confirmation"} </div>
+      )}
     </article>
   );
 }
@@ -192,22 +209,40 @@ function GammaTable({ gamma }: { gamma: any }) {
 }
 
 function LevelRail({ levels }: { levels: any }) {
+  const resistance = [
+    ["R1", levels.r1], ["R2", levels.r2], ["R3", levels.r3],
+    ["R4", levels.r4], ["R5", levels.r5],
+  ];
+  const support = [
+    ["S1", levels.s1], ["S2", levels.s2], ["S3", levels.s3],
+    ["S4", levels.s4], ["S5", levels.s5],
+  ];
+
   return (
     <section className="panel" id="levels">
-      <div className="panel-head"><div><span className="eyebrow">PRICE MAP</span><h2>Key Levels</h2></div></div>
+      <div className="panel-head">
+        <div><span className="eyebrow">PRICE MAP</span><h2>Key Levels</h2></div>
+        <span className="source-tag">โซน ≠ Entry</span>
+      </div>
+      <div className="wall-strip">
+        <div><span>🔴 CALL WALL</span><strong>{price(levels.callWall)}</strong></div>
+        <div><span>🟢 PUT WALL</span><strong>{price(levels.putWall)}</strong></div>
+        <div><span>⚪ GAMMA MEAN</span><strong>{price(levels.pivot)}</strong></div>
+      </div>
       <div className="levels-grid">
         <div className="level-column">
           <div className="level-label resistance-label">แนวต้าน</div>
-          {([["R3", levels.r3], ["R2", levels.r2], ["R1", levels.r1]] as const).map(([name, value]) =>
+          {resistance.map(([name, value]) =>
             <div className="level-row resistance" key={name}><span>{name}</span><strong>{price(value)}</strong></div>)}
         </div>
         <div className="decision-card">
-          <span>จุดเปลี่ยน</span><strong>{price(levels.longTrigger ?? levels.shortTrigger)}</strong>
-          <small>ยืนเหนือ → มองขึ้น<br/>รีเทสต์ไม่ผ่าน → มองลง</small>
+          <span>จุดที่ต้องดู Action</span>
+          <strong>{price(levels.callWall)}</strong>
+          <small>เหนือแล้วรีเทสต์อยู่ → BUY<br/>รีเทสต์ไม่ผ่าน → SELL</small>
         </div>
         <div className="level-column">
           <div className="level-label support-label">แนวรับ</div>
-          {([["S1", levels.s1], ["S2", levels.s2], ["S3", levels.s3]] as const).map(([name, value]) =>
+          {support.map(([name, value]) =>
             <div className="level-row support" key={name}><span>{name}</span><strong>{price(value)}</strong></div>)}
         </div>
       </div>
@@ -277,18 +312,17 @@ export default function Dashboard() {
       <section className="panel action-panel" id="action">
         <div className="panel-head"><div><span className="eyebrow">DECISION LAYER</span><h2>Action Zones</h2></div><span className="source-tag">รอ Action ไม่ไล่ราคา</span></div>
         <div className="action-grid">
-          <div className="action-zone short"><span>🔴 SHORT</span><strong>{price(levels.shortTrigger)}</strong><small>Retest → Reject → Confirm</small></div>
-          <div className="action-zone long"><span>🟢 LONG</span><strong>{price(levels.longTrigger)}</strong><small>Break/Hold → Confirm</small></div>
-          {levels.longSupportTrigger != null && <div className="action-zone support"><span>🟢 LONG รับด้านล่าง</span><strong>{price(levels.longSupportTrigger)}</strong><small>Support → Reaction → Confirm</small></div>}
+          <div className="action-zone long"><span>🟢 BUY — เบรกต้าน</span><strong>{price(levels.longReclaimTrigger ?? levels.callWall)}</strong><small>Break → Hold → Retest → Buy</small></div>
+          <div className="action-zone support"><span>🟢 BUY — รับด้านล่าง</span><strong>{price(levels.longSupportTrigger ?? levels.putWall)}</strong><small>Support → Reaction → Buy</small></div>
+          <div className="action-zone short"><span>🔴 SELL — ต้านไม่ผ่าน</span><strong>{price(levels.shortRejectionTrigger ?? levels.callWall)}</strong><small>Retest → Reject → Sell</small></div>
+          <div className="action-zone short"><span>🔴 SELL — หลุดแนวรับ</span><strong>{price(levels.shortBreakdownTrigger ?? levels.putWall)}</strong><small>Break → Retest Fail → Sell</small></div>
         </div>
-        <div className="action-note">ระดับราคาเป็นแค่ “โซน” — สถานะจะเปลี่ยนเมื่อมี Action ที่ตรวจพบได้จริง ไม่ใช่แค่ราคาแตะ</div>
+        <div className="action-note">ระดับราคาเป็น “โซน” ไม่ใช่ออเดอร์ทันที — แตะอย่างเดียวไม่ถือว่าเข้า ต้องเกิด Action + confirmation</div>
         <div className="action-state-grid">
-          <ActionStateCard label="PULLBACK LONG" setup={data.actionZones?.setups?.pullback_long} tone="long"/>
-          <ActionStateCard label="PULLBACK SHORT" setup={data.actionZones?.setups?.pullback_short} tone="short"/>
-          <ActionStateCard label="BREAKOUT + RETEST LONG" setup={data.actionZones?.setups?.breakout_retest_long} tone="long"/>
-          <ActionStateCard label="BREAKOUT + RETEST SHORT" setup={data.actionZones?.setups?.breakout_retest_short} tone="short"/>
-          <ActionStateCard label="REVERSAL LONG" setup={data.actionZones?.setups?.reversal_long} tone="long"/>
-          <ActionStateCard label="REVERSAL SHORT" setup={data.actionZones?.setups?.reversal_short} tone="short"/>
+          <ActionStateCard label="BUY — BREAKOUT / RECLAIM" setup={data.actionZones?.setups?.breakout_retest_long} tone="long"/>
+          <ActionStateCard label="BUY — SUPPORT REACTION" setup={data.actionZones?.setups?.reversal_long} tone="long"/>
+          <ActionStateCard label="SELL — RESISTANCE REJECTION" setup={data.actionZones?.setups?.reversal_short} tone="short"/>
+          <ActionStateCard label="SELL — SUPPORT BREAKDOWN" setup={data.actionZones?.setups?.breakout_retest_short} tone="short"/>
         </div>
       </section>
 
@@ -296,11 +330,20 @@ export default function Dashboard() {
       <LevelRail levels={levels}/>
 
       <section className="panel" id="plan">
-        <div className="panel-head"><div><span className="eyebrow">EXECUTION ROADMAP</span><h2>Trade Plan</h2></div><StatePill value={trade.status}/></div>
+        <div className="panel-head">
+          <div><span className="eyebrow">EXECUTION ROADMAP</span><h2>Trade Plan — 4 ทาง</h2></div>
+          <StatePill value={trade.status}/>
+        </div>
+        <div className="preferred-plan">
+          <span className="eyebrow">แผนที่ให้ความสำคัญตอนนี้</span>
+          <strong>{trade.preferredSetup ?? "WAIT"}</strong>
+          <small>{trade.preferredAction ?? "รอให้เกิด Action ที่โซน"}</small>
+        </div>
         <div className="plan-grid">
-          <SetupCard title="Failed Retest" tone="short" setup={trade.short}/>
-          <SetupCard title="Breakout / Reclaim" tone="long" setup={trade.long}/>
-          <SetupCard title="Support Reaction" tone="long" setup={trade.longSupport}/>
+          <PlanCard title="BUY 1 — เบรกแนวต้าน" tone="long" setup={trade.buyBreakout}/>
+          <PlanCard title="BUY 2 — เด้งจากแนวรับ" tone="long" setup={trade.buySupport}/>
+          <PlanCard title="SELL 1 — ต้านไม่ผ่าน" tone="short" setup={trade.sellRejection}/>
+          <PlanCard title="SELL 2 — หลุดแนวรับ" tone="short" setup={trade.sellBreakdown}/>
         </div>
         <div className="no-trade">ไม่มี Confirmation หรือ Risk/Reward ไม่ผ่าน → <b>NO TRADE</b></div>
       </section>
