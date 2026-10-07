@@ -229,7 +229,11 @@ def _format_trade_plan_message(parsed: dict, ai_result: dict) -> str:
         if trigger is not None:
             lines.append(f"เข้าอ้างอิง: <b>{fmt(trigger)}</b>")
         else:
-            lines.append("เข้าอ้างอิง: <b>ยังไม่มีโซนใกล้ราคา</b>")
+            watch_level = p.get("watch_level")
+            lines.append(
+                f"เข้าอ้างอิง: <b>ยังไม่มีโซนใกล้ราคา</b>"
+                + (f" • เฝ้า {fmt(watch_level)}" if watch_level is not None else "")
+            )
 
         if stop is not None:
             lines.append(f"🛑 SL: <b>{fmt(stop)}</b>")
