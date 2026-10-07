@@ -654,8 +654,27 @@ def _deterministic_trade_levels(
         if isinstance(row, dict) and _num(row.get("strike")) is not None
     ]
 
-    long_trigger = _num(levels.get("resistance_main"))
-    short_trigger = _num(levels.get("support_main"))
+    call_wall = _num(levels.get("resistance_main"))
+    put_wall = _num(levels.get("support_main"))
+
+    # A trade trigger is the level the market must reclaim/reject for the
+    # setup to become actionable. In a bearish regime already below the
+    # call wall, the short setup is a failed-retest of that broken wall;
+    # using the put wall as the short trigger would put the trigger above the
+    # invalidation and incorrectly erase the setup.
+    decision = ((raw.get("market_state") or {}).get("decision_framework") or {})
+    htf = str((((decision.get("steps") or {}).get("1_market_state") or {}).get("htf_structure") or "mixed")).lower()
+    current = cfd
+    long_trigger = call_wall
+    short_trigger = put_wall
+    long_stop = put_wall
+    short_stop = call_wall
+    if htf == "bearish" and current is not None and call_wall is not None and current <= call_wall:
+        short_trigger = call_wall
+        short_stop = put_wall
+    elif htf == "bullish" and current is not None and put_wall is not None and current >= put_wall:
+        long_trigger = put_wall
+        long_stop = call_wall
 
     def source_candidates(side: str, anchor: float | None) -> list[dict[str, float]]:
         if anchor is None or future is None or cfd is None:
@@ -714,8 +733,6 @@ def _deterministic_trade_levels(
             )
         ][:3]
 
-    long_stop = _num(levels.get("support_main"))
-    short_stop = _num(levels.get("resistance_main"))
     long_key_levels = structural_levels("LONG", long_trigger)
     short_key_levels = structural_levels("SHORT", short_trigger)
     long_targets = trade_targets("LONG", long_trigger, long_stop, long_key_levels)
@@ -991,11 +1008,15 @@ def normalize_analyst_output(
         ],
         "long_status": validated_plan.get("long_status", "UNAVAILABLE"),
         "short_status": validated_plan.get("short_status", "UNAVAILABLE"),
+        "long_invalidation": validated_plan["long_stop"],
+        "short_invalidation": validated_plan["short_stop"],
         "pivot": pivot,
         "location_state": location_state,
         "roles": {
-            "long_trigger": "CALL_WALL",
-            "short_trigger": "PUT_WALL",
+            "long_trigger": "CALL_WALL_OR_BULLISH_RETEST",
+            "short_trigger": "CALL_WALL_RETEST" if short_trigger == call_wall and short_trigger is not None else "PUT_WALL",
+            "long_invalidation": "PUT_WALL",
+            "short_invalidation": "PUT_WALL" if short_stop == put_wall and short_stop is not None else "CALL_WALL",
             "pivot": "GAMMA_MEAN",
         },
         "source": "QUIKSTRIKE_GEX_STRIKES_NORMALIZED_TO_CFD",
