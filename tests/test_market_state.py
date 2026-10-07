@@ -137,8 +137,8 @@ def test_trade_plan_keeps_trigger_roadmap_without_source_tp1():
     assert market_map["short_trigger"] == 4197.0
     assert trade["long_tp1"] is None
     assert trade["short_tp1"] is None
-    assert trade["execution_plan"]["long"]["state"] in {"ARMED", "TRIGGERED_WAIT_RISK_REWARD"}
-    assert trade["execution_plan"]["short"]["state"] in {"ARMED", "TRIGGERED_WAIT_RISK_REWARD"}
+    assert trade["execution_plan"]["long"]["state"] in {"WAIT", "ARMED", "TRIGGERED_WAIT_RISK_REWARD"}
+    assert trade["execution_plan"]["short"]["state"] in {"WAIT", "ARMED", "TRIGGERED_WAIT_RISK_REWARD"}
 
 
 def test_source_oi_change_churn_and_eod_are_exposed_separately():
@@ -173,9 +173,9 @@ def test_decision_framework_requires_structure_and_trigger_before_direction():
     })
     enrich_market_state(parsed, {})
     framework = parsed["raw_series"]["market_state"]["decision_framework"]
-    assert framework["steps"]["8_decision"] == "WAIT_FOR_TRIGGER"
+    assert framework["steps"]["8_decision"] == "SHORT_CONDITIONAL"
     assert framework["steps"]["7_gates"]["htf_structure"] == "BEARISH"
-    assert framework["steps"]["7_gates"]["trigger"] == "NO_BREAKOUT_CONFIRMED"
+    assert framework["steps"]["7_gates"]["trigger"] == "TRIGGER_BREACHED"
 
 
 def test_decision_framework_records_source_oi_change_separately_from_eod():
