@@ -185,17 +185,16 @@ def build_trade_execution_plan(state: dict[str, Any]) -> dict[str, Any]:
             "execution_authority": "NONE",
         }
 
-    # Explicit four route inputs. These come from the deterministic market map
-    # and are never fabricated by the LLM.
-    long_reclaim_trigger = _n(market_map.get("long_reclaim_trigger")) or _n(market_map.get("call_wall")) or _n(levels.get("resistance_main"))
-    long_support_trigger = _n(market_map.get("long_support_trigger")) or _n(market_map.get("put_wall")) or _n(levels.get("support_main"))
-    short_rejection_trigger = _n(market_map.get("short_rejection_trigger")) or _n(market_map.get("call_wall")) or _n(levels.get("resistance_main"))
-    short_breakdown_trigger = _n(market_map.get("short_breakdown_trigger")) or _n(market_map.get("put_wall")) or _n(levels.get("support_main"))
+    # Execution uses only the nearby levels prepared by the deterministic market map.
+    long_reclaim_trigger = _n(market_map.get("long_reclaim_trigger"))
+    long_support_trigger = _n(market_map.get("long_support_trigger"))
+    short_rejection_trigger = _n(market_map.get("short_rejection_trigger"))
+    short_breakdown_trigger = _n(market_map.get("short_breakdown_trigger"))
 
-    long_reclaim_stop = _n(market_map.get("long_reclaim_stop")) or _n(market_map.get("long_invalidation"))
-    long_support_stop = _n(market_map.get("long_support_invalidation"))
-    short_rejection_stop = _n(market_map.get("short_rejection_stop"))
-    short_breakdown_stop = _n(market_map.get("short_breakdown_stop")) or _n(market_map.get("short_invalidation"))
+    long_reclaim_stop = _n(market_map.get("long_reclaim_stop")) if long_reclaim_trigger is not None else None
+    long_support_stop = _n(market_map.get("long_support_invalidation")) if long_support_trigger is not None else None
+    short_rejection_stop = _n(market_map.get("short_rejection_stop")) if short_rejection_trigger is not None else None
+    short_breakdown_stop = _n(market_map.get("short_breakdown_stop")) if short_breakdown_trigger is not None else None
 
     long_reclaim_conf = zone_confirmation("breakout_retest_long", "LONG", long_reclaim_trigger)
     long_support_conf = zone_confirmation("reversal_long", "LONG", long_support_trigger)
@@ -321,6 +320,7 @@ def build_trade_execution_plan(state: dict[str, Any]) -> dict[str, Any]:
         "routes": routes,
         "rules": [
             "Price touching a level is not an entry.",
+            "Execution routes use nearby levels only; distant R/S stay market-map context.",
             "Each route requires its own market event and confirmation.",
             "TP1-TP5 are source-derived structural levels; missing levels stay UNKNOWN.",
             "Risk failure blocks confirmation and must render NO TRADE.",
