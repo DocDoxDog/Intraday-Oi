@@ -213,8 +213,22 @@ def build_trade_execution_plan(state: dict[str, Any]) -> dict[str, Any]:
         or short_payload["state"] in {"TRIGGERED_WAIT_CONFIRMATION", "TRIGGERED_WAIT_RISK_REWARD"}
     ):
         status = "TRIGGERED"
-    elif long_payload["state"] == "ARMED" or short_payload["state"] == "ARMED":
+    elif (
+        long_payload["state"] == "ARMED"
+        or long_support_payload["state"] == "ARMED"
+        or short_payload["state"] == "ARMED"
+        or any(
+            (payload.get("zone_state") in {"APPROACHING", "IN_ZONE"})
+            for payload in (long_payload, long_support_payload, short_payload)
+        )
+    ):
         status = "ARMED"
+    elif all(
+        payload["state"] == "NO_TRADE"
+        for payload in (long_payload, long_support_payload, short_payload)
+        if payload.get("trigger") is not None
+    ):
+        status = "NO_TRADE"
     else:
         status = "DATA_INSUFFICIENT"
 
