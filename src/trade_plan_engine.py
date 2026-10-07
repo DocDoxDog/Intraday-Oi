@@ -101,10 +101,26 @@ def build_trade_execution_plan(state: dict[str, Any]) -> dict[str, Any]:
     # R/S are structural key levels. Execution targets are a separate,
     # risk-qualified layer and must never be inferred from R/S automatically.
     long_targets = [_n(x) for x in (market_map.get("long_trade_targets") or [])]
+    long_support_trigger = _n(market_map.get("long_support_trigger"))
+    long_support_stop = _n(market_map.get("long_support_invalidation"))
+    long_support_targets = [_n(x) for x in (market_map.get("long_support_trade_targets") or [])]
     short_targets = [_n(x) for x in (market_map.get("short_trade_targets") or [])]
 
     long_conf = _side_confirmation(state, "LONG", current, long_trigger)
     short_conf = _side_confirmation(state, "SHORT", current, short_trigger)
+
+    # Support-reaction LONG: price reaches the lower structural zone, then
+    # requires bullish M15/M5 confirmation and M5 BOS. This is an alternative
+    # setup, not an automatic BUY merely because OI/volume is large.
+    long_support_conf = _side_confirmation(
+        state,
+        "LONG",
+        current,
+        long_support_trigger,
+    )
+    if long_support_conf["state"] == "CONFIRMED" and current is not None and long_support_trigger is not None and current > long_support_trigger:
+        long_support_conf["state"] = "ARMED"
+        long_support_conf["conditions"].append("waiting_support_reaction")
 
     def side_payload(side: str, trigger: float | None, stop: float | None, targets: list[float | None], conf: dict[str, Any]) -> dict[str, Any]:
         rr = [_risk_reward(side, trigger, stop, x) for x in targets]
@@ -137,11 +153,19 @@ def build_trade_execution_plan(state: dict[str, Any]) -> dict[str, Any]:
     # A confirmed side is still only a research signal; Ai-trader must enforce
     # portfolio risk and broker constraints before execution.
     long_payload = side_payload("LONG", long_trigger, long_stop, long_targets, long_conf)
+    long_support_payload = side_payload(
+        "LONG_SUPPORT",
+        long_support_trigger,
+        long_support_stop,
+        long_support_targets,
+        long_support_conf,
+    )
     short_payload = side_payload("SHORT", short_trigger, short_stop, short_targets, short_conf)
-    if long_payload["state"] == "CONFIRMED" or short_payload["state"] == "CONFIRMED":
+    if long_payload["state"] == "CONFIRMED" or long_support_payload["state"] == "CONFIRMED" or short_payload["state"] == "CONFIRMED":
         status = "CONFIRMED"
     elif (
         long_payload["state"] in {"TRIGGERED_WAIT_CONFIRMATION", "TRIGGERED_WAIT_RISK_REWARD"}
+        or long_support_payload["state"] in {"TRIGGERED_WAIT_CONFIRMATION", "TRIGGERED_WAIT_RISK_REWARD"}
         or short_payload["state"] in {"TRIGGERED_WAIT_CONFIRMATION", "TRIGGERED_WAIT_RISK_REWARD"}
     ):
         status = "TRIGGERED"
@@ -156,6 +180,7 @@ def build_trade_execution_plan(state: dict[str, Any]) -> dict[str, Any]:
         "htf_context": htf,
         "current_price": current,
         "long": long_payload,
+        "long_support": long_support_payload,
         "short": short_payload,
         "rules": [
             "Reaching a structural trigger moves the setup to TRIGGERED; it is not confirmation.",
