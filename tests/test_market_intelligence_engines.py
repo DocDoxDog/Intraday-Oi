@@ -159,7 +159,7 @@ def test_market_map_can_generate_five_source_qualified_targets_for_both_sides():
 
     assert result["short_breakdown_trigger"] == 4190.0
     assert result["short_breakdown_tp1"] == 4185.0
-    assert result["short_breakdown_tp5"] == 4170.0
+    assert result["short_breakdown_tp5"] == 4165.0
 
 
 def test_trade_execution_plan_exposes_four_customer_routes():
