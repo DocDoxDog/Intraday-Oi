@@ -1167,21 +1167,18 @@ def normalize_analyst_output(
         "short_breakdown_stop": deterministic.get("short_breakdown_stop"),
         "short_breakdown_trade_targets": [deterministic.get(f"short_breakdown_tp{i}") for i in range(1, 6) if deterministic.get(f"short_breakdown_tp{i}") is not None],
         "long_trade_targets": [
-            value for value in (validated_plan["long_tp1"], validated_plan["long_tp2"], validated_plan["long_tp3"])
-            if value is not None
+            validated_plan.get(f"long_tp{i}") for i in range(1, 6)
+            if validated_plan.get(f"long_tp{i}") is not None
         ],
         "long_support_trigger": deterministic.get("long_support_trigger"),
         "long_support_invalidation": deterministic.get("long_support_stop"),
         "long_support_trade_targets": [
-            value for value in (
-                deterministic.get("long_support_tp1"),
-                deterministic.get("long_support_tp2"),
-                deterministic.get("long_support_tp3"),
-            ) if value is not None
+            deterministic.get(f"long_support_tp{i}") for i in range(1, 6)
+            if deterministic.get(f"long_support_tp{i}") is not None
         ],
         "short_trade_targets": [
-            value for value in (validated_plan["short_tp1"], validated_plan["short_tp2"], validated_plan["short_tp3"])
-            if value is not None
+            validated_plan.get(f"short_tp{i}") for i in range(1, 6)
+            if validated_plan.get(f"short_tp{i}") is not None
         ],
         "long_status": validated_plan.get("long_status", "UNAVAILABLE"),
         "short_status": validated_plan.get("short_status", "UNAVAILABLE"),
