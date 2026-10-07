@@ -172,6 +172,12 @@ def _format_trade_plan_message(parsed: dict, ai_result: dict) -> str:
                 "stop": trade.get("long_stop"),
                 "targets": [x for x in (trade.get("long_tp1"), trade.get("long_tp2"), trade.get("long_tp3")) if x is not None],
             },
+            "long_support": {
+                "state": trade.get("long_support_state") or ("ARMED" if trade.get("long_support_trigger") is not None else "DATA_INSUFFICIENT"),
+                "trigger": trade.get("long_support_trigger"),
+                "stop": trade.get("long_support_stop"),
+                "targets": [x for x in (trade.get("long_support_tp1"), trade.get("long_support_tp2"), trade.get("long_support_tp3")) if x is not None],
+            },
             "short": {
                 "state": trade.get("short_state") or ("ARMED" if trade.get("short_trigger") is not None else "DATA_INSUFFICIENT"),
                 "trigger": trade.get("short_trigger"),
@@ -204,6 +210,8 @@ def _format_trade_plan_message(parsed: dict, ai_result: dict) -> str:
 
         if label == "SHORT":
             lines.append(f"เข้า: ราคาเด้งกลับทดสอบ {fmt(trigger)} แล้วไม่ผ่าน พร้อม M15/M5 ยืนยันลง")
+        elif label == "LONG รับด้านล่าง":
+            lines.append(f"เข้า: ราคาลงถึง {fmt(trigger)} แล้วรับอยู่ พร้อม M15/M5 ยืนยันขึ้น")
         else:
             lines.append(f"เข้า: ราคาเบรกและยืนเหนือ {fmt(trigger)} พร้อม M15/M5 ยืนยันขึ้น")
 
@@ -238,6 +246,8 @@ def _format_trade_plan_message(parsed: dict, ai_result: dict) -> str:
         "",
     ]
     lines.extend(render_side("LONG", "🟢", execution.get("long") or {}))
+    lines += ["",]
+    lines.extend(render_side("LONG รับด้านล่าง", "🟢", execution.get("long_support") or {}))
     lines += ["",]
     lines.extend(render_side("SHORT", "🔴", execution.get("short") or {}))
     lines += [
