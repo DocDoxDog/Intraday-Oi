@@ -100,14 +100,17 @@ def test_telegram_renders_three_text_message_sections():
     m4 = telegram._format_levels_message(parsed, ai)
     m5 = telegram._format_trade_plan_message(parsed, ai)
     assert "WHAT text" in m3 and "WHY text" in m3 and "POSITIONING text" in m3
-    assert "4,232.49" in m4 and "GAMMA TERM STRUCTURE" in m4 and "7" in m4 and "🟢" in m4 and "🔴" in m4 and "🟡" in m4
-    assert "Status: <b>CONDITIONAL</b>" in m5
-    assert "Bias:" in m5
-    assert "เข้าเมื่อ:" in m5
-    assert "ยกเลิกแผนเมื่อ:" in m5
-    assert "เป้าหมาย 1:" in m5
-    assert "เป้าหมาย 2:" in m5
-    assert "เป้าหมาย 3:" in m5
+    assert "KEY LEVELS" in m4
+    assert "แนวต้าน:" in m4 and "แนวรับ:" in m4
+    assert "4,252.49" in m4
+    assert "GAMMA TERM STRUCTURE" not in m4
+    assert "SCENARIO" not in m4
+    assert "<b>TRADE PLAN</b>" in m5
+    assert "SL:" in m5
+    assert "TP:" in m5
+    assert "เข้า:" in m5
+    assert "ยกเลิกแผนเมื่อ:" not in m5
+    assert "Confirmation:" not in m5
 
 
 def test_line_renders_canonical_analysis_without_local_trade_plan():
