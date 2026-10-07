@@ -532,7 +532,7 @@ def enrich_market_state(parsed: dict[str, Any], history: dict[str, Any] | None =
 
     technical = parsed.get("technical_context") or {}
     technical_summary = {}
-    for tf in ("m1", "m5", "m15"):
+    for tf in ("h4", "h1", "m15", "m5", "m1"):
         context = (technical.get("timeframes") or {}).get(tf) or {}
         technical_summary[tf] = {
             "trend": context.get("trend"),
