@@ -207,6 +207,7 @@ def _format_trade_plan_message(parsed: dict, ai_result: dict) -> str:
             "NO_QUALIFIED_TP1": "🚫 ยังไม่มี TP1 ที่คุ้มความเสี่ยง",
             "INVALID_STOP_DIRECTION": "🚫 ตำแหน่ง SL ไม่ถูกด้าน",
             "MISSING_ENTRY_OR_STOP": "🚫 Entry/SL ข้อมูลไม่ครบ",
+            "LEVEL_TOO_FAR": "📏 ระดับนี้ไกลจากราคาปัจจุบัน • WAIT",
         }
         return reason_map.get(reason, f"🚫 Risk: {html.escape(reason.lower().replace('_', ' '))}")
 
@@ -220,9 +221,17 @@ def _format_trade_plan_message(parsed: dict, ai_result: dict) -> str:
 
         lines = [
             f"{emoji} <b>{title}</b>",
-            f"เข้าเมื่อ: {_escape(action)} @ <b>{fmt(trigger)}</b>",
-            f"🛑 SL: <b>{fmt(stop)}</b>",
+            f"ทำแบบนี้: {_escape(action)}",
         ]
+        if trigger is not None:
+            lines.append(f"เข้าอ้างอิง: <b>{fmt(trigger)}</b>")
+        else:
+            watch = p.get("watch_level")
+            ref = "ยังไม่มีโซนใกล้ราคา"
+            if watch is not None:
+                ref += f" • เฝ้า {fmt(watch)}"
+            lines.append(f"เข้าอ้างอิง: <b>{ref}</b>")
+        lines.append(f"🛑 SL: <b>{fmt(stop)}</b>")
         for i, value in enumerate(targets[:5], 1):
             lines.append(f"🎯 TP{i}: <b>{fmt(value)}</b>")
         lines.append(f"สถานะ: {state_text(p.get('state'))}")
@@ -241,16 +250,17 @@ def _format_trade_plan_message(parsed: dict, ai_result: dict) -> str:
     bias = str(ai_result.get("bias") or trade.get("direction") or "WAIT").upper()
     preferred_key = execution.get("preferred_setup")
     preferred = execution.get(preferred_key) if preferred_key else None
-    if not isinstance(preferred, dict):
-        preferred = execution.get("short_rejection") if bias in {"SELL", "BEARISH"} else execution.get("long_reclaim")
+    if not isinstance(preferred, dict) or preferred.get("state") in {"WAIT", "NO_TRADE", "DATA_INSUFFICIENT", "INVALIDATED"}:
+        candidates = [execution.get("short_rejection"), execution.get("short_breakdown")] if bias in {"SELL", "BEARISH"} else [execution.get("long_reclaim"), execution.get("long_support")]
+        preferred = next((x for x in candidates if isinstance(x, dict) and x.get("state") not in {"WAIT", "NO_TRADE", "DATA_INSUFFICIENT", "INVALIDATED"}), None)
     pref_title = preferred.get("title") if isinstance(preferred, dict) else None
 
     lines = [
         "📋 <b>TRADE PLAN</b>",
-        "ครบทุกทาง: BUY 2 แผน + SELL 2 แผน",
-        f"มุมมองตอนนี้: <b>{_escape(bias)}</b>",
-        f"แผนที่ระบบให้ความสำคัญ: <b>{_escape(pref_title or 'WAIT')}</b>",
-        "หลักการ: รอ Action ที่โซนก่อน ไม่ไล่ราคา",
+        "ครบ 4 ทาง • ใช้เฉพาะ Local Zone ใกล้ราคาปัจจุบัน",
+        f"มุมมอง: <b>{_escape(bias)}</b>",
+        f"แผนเด่น: <b>{_escape(pref_title or 'WAIT')}</b>",
+        "แตะระดับ ≠ เข้า • ต้อง Action + Confirmation + Risk ผ่าน",
         "",
     ]
 
@@ -261,7 +271,8 @@ def _format_trade_plan_message(parsed: dict, ai_result: dict) -> str:
 
     lines += [
         "",
-        "หมายเหตุ: TP1-TP5 เป็น target จาก source structure ที่ผ่านกฎความเสี่ยงของระบบ • OI/ΔOI/GEX เป็นบริบท ไม่ใช่หลักฐาน dealer position • ระบบไม่ส่งคำสั่ง",
+        "R/S + Mean = Market Map • Entry/SL/TP = Local Trade Setup เท่านั้น",
+        "ระบบไม่ส่งคำสั่งซื้อขาย",
     ]
     return "\n".join(lines)
 
