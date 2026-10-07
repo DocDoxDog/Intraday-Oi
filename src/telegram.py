@@ -115,6 +115,17 @@ def _format_levels_message(parsed: dict, ai_result: dict) -> str:
     """Render the structural map so a trader can read the market in seconds."""
     market_map = ai_result.get("market_map") or {}
     trade = ai_result.get("trade_plan") or {}
+    if not market_map:
+        market_map = {
+            "R1": trade.get("long_tp1"), "R2": trade.get("long_tp2"), "R3": trade.get("long_tp3"),
+            "R4": trade.get("long_tp4"), "R5": trade.get("long_tp5"),
+            "S1": trade.get("short_tp1"), "S2": trade.get("short_tp2"), "S3": trade.get("short_tp3"),
+            "S4": trade.get("short_tp4"), "S5": trade.get("short_tp5"),
+            "call_wall": trade.get("long_trigger"),
+            "put_wall": trade.get("short_trigger"),
+            "long_trigger": trade.get("long_trigger"),
+            "short_trigger": trade.get("short_trigger"),
+        }
 
     def pick(name: str, *fallbacks: str):
         for key in (name, *fallbacks):
