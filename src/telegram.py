@@ -190,6 +190,30 @@ def _format_trade_plan_message(parsed: dict, ai_result: dict) -> str:
     """
     trade = ai_result.get("trade_plan") or {}
     execution = trade.get("execution_plan") or {}
+
+    # Backward-compatible adapter for stored/legacy snapshots. New output
+    # still renders only this plan; it does not resurrect Key Levels/Scenario.
+    if not execution:
+        execution = {
+            "state": trade.get("execution_state") or trade.get("status") or "DATA_INSUFFICIENT",
+            "long": {
+                "state": trade.get("long_state") or ("ARMED" if trade.get("long_trigger") is not None else "DATA_INSUFFICIENT"),
+                "trigger": trade.get("long_trigger"),
+                "stop": trade.get("long_stop"),
+                "targets": [x for x in (trade.get("long_tp1"), trade.get("long_tp2"), trade.get("long_tp3")) if x is not None],
+                "rr": [x for x in (trade.get("long_rr1"), trade.get("long_rr2")) if x is not None],
+                "confirmation": [],
+            },
+            "short": {
+                "state": trade.get("short_state") or ("ARMED" if trade.get("short_trigger") is not None else "DATA_INSUFFICIENT"),
+                "trigger": trade.get("short_trigger"),
+                "stop": trade.get("short_stop"),
+                "targets": [x for x in (trade.get("short_tp1"), trade.get("short_tp2"), trade.get("short_tp3")) if x is not None],
+                "rr": [x for x in (trade.get("short_rr1"), trade.get("short_rr2")) if x is not None],
+                "confirmation": [],
+            },
+        }
+
     long_exec = execution.get("long") or {}
     short_exec = execution.get("short") or {}
 
@@ -210,16 +234,16 @@ def _format_trade_plan_message(parsed: dict, ai_result: dict) -> str:
 
         if label == "SHORT":
             lines.append(f"Trigger: {fmt(trigger)}")
-            lines.append("Entry: รอ failed retest / rejection + M15/M5 confirmation")
-            lines.append(f"Invalidation: กลับเหนือ {fmt(stop)}")
+            lines.append("เข้าเมื่อ: failed retest / rejection + M15/M5 confirmation")
+            lines.append(f"ยกเลิกแผนเมื่อ: กลับเหนือ {fmt(stop)}")
         else:
             lines.append(f"Trigger: {fmt(trigger)}")
-            lines.append("Entry: รอ acceptance / retest + M15/M5 confirmation")
-            lines.append(f"Invalidation: หลุด {fmt(stop)}")
+            lines.append("เข้าเมื่อ: acceptance / retest + M15/M5 confirmation")
+            lines.append(f"ยกเลิกแผนเมื่อ: หลุด {fmt(stop)}")
 
         if targets:
             for idx, value in enumerate(targets[:3], 1):
-                lines.append(f"TP{idx}: {fmt(value)}")
+                lines.append(f"เป้าหมาย {idx}: {fmt(value)}")
         else:
             lines.append("TP: ยังไม่มีระดับที่ผ่าน RR ≥ 1R")
 
