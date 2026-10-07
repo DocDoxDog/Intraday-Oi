@@ -97,10 +97,11 @@ def build_trade_execution_plan(state: dict[str, Any]) -> dict[str, Any]:
     long_stop = _n(levels.get("support_main"))
     short_stop = _n(levels.get("resistance_main"))
 
-    # Targets are supplied by the deterministic market map after validation.
+    # R/S are structural key levels. Execution targets are a separate,
+    # risk-qualified layer and must never be inferred from R/S automatically.
     market_map = state.get("market_map") or {}
-    long_targets = [_n(market_map.get(k)) for k in ("R1", "R2", "R3")]
-    short_targets = [_n(market_map.get(k)) for k in ("S1", "S2", "S3")]
+    long_targets = [_n(x) for x in (market_map.get("long_trade_targets") or [])]
+    short_targets = [_n(x) for x in (market_map.get("short_trade_targets") or [])]
 
     long_conf = _side_confirmation(state, "LONG", current, long_trigger)
     short_conf = _side_confirmation(state, "SHORT", current, short_trigger)
