@@ -158,42 +158,24 @@ def _format_levels_message(parsed: dict, ai_result: dict) -> str:
     return "\n".join(lines)
 
 def _format_trade_plan_message(parsed: dict, ai_result: dict) -> str:
-    """Render all four trade routes with entry reference, SL and TP1-TP5."""
+    """Render four trader-facing routes without promoting distant levels to entries."""
     trade = ai_result.get("trade_plan") or {}
-    execution = trade.get("execution_plan") or {}
+    execution = dict(trade.get("execution_plan") or {})
 
-    # Backward-compatible fallback for snapshots created before four-route mode.
-    if execution and not any(key in execution for key in ("long_reclaim", "long_support", "short_rejection", "short_breakdown")):
-        # Compatibility bridge for the previous 3-route execution payload.
+    # Backward-compatible bridge for older snapshots.
+    if not any(key in execution for key in ("long_reclaim", "long_support", "short_rejection", "short_breakdown")):
         execution["long_reclaim"] = execution.get("long") or {}
         execution["long_support"] = execution.get("long_support") or {}
         execution["short_rejection"] = execution.get("short") or {}
         execution["short_breakdown"] = execution.get("short_breakdown") or {}
 
     if not execution:
-        def legacy_payload(prefix: str, side: str, title: str, strategy: str, action: str):
-            trigger = trade.get(f"{prefix}_trigger")
-            stop = trade.get(f"{prefix}_stop")
-            targets = [trade.get(f"{prefix}_tp{i}") for i in range(1, 6)]
-            return {
-                "route": title,
-                "title": title,
-                "strategy": strategy,
-                "side": side,
-                "state": trade.get(f"{prefix}_state") or trade.get("execution_state") or trade.get("status") or "DATA_INSUFFICIENT",
-                "trigger": trigger,
-                "stop": stop,
-                "targets": targets,
-                "action": action,
-                "risk": {},
-            }
-
         execution = {
             "state": trade.get("execution_state") or trade.get("status") or "DATA_INSUFFICIENT",
-            "long_reclaim": legacy_payload("long", "LONG", "BUY — เบรกต้าน", "BREAKOUT_RETEST", "เบรกและยืนเหนือโซน → รีเทสต์ไม่หลุด → BUY"),
-            "long_support": legacy_payload("long_support", "LONG_SUPPORT", "BUY — รับด้านล่าง", "REVERSAL", "แตะโซนรับ → reaction → M5 BOS ขึ้น → BUY"),
-            "short_rejection": legacy_payload("short", "SHORT", "SELL — ต้านไม่ผ่าน", "REVERSAL / FAILED_RETEST", "เด้งกลับต้าน → rejection → M5 BOS ลง → SELL"),
-            "short_breakdown": legacy_payload("short", "SHORT", "SELL — หลุดแนวรับ", "BREAKOUT_RETEST", "หลุดแนวรับ → รีเทสต์ไม่ผ่าน → SELL"),
+            "long_reclaim": {},
+            "long_support": {},
+            "short_rejection": {},
+            "short_breakdown": {},
         }
 
     def fmt(value):
@@ -220,16 +202,17 @@ def _format_trade_plan_message(parsed: dict, ai_result: dict) -> str:
         if risk.get("status") == "PASS":
             return None
         reason = str(risk.get("reason") or "").upper()
-        if not reason:
-            return "🚫 Risk ยังไม่ผ่าน"
-        reason_map = {
-            "STOP_TOO_FAR": "🚫 SL ไกลเกิน volatility ที่กำหนด",
-            "RR_BELOW_MIN": "🚫 TP1 ได้ไม่ถึง 1R",
-            "NO_QUALIFIED_TP1": "🚫 ยังไม่มี TP1 ที่คุ้มความเสี่ยง",
-            "INVALID_STOP_DIRECTION": "🚫 ตำแหน่ง SL ไม่ถูกด้าน",
-            "MISSING_ENTRY_OR_STOP": "🚫 Entry/SL ข้อมูลไม่ครบ",
-        }
-        return reason_map.get(reason, f"🚫 Risk: {html.escape(reason.lower().replace('_', ' '))}")
+        if reason == "STOP_TOO_FAR":
+            return "🚫 SL ไกลเกิน volatility ที่กำหนด"
+        if reason == "RR_BELOW_MIN":
+            return "🚫 TP1 ยังไม่คุ้มความเสี่ยง"
+        if reason == "NO_QUALIFIED_TP1":
+            return "🚫 ยังไม่มี TP1 ที่คุ้มความเสี่ยง"
+        if reason == "LEVEL_TOO_FAR":
+            return "📏 โซนนี้ยังไกลจากราคาปัจจุบัน • ยังไม่ใช่แผนที่ใช้ตอนนี้"
+        if reason:
+            return f"🚫 Risk: {html.escape(reason.lower().replace('_', ' '))}"
+        return "🚫 Risk ยังไม่ผ่าน"
 
     def render_route(payload: dict, title: str, emoji: str, default_action: str) -> list[str]:
         p = payload or {}
@@ -241,11 +224,21 @@ def _format_trade_plan_message(parsed: dict, ai_result: dict) -> str:
 
         lines = [
             f"{emoji} <b>{title}</b>",
-            f"เข้าเมื่อ: {_escape(action)} @ <b>{fmt(trigger)}</b>",
-            f"🛑 SL: <b>{fmt(stop)}</b>",
+            f"ทำแบบนี้: {_escape(action)}",
         ]
+        if trigger is not None:
+            lines.append(f"เข้าอ้างอิง: <b>{fmt(trigger)}</b>")
+        else:
+            lines.append("เข้าอ้างอิง: <b>ยังไม่มีโซนใกล้ราคา</b>")
+
+        if stop is not None:
+            lines.append(f"🛑 SL: <b>{fmt(stop)}</b>")
+        else:
+            lines.append("🛑 SL: <b>—</b>")
+
         for i, value in enumerate(targets[:5], 1):
             lines.append(f"🎯 TP{i}: <b>{fmt(value)}</b>")
+
         lines.append(f"สถานะ: {state_text(p.get('state'))}")
         warning = risk_text(p)
         if warning:
@@ -268,24 +261,25 @@ def _format_trade_plan_message(parsed: dict, ai_result: dict) -> str:
 
     lines = [
         "📋 <b>TRADE PLAN</b>",
-        "ครบทุกทาง: BUY 2 แผน + SELL 2 แผน",
-        f"มุมมองตอนนี้: <b>{_escape(bias)}</b>",
-        f"แผนที่ระบบให้ความสำคัญ: <b>{_escape(pref_title or 'WAIT')}</b>",
-        "หลักการ: รอ Action ที่โซนก่อน ไม่ไล่ราคา",
+        "ครบ 4 ทาง แต่ใช้เฉพาะโซนใกล้ราคาปัจจุบัน",
+        f"มุมมอง: <b>{_escape(bias)}</b>",
+        f"แผนเด่น: <b>{_escape(pref_title or 'WAIT')}</b>",
+        "กติกา: แตะระดับ ≠ เข้า • ต้องเกิด Action + Confirmation + Risk ผ่าน",
         "",
     ]
 
     for i, (key, emoji, title, action) in enumerate(routes):
         if i:
             lines.append("")
+            lines.append("────────────")
+            lines.append("")
         lines.extend(render_route(execution.get(key) or {}, title, emoji, action))
 
     lines += [
         "",
-        "หมายเหตุ: TP1-TP5 เป็น target จาก source structure ที่ผ่านกฎความเสี่ยงของระบบ • OI/ΔOI/GEX เป็นบริบท ไม่ใช่หลักฐาน dealer position • ระบบไม่ส่งคำสั่ง",
+        "หมายเหตุ: R/S และ Mean ใช้เป็น Market Map • Entry/SL/TP ใช้เฉพาะ local setup ที่ผ่านกฎความเสี่ยง • ระบบไม่ส่งคำสั่ง",
     ]
     return "\n".join(lines)
-
 
 def format_message(parsed: dict, ai_result: dict) -> str:
     return _format_analysis_message(parsed, ai_result)
