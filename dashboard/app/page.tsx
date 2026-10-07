@@ -128,7 +128,7 @@ function PlanCard({ title, tone, setup }: { title: string; tone: "long" | "short
       <div className="setup-action">{action}</div>
 
       <div className="trade-numbers">
-        <div><span>จุดเข้าอ้างอิง</span><strong>{price(setup.trigger ?? setup.entry_reference)}</strong></div>
+        <div><span>เข้าเมื่อ</span><strong>{price(setup.trigger ?? setup.entry_reference)}</strong></div>
         <div><span>SL</span><strong>{price(setup.stop)}</strong></div>
       </div>
 
