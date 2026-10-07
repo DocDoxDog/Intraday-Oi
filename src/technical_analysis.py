@@ -8,6 +8,8 @@ import os
 from datetime import datetime, timezone, timedelta
 import requests
 
+from src.auction import build_auction_profile
+
 API_URL = "https://api.twelvedata.com/time_series"
 BANGKOK_TZ = timezone(timedelta(hours=7))
 
@@ -195,6 +197,7 @@ def build_context(api_key: str | None = None, symbol: str | None = None) -> dict
         raise RuntimeError("TWELVEDATA_API_KEY ไม่ได้ตั้งค่า")
     symbol = symbol or os.environ.get("TWELVEDATA_SYMBOL", "XAU/USD")
     result = {"source": "twelve_data", "symbol": symbol, "timeframes": {}}
+    candles_by_tf: dict[str, list[dict]] = {}
     for name, interval in {
         "h4": "4h",
         "h1": "1h",
@@ -203,7 +206,25 @@ def build_context(api_key: str | None = None, symbol: str | None = None) -> dict
         "m1": "1min",
     }.items():
         candles = _fetch(symbol, interval, key)
+        candles_by_tf[name] = candles
         result["timeframes"][name] = _structure(candles)
+
+    # OHLCV profile is intentionally labeled as a bar proxy. We do not claim
+    # tick-level executed-volume precision without tick/order-book source data.
+    try:
+        result["auction"] = build_auction_profile(
+            candles_by_tf.get("m5") or [],
+            bin_size=float(os.environ.get("AUCTION_BIN_SIZE", "0.5")),
+            value_area_pct=float(os.environ.get("AUCTION_VALUE_AREA_PCT", "0.70")),
+        )
+    except Exception as exc:
+        result["auction"] = {
+            "version": "auction-v1",
+            "status": "UNKNOWN",
+            "mode": "BAR_PROXY",
+            "approximation": "CALENDAR_DAY_APPROX",
+            "error": type(exc).__name__,
+        }
 
     h4, h1 = result["timeframes"]["h4"], result["timeframes"]["h1"]
     result["confirmation"] = {

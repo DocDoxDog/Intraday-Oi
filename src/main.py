@@ -39,6 +39,7 @@ from src.multi_expiry import build_gamma_matrix, summarize_gamma_zones, merge_ex
 from src.gamma_chart import render_gamma_table, render_gamma_table_full
 from src.news_announcement import collect_news, format_news_announcement
 from src.market_state import enrich_market_state, normalize_analyst_output
+from src.macro_state import build_macro_state
 from src.quant_metrics import enrich_quant_metrics
 from intelligence.news.free_feed import collect_free_news
 
@@ -317,6 +318,34 @@ def run():
     except Exception as e:
         parsed["news_context"] = []
         print(f"⚠️  News collection failed (analysis continues without news): {e}", file=sys.stderr)
+
+    # Slow macro context is optional and fail-open. It is never allowed to
+    # block QuikStrike analysis or become an entry trigger.
+    if os.environ.get("ENABLE_FRED_MACRO", "1").strip().lower() not in {"0", "false", "no", "off"}:
+        try:
+            parsed.setdefault("raw_series", {})["macro_state"] = build_macro_state(
+                api_key=os.environ.get("FRED_API_KEY")
+            )
+            print(
+                f"    macro: status={parsed['raw_series']['macro_state'].get('status')} "
+                f"bias={parsed['raw_series']['macro_state'].get('macro_bias')} "
+                f"as_of={parsed['raw_series']['macro_state'].get('as_of')}"
+            )
+        except Exception as e:
+            parsed.setdefault("raw_series", {})["macro_state"] = {
+                "version": "macro-state-v1",
+                "source": "fred",
+                "status": "UNKNOWN",
+                "macro_bias": "UNKNOWN",
+                "error": type(e).__name__,
+            }
+            print(f"⚠️  Macro state failed (continuing without macro): {e}", file=sys.stderr)
+    else:
+        parsed.setdefault("raw_series", {})["macro_state"] = {
+            "version": "macro-state-v1", "source": "fred",
+            "status": "UNKNOWN", "macro_bias": "UNKNOWN",
+            "limitations": ["Disabled by ENABLE_FRED_MACRO."],
+        }
 
     # Deterministic state is prepared AFTER news so the same governed input
     # reaches both the analyst and the Telegram/LINE renderers.

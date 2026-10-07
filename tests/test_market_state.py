@@ -137,8 +137,8 @@ def test_trade_plan_keeps_trigger_roadmap_without_source_tp1():
     assert market_map["short_trigger"] == 4197.0
     assert trade["long_tp1"] is None
     assert trade["short_tp1"] is None
-    assert trade["execution_plan"]["long"]["state"] in {"ARMED", "TRIGGERED_WAIT_RISK_REWARD"}
-    assert trade["execution_plan"]["short"]["state"] in {"ARMED", "TRIGGERED_WAIT_RISK_REWARD"}
+    assert trade["execution_plan"]["long"]["state"] in {"WAIT", "ARMED", "TRIGGERED_WAIT_RISK_REWARD"}
+    assert trade["execution_plan"]["short"]["state"] in {"WAIT", "ARMED", "TRIGGERED_WAIT_RISK_REWARD"}
 
 
 def test_source_oi_change_churn_and_eod_are_exposed_separately():
@@ -173,9 +173,9 @@ def test_decision_framework_requires_structure_and_trigger_before_direction():
     })
     enrich_market_state(parsed, {})
     framework = parsed["raw_series"]["market_state"]["decision_framework"]
-    assert framework["steps"]["8_decision"] == "WAIT_FOR_TRIGGER"
+    assert framework["steps"]["8_decision"] == "SHORT_CONDITIONAL"
     assert framework["steps"]["7_gates"]["htf_structure"] == "BEARISH"
-    assert framework["steps"]["7_gates"]["trigger"] == "NO_BREAKOUT_CONFIRMED"
+    assert framework["steps"]["7_gates"]["trigger"] == "SHORT_LEVEL_REACHED"
 
 
 def test_decision_framework_records_source_oi_change_separately_from_eod():
@@ -206,8 +206,31 @@ def test_market_map_exposes_gamma_band_location():
         {"analysis_status": "CONFIRMED", "bias": "WAIT", "trade_plan": {"status": "NO_TRADE"}},
     )
     market_map = ai["market_map"]
-    assert market_map["roles"]["long_trigger"] == "CALL_WALL"
-    assert market_map["roles"]["short_trigger"] == "PUT_WALL"
+    assert market_map["roles"]["long_trigger"] == "CALL_WALL_RECLAIM"
+    assert market_map["roles"]["long_support_trigger"] == "PUT_WALL_REACTION"
+    assert market_map["roles"]["short_trigger"] == "PUT_WALL_BREAKDOWN"
     assert market_map["location_state"] == "INSIDE_GAMMA_BAND"
 
 
+
+
+def test_trade_plan_uses_nearest_structural_invalidation_not_distant_opposite_wall():
+    parsed = _snapshot("2026-10-02T13:00:00+00:00", 4300, 100, 200)
+    parsed.update({"cfd_price": 4297, "basis_diff": 3, "observed_at": "2026-10-02T13:00:00+00:00"})
+    enrich_market_state(parsed, {})
+    ai = normalize_analyst_output(
+        parsed,
+        {},
+        {"analysis_status": "CONFIRMED", "bias": "SELL", "trade_plan": {"status": "CONDITIONAL"}},
+    )
+    trade = ai["trade_plan"]
+    assert trade["long_trigger"] == 4397
+    assert trade["long_stop"] == 4297
+    assert trade["long_stop"] != 4197
+    assert trade["short_trigger"] == 4197
+    assert trade["short_stop"] == 4247
+    assert trade["short_stop"] != 4397
+    assert trade["long_support_trigger"] == 4197
+    assert trade["long_support_stop"] == 4147
+    assert trade["long_support_stop"] < trade["long_support_trigger"]
+    assert "long_support" in trade["execution_plan"]

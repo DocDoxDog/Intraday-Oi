@@ -532,7 +532,7 @@ def enrich_market_state(parsed: dict[str, Any], history: dict[str, Any] | None =
 
     technical = parsed.get("technical_context") or {}
     technical_summary = {}
-    for tf in ("m1", "m5", "m15"):
+    for tf in ("h4", "h1", "m15", "m5", "m1"):
         context = (technical.get("timeframes") or {}).get(tf) or {}
         technical_summary[tf] = {
             "trend": context.get("trend"),
@@ -618,6 +618,25 @@ def enrich_market_state(parsed: dict[str, Any], history: dict[str, Any] | None =
         raw["market_state"]["levels"],
         raw["market_state"]["history"],
     )
+
+    # Compose the next-generation deterministic engines without changing the
+    # existing canonical OI/GEX calculations.
+    from src.action_zone_engine import build_action_zones
+    from src.data_clock import apply_data_clock
+    from src.order_flow import build_order_flow_context
+    from src.regime_engine import build_market_regime
+
+    order_flow_input = raw.get("order_flow") or {}
+    state = raw["market_state"]
+    state["auction"] = technical.get("auction") or {}
+    state["macro"] = raw.get("macro_state") or {}
+    state["order_flow"] = build_order_flow_context(
+        trades=order_flow_input.get("trades") if isinstance(order_flow_input, dict) else None,
+        book=order_flow_input.get("book") if isinstance(order_flow_input, dict) else None,
+    )
+    state["regime"] = build_market_regime(state)
+    state["action_zones"] = build_action_zones(state)
+    apply_data_clock(parsed)
     return parsed
 
 
@@ -676,10 +695,12 @@ def _deterministic_trade_levels(
     decision = ((raw.get("market_state") or {}).get("decision_framework") or {})
     htf = str((((decision.get("steps") or {}).get("1_market_state") or {}).get("htf_structure") or "mixed")).lower()
     current = cfd
+    # Each setup gets its own structural invalidation. Never use a distant
+    # opposite wall as a generic stop: that can create absurd risk distances.
     long_trigger = call_wall
     short_trigger = put_wall
-    long_stop = put_wall
-    short_stop = call_wall
+    long_stop = None
+    short_stop = None
     def nearest_source_level(anchor: float | None, *, above: bool) -> float | None:
         """Return the nearest observed source strike on the requested side."""
         if anchor is None or future is None or cfd is None:
@@ -700,17 +721,48 @@ def _deterministic_trade_levels(
             return None
         return min(candidates) if above else max(candidates)
 
+    def nearest_canonical_level(anchor: float | None, *, above: bool) -> float | None:
+        if anchor is None:
+            return None
+        values = [
+            _num(v) for k, v in levels.items()
+            if k not in {"resistance_current", "support_current"}
+            and _num(v) is not None
+        ]
+        candidates = [v for v in values if (v > anchor if above else v < anchor)]
+        return min(candidates) if above and candidates else max(candidates) if candidates else None
+
+    long_stop = (
+        nearest_source_level(call_wall, above=False)
+        if call_wall is not None
+        else None
+    ) or nearest_canonical_level(call_wall, above=False) or _num(levels.get("support_main"))
+    short_stop = (
+        nearest_source_level(put_wall, above=True)
+        if put_wall is not None
+        else None
+    ) or nearest_canonical_level(put_wall, above=True) or _num(levels.get("resistance_main"))
+
     if htf == "bearish" and current is not None and call_wall is not None and current <= call_wall:
         # Bearish failed-retest setup: trigger is the broken call wall and
         # invalidation must sit ABOVE that trigger. Use the nearest source
         # strike above it, never an unrelated lower put wall.
         short_trigger = call_wall
-        short_stop = nearest_source_level(call_wall, above=True)
+        short_stop = nearest_source_level(call_wall, above=True) or nearest_canonical_level(call_wall, above=True) or _num(levels.get("resistance_main"))
     elif htf == "bullish" and current is not None and put_wall is not None and current >= put_wall:
         # Bullish failed-reclaim mirror: trigger is the broken put wall and
         # invalidation must sit BELOW that trigger.
         long_trigger = put_wall
-        long_stop = nearest_source_level(put_wall, above=False)
+        long_stop = nearest_source_level(put_wall, above=False) or nearest_canonical_level(put_wall, above=False) or _num(levels.get("support_main"))
+
+    # Separate support-reaction LONG setup. It remains available even when
+    # the primary regime is bearish, but still requires confirmation.
+    long_support_trigger = put_wall
+    long_support_stop = (
+        nearest_source_level(put_wall, above=False)
+        if put_wall is not None
+        else None
+    ) or _num(levels.get("support_deep")) or _num(levels.get("support_main"))
 
     def source_candidates(side: str, anchor: float | None) -> list[dict[str, float]]:
         if anchor is None or future is None or cfd is None:
@@ -767,123 +819,173 @@ def _deterministic_trade_levels(
                 if side == "LONG"
                 else anchor - level >= minimum_distance
             )
-        ][:3]
+        ][:5]
 
     long_candidates = source_candidates("LONG", long_trigger)
     short_candidates = source_candidates("SHORT", short_trigger)
-    long_key_levels = [item["level"] for item in long_candidates[:3]]
-    short_key_levels = [item["level"] for item in short_candidates[:3]]
-    # Search the full source ladder for executable targets. Structural R/S are
-    # only the first three context levels and must not cap the TP search.
-    long_targets = trade_targets(
+
+    # Structural context stays compact (R/S), while executable TP ladders use
+    # the full source strike ladder and expose up to five risk-qualified levels.
+    long_key_levels = [item["level"] for item in long_candidates[:5]]
+    short_key_levels = [item["level"] for item in short_candidates[:5]]
+
+    long_reclaim_trigger = call_wall
+    long_reclaim_stop = (
+        nearest_source_level(call_wall, above=False)
+        if call_wall is not None
+        else None
+    ) or nearest_canonical_level(call_wall, above=False) or _num(levels.get("support_main"))
+    long_reclaim_candidates = source_candidates("LONG", long_reclaim_trigger)
+    long_reclaim_targets = trade_targets(
+        "LONG", long_reclaim_trigger, long_reclaim_stop,
+        [item["level"] for item in long_reclaim_candidates],
+    )
+
+    long_support_candidates = source_candidates("LONG", long_support_trigger)
+    long_support_targets = trade_targets(
+        "LONG", long_support_trigger, long_support_stop,
+        [item["level"] for item in long_support_candidates],
+    )
+
+    short_rejection_trigger = call_wall
+    short_rejection_stop = (
+        nearest_source_level(call_wall, above=True)
+        if call_wall is not None
+        else None
+    ) or nearest_canonical_level(call_wall, above=True) or _num(levels.get("resistance_main"))
+    short_rejection_candidates = source_candidates("SHORT", short_rejection_trigger)
+    short_rejection_targets = trade_targets(
+        "SHORT", short_rejection_trigger, short_rejection_stop,
+        [item["level"] for item in short_rejection_candidates],
+    )
+
+    short_breakdown_trigger = put_wall
+    short_breakdown_stop = (
+        nearest_source_level(put_wall, above=True)
+        if put_wall is not None
+        else None
+    ) or nearest_canonical_level(put_wall, above=True) or _num(levels.get("resistance_main"))
+    short_breakdown_candidates = source_candidates("SHORT", short_breakdown_trigger)
+    short_breakdown_targets = trade_targets(
+        "SHORT", short_breakdown_trigger, short_breakdown_stop,
+        [item["level"] for item in short_breakdown_candidates],
+    )
+
+    def tp_fields(values: list[float]) -> dict[str, float | None]:
+        return {
+            f"tp{i}": values[i - 1] if len(values) >= i else None
+            for i in range(1, 6)
+        }
+
+    legacy_long_targets = trade_targets(
         "LONG", long_trigger, long_stop, [item["level"] for item in long_candidates]
     )
-    short_targets = trade_targets(
+    legacy_short_targets = trade_targets(
         "SHORT", short_trigger, short_stop, [item["level"] for item in short_candidates]
     )
 
     return {
+        # Legacy primary aliases remain so existing consumers do not break.
         "long_trigger": long_trigger,
         "long_stop": long_stop,
         "long_key_levels": long_key_levels,
-        "long_tp1": long_targets[0] if len(long_targets) > 0 else None,
-        "long_tp2": long_targets[1] if len(long_targets) > 1 else None,
-        "long_tp3": long_targets[2] if len(long_targets) > 2 else None,
+        **{f"long_tp{i}": (legacy_long_targets[i - 1] if i <= len(legacy_long_targets) else None) for i in range(1, 6)},
+        "long_support_trigger": long_support_trigger,
+        "long_support_stop": long_support_stop,
+        **{f"long_support_tp{i}": (long_support_targets[i - 1] if i <= len(long_support_targets) else None) for i in range(1, 6)},
         "short_trigger": short_trigger,
         "short_stop": short_stop,
         "short_key_levels": short_key_levels,
-        "short_tp1": short_targets[0] if len(short_targets) > 0 else None,
-        "short_tp2": short_targets[1] if len(short_targets) > 1 else None,
-        "short_tp3": short_targets[2] if len(short_targets) > 2 else None,
+        **{f"short_tp{i}": (legacy_short_targets[i - 1] if i <= len(legacy_short_targets) else None) for i in range(1, 6)},
+
+        # Explicit four-route trade map used by the new Telegram/Dashboard UI.
+        "call_wall": call_wall,
+        "put_wall": put_wall,
+        "long_reclaim_trigger": long_reclaim_trigger,
+        "long_reclaim_stop": long_reclaim_stop,
+        **{f"long_reclaim_tp{i}": (long_reclaim_targets[i - 1] if i <= len(long_reclaim_targets) else None) for i in range(1, 6)},
+        "short_rejection_trigger": short_rejection_trigger,
+        "short_rejection_stop": short_rejection_stop,
+        **{f"short_rejection_tp{i}": (short_rejection_targets[i - 1] if i <= len(short_rejection_targets) else None) for i in range(1, 6)},
+        "short_breakdown_trigger": short_breakdown_trigger,
+        "short_breakdown_stop": short_breakdown_stop,
+        **{f"short_breakdown_tp{i}": (short_breakdown_targets[i - 1] if i <= len(short_breakdown_targets) else None) for i in range(1, 6)},
     }
 
 
+
 def _valid_trade_ladder(plan: dict[str, Any]) -> bool:
-    """Require strict directional ordering before a plan can reach delivery."""
-    values = [
+    """Require directional ordering for every available execution TP."""
+    long_values = [
         _num(plan.get("long_stop")), _num(plan.get("long_trigger")),
-        _num(plan.get("long_tp1")), _num(plan.get("long_tp2")), _num(plan.get("long_tp3")),
-        _num(plan.get("short_tp3")), _num(plan.get("short_tp2")),
-        _num(plan.get("short_tp1")), _num(plan.get("short_trigger")), _num(plan.get("short_stop")),
+        *[_num(plan.get(f"long_tp{i}")) for i in range(1, 6)],
     ]
-    if any(value is None for value in values):
-        return False
-    (long_stop, long_trigger, long_tp1, long_tp2, long_tp3,
-     short_tp3, short_tp2, short_tp1, short_trigger, short_stop) = values
-    return (long_stop < long_trigger < long_tp1 < long_tp2 < long_tp3
-            and short_tp3 < short_tp2 < short_tp1 < short_trigger < short_stop)
+    short_values = [
+        *[_num(plan.get(f"short_tp{i}")) for i in range(5, 0, -1)],
+        _num(plan.get("short_trigger")), _num(plan.get("short_stop")),
+    ]
+
+    # The canonical validator below intentionally permits missing TP4/TP5 on
+    # sparse snapshots; when present, all levels must remain monotonic.
+    if long_values[0] is not None and long_values[1] is not None:
+        present = [x for x in long_values[2:] if x is not None]
+        if any(x <= long_values[1] for x in present):
+            return False
+        if any(present[i] >= present[i + 1] for i in range(len(present) - 1)):
+            return False
+    if short_values[-2] is not None and short_values[-1] is not None:
+        present = [x for x in short_values[:-2] if x is not None]
+        if any(x >= short_values[-2] for x in present):
+            return False
+        if any(present[i] <= present[i + 1] for i in range(len(present) - 1)):
+            return False
+    return True
 
 
 def _validate_or_clear_trade_plan(plan: dict[str, Any]) -> dict[str, Any]:
-    """Validate each side to the minimum usable execution ladder.
-
-    A side needs:
-    - structural trigger
-    - structural stop/invalidation
-    - TP1 is preferred for executable RR gating, but optional for keeping the
-      conditional roadmap visible.
-
-    TP2/TP3 are optional. Sparse/near-expiry option books may provide no target
-    beyond the structural wall; that must not erase Trigger/Invalidation.
-    """
+    """Validate trigger/stop and every available TP1-TP5 without inventing values."""
     out = dict(plan)
 
-    def validate_side(
-        keys: tuple[str, str, str, str, str],
-        side: str,
-    ) -> bool:
-        stop_key, trigger_key, tp1_key, tp2_key, tp3_key = keys
-        stop = _num(out.get(stop_key))
-        trigger = _num(out.get(trigger_key))
-        tp1 = _num(out.get(tp1_key))
-        tp2 = _num(out.get(tp2_key))
-        tp3 = _num(out.get(tp3_key))
+    def validate_side(side: str) -> bool:
+        prefix = "long" if side == "LONG" else "short"
+        stop = _num(out.get(f"{prefix}_stop"))
+        trigger = _num(out.get(f"{prefix}_trigger"))
+        targets = [_num(out.get(f"{prefix}_tp{i}")) for i in range(1, 6)]
 
-        # Trigger + structural stop are enough to keep a conditional roadmap
-        # alive. TP1 is required for execution confirmation/RR gating, but its
-        # absence must not erase the usable trigger/invalidation map.
         if stop is None or trigger is None:
             return False
-
         if side == "LONG" and stop >= trigger:
             return False
         if side == "SHORT" and trigger >= stop:
             return False
 
-        if tp1 is None:
-            out[tp2_key] = None
-            out[tp3_key] = None
-            return True
+        compact_targets: list[float] = []
+        for tp in targets:
+            if tp is None:
+                continue
+            if side == "LONG" and tp <= trigger:
+                return False
+            if side == "SHORT" and tp >= trigger:
+                return False
+            if compact_targets:
+                if side == "LONG" and tp <= compact_targets[-1]:
+                    return False
+                if side == "SHORT" and tp >= compact_targets[-1]:
+                    return False
+            compact_targets.append(tp)
 
-        if (side == "LONG" and tp1 <= trigger) or (side == "SHORT" and tp1 >= trigger):
-            return False
-
-        if tp2 is not None:
-            if (side == "LONG" and tp2 <= tp1) or (side == "SHORT" and tp2 >= tp1):
-                out[tp2_key] = None
-        if tp3 is not None:
-            valid_tp2 = _num(out.get(tp2_key))
-            # TP3 without a valid TP2 is not a contiguous target ladder.
-            if valid_tp2 is None:
-                out[tp3_key] = None
-            elif (side == "LONG" and tp3 <= valid_tp2) or (side == "SHORT" and tp3 >= valid_tp2):
-                out[tp3_key] = None
+        # Missing TP values remain UNKNOWN; no synthetic extension is allowed.
+        for i in range(1, 6):
+            out[f"{prefix}_tp{i}"] = compact_targets[i - 1] if i <= len(compact_targets) else None
         return True
 
-    long_ok = validate_side(
-        ("long_stop", "long_trigger", "long_tp1", "long_tp2", "long_tp3"),
-        "LONG",
-    )
-    short_ok = validate_side(
-        ("short_stop", "short_trigger", "short_tp1", "short_tp2", "short_tp3"),
-        "SHORT",
-    )
+    long_ok = validate_side("LONG")
+    short_ok = validate_side("SHORT")
 
     out["long_status"] = "CONDITIONAL" if long_ok else "NO_TRADE"
     out["short_status"] = "CONDITIONAL" if short_ok else "NO_TRADE"
     out["status"] = "CONDITIONAL" if long_ok or short_ok else "NO_TRADE"
 
-    # Bias remains a directional view, not proof that execution is confirmed.
     requested = str(out.get("direction") or "WAIT").upper()
     if requested == "BUY" and not long_ok:
         out["direction"] = "WAIT"
@@ -893,11 +995,15 @@ def _validate_or_clear_trade_plan(plan: dict[str, Any]) -> dict[str, Any]:
         out["direction"] = "WAIT"
 
     if not long_ok:
-        for key in ("long_trigger", "long_stop", "long_tp1", "long_tp2", "long_tp3"):
-            out[key] = None
+        for i in range(1, 6):
+            out[f"long_tp{i}"] = None
+        out["long_trigger"] = None
+        out["long_stop"] = None
     if not short_ok:
-        for key in ("short_trigger", "short_stop", "short_tp1", "short_tp2", "short_tp3"):
-            out[key] = None
+        for i in range(1, 6):
+            out[f"short_tp{i}"] = None
+        out["short_trigger"] = None
+        out["short_stop"] = None
     return out
 
 
@@ -952,10 +1058,16 @@ def normalize_analyst_output(
     gamma = state.get("gamma") or {}
     deterministic = _deterministic_trade_levels(parsed, levels, gamma)
     plan = {
-        "long": {"entry": deterministic["long_trigger"], "stop": deterministic["long_stop"],
-                 "tp1": deterministic["long_tp1"], "tp2": deterministic["long_tp2"], "tp3": deterministic["long_tp3"]},
-        "short": {"entry": deterministic["short_trigger"], "stop": deterministic["short_stop"],
-                  "tp1": deterministic["short_tp1"], "tp2": deterministic["short_tp2"], "tp3": deterministic["short_tp3"]},
+        "long": {
+            "entry": deterministic["long_trigger"],
+            "stop": deterministic["long_stop"],
+            **{f"tp{i}": deterministic.get(f"long_tp{i}") for i in range(1, 6)},
+        },
+        "short": {
+            "entry": deterministic["short_trigger"],
+            "stop": deterministic["short_stop"],
+            **{f"tp{i}": deterministic.get(f"short_tp{i}") for i in range(1, 6)},
+        },
     }
     long_rr = _rr("LONG", plan["long"])
     short_rr = _rr("SHORT", plan["short"])
@@ -1037,18 +1149,39 @@ def normalize_analyst_output(
         "R1": long_key_levels[0] if len(long_key_levels) > 0 else None,
         "R2": long_key_levels[1] if len(long_key_levels) > 1 else None,
         "R3": long_key_levels[2] if len(long_key_levels) > 2 else None,
+        "R4": long_key_levels[3] if len(long_key_levels) > 3 else None,
+        "R5": long_key_levels[4] if len(long_key_levels) > 4 else None,
         "long_trigger": long_trigger_map,
         "short_trigger": short_trigger_map,
         "S1": short_key_levels[0] if len(short_key_levels) > 0 else None,
         "S2": short_key_levels[1] if len(short_key_levels) > 1 else None,
         "S3": short_key_levels[2] if len(short_key_levels) > 2 else None,
+        "S4": short_key_levels[3] if len(short_key_levels) > 3 else None,
+        "S5": short_key_levels[4] if len(short_key_levels) > 4 else None,
+        "call_wall": deterministic.get("call_wall"),
+        "put_wall": deterministic.get("put_wall"),
+        "long_reclaim_trigger": deterministic.get("long_reclaim_trigger"),
+        "long_reclaim_stop": deterministic.get("long_reclaim_stop"),
+        "long_reclaim_trade_targets": [deterministic.get(f"long_reclaim_tp{i}") for i in range(1, 6) if deterministic.get(f"long_reclaim_tp{i}") is not None],
+        "short_rejection_trigger": deterministic.get("short_rejection_trigger"),
+        "short_rejection_stop": deterministic.get("short_rejection_stop"),
+        "short_rejection_trade_targets": [deterministic.get(f"short_rejection_tp{i}") for i in range(1, 6) if deterministic.get(f"short_rejection_tp{i}") is not None],
+        "short_breakdown_trigger": deterministic.get("short_breakdown_trigger"),
+        "short_breakdown_stop": deterministic.get("short_breakdown_stop"),
+        "short_breakdown_trade_targets": [deterministic.get(f"short_breakdown_tp{i}") for i in range(1, 6) if deterministic.get(f"short_breakdown_tp{i}") is not None],
         "long_trade_targets": [
-            value for value in (validated_plan["long_tp1"], validated_plan["long_tp2"], validated_plan["long_tp3"])
-            if value is not None
+            validated_plan.get(f"long_tp{i}") for i in range(1, 6)
+            if validated_plan.get(f"long_tp{i}") is not None
+        ],
+        "long_support_trigger": deterministic.get("long_support_trigger"),
+        "long_support_invalidation": deterministic.get("long_support_stop"),
+        "long_support_trade_targets": [
+            deterministic.get(f"long_support_tp{i}") for i in range(1, 6)
+            if deterministic.get(f"long_support_tp{i}") is not None
         ],
         "short_trade_targets": [
-            value for value in (validated_plan["short_tp1"], validated_plan["short_tp2"], validated_plan["short_tp3"])
-            if value is not None
+            validated_plan.get(f"short_tp{i}") for i in range(1, 6)
+            if validated_plan.get(f"short_tp{i}") is not None
         ],
         "long_status": validated_plan.get("long_status", "UNAVAILABLE"),
         "short_status": validated_plan.get("short_status", "UNAVAILABLE"),
@@ -1057,10 +1190,18 @@ def normalize_analyst_output(
         "pivot": pivot,
         "location_state": location_state,
         "roles": {
-            "long_trigger": "CALL_WALL",
-            "short_trigger": "CALL_WALL_RETEST" if deterministic["short_trigger"] == deterministic["long_trigger"] and deterministic["short_trigger"] is not None else "PUT_WALL",
-            "long_invalidation": "PUT_WALL",
-            "short_invalidation": "PUT_WALL" if deterministic["short_stop"] == deterministic["long_stop"] and deterministic["short_stop"] is not None else "CALL_WALL",
+            "call_wall": "RESISTANCE / DECISION_ZONE",
+            "put_wall": "SUPPORT / DECISION_ZONE",
+            "long_reclaim": "BREAKOUT_RETEST_LONG",
+            "long_support": "REVERSAL_LONG",
+            "short_rejection": "REVERSAL_SHORT",
+            "short_breakdown": "BREAKOUT_RETEST_SHORT",
+            "long_trigger": "CALL_WALL_RECLAIM",
+            "long_support_trigger": "PUT_WALL_REACTION",
+            "short_trigger": "CALL_WALL_RETEST" if deterministic["short_trigger"] == deterministic["long_trigger"] and deterministic["short_trigger"] is not None else "PUT_WALL_BREAKDOWN",
+            "long_invalidation": "NEAREST_SOURCE_BELOW_TRIGGER",
+            "long_support_invalidation": "NEAREST_SOURCE_BELOW_SUPPORT",
+            "short_invalidation": "NEAREST_SOURCE_ABOVE_TRIGGER",
             "pivot": "GAMMA_MEAN",
         },
         "source": "QUIKSTRIKE_GEX_STRIKES_NORMALIZED_TO_CFD",
@@ -1069,6 +1210,14 @@ def normalize_analyst_output(
 
     # Give the state machine the exact same canonical map used by rendering.
     state["market_map"] = ai["market_map"]
+
+    # Recompute Action Zones after the canonical market map exists so the
+    # customer-facing state and execution state use the same triggers.
+    from src.action_zone_engine import build_action_zones
+    from src.data_clock import apply_data_clock
+    state["action_zones"] = build_action_zones(state)
+    apply_data_clock(parsed)
+
     execution_plan = build_trade_execution_plan(state)
 
     # From this point onward, every rendered field must come from the
@@ -1080,6 +1229,8 @@ def normalize_analyst_output(
             "tp1": validated_plan["long_tp1"],
             "tp2": validated_plan["long_tp2"],
             "tp3": validated_plan["long_tp3"],
+            "tp4": validated_plan.get("long_tp4"),
+            "tp5": validated_plan.get("long_tp5"),
         },
         "short": {
             "entry": validated_plan["short_trigger"],
@@ -1087,6 +1238,8 @@ def normalize_analyst_output(
             "tp1": validated_plan["short_tp1"],
             "tp2": validated_plan["short_tp2"],
             "tp3": validated_plan["short_tp3"],
+            "tp4": validated_plan.get("short_tp4"),
+            "tp5": validated_plan.get("short_tp5"),
         },
     }
     long_rr = _rr("LONG", plan["long"])
@@ -1096,9 +1249,21 @@ def normalize_analyst_output(
         "status": plan_status,
         "direction": plan_direction,
         "long_trigger": validated_plan["long_trigger"], "long_stop": validated_plan["long_stop"],
-        "long_tp1": validated_plan["long_tp1"], "long_tp2": validated_plan["long_tp2"], "long_tp3": validated_plan["long_tp3"],
+        **{f"long_tp{i}": validated_plan.get(f"long_tp{i}") for i in range(1, 6)},
         "short_trigger": validated_plan["short_trigger"], "short_stop": validated_plan["short_stop"],
-        "short_tp1": validated_plan["short_tp1"], "short_tp2": validated_plan["short_tp2"], "short_tp3": validated_plan["short_tp3"],
+        **{f"short_tp{i}": validated_plan.get(f"short_tp{i}") for i in range(1, 6)},
+        "long_support_trigger": deterministic.get("long_support_trigger"),
+        "long_support_stop": deterministic.get("long_support_stop"),
+        **{f"long_support_tp{i}": deterministic.get(f"long_support_tp{i}") for i in range(1, 6)},
+        "long_reclaim_trigger": deterministic.get("long_reclaim_trigger"),
+        "long_reclaim_stop": deterministic.get("long_reclaim_stop"),
+        **{f"long_reclaim_tp{i}": deterministic.get(f"long_reclaim_tp{i}") for i in range(1, 6)},
+        "short_rejection_trigger": deterministic.get("short_rejection_trigger"),
+        "short_rejection_stop": deterministic.get("short_rejection_stop"),
+        **{f"short_rejection_tp{i}": deterministic.get(f"short_rejection_tp{i}") for i in range(1, 6)},
+        "short_breakdown_trigger": deterministic.get("short_breakdown_trigger"),
+        "short_breakdown_stop": deterministic.get("short_breakdown_stop"),
+        **{f"short_breakdown_tp{i}": deterministic.get(f"short_breakdown_tp{i}") for i in range(1, 6)},
         "entry": plan_line("LONG", plan["long"]) + " | " + plan_line("SHORT", plan["short"]),
         "stop_loss": f"LONG invalidation {_fmt(plan['long']['stop'])} | SHORT invalidation {_fmt(plan['short']['stop'])}",
         "take_profit_1": f"LONG {_fmt(plan['long']['tp1'])} | SHORT {_fmt(plan['short']['tp1'])}",
@@ -1155,4 +1320,11 @@ def normalize_analyst_output(
     ai["trade_plan"]["execution_state"] = execution_plan["state"]
     ai["trade_plan"]["execution_plan"] = execution_plan
     ai["market_state"] = state
+    # Stable top-level accessors keep dashboard/Telegram consumers simple.
+    ai["regime_engine"] = state.get("regime") or {}
+    ai["action_zones"] = state.get("action_zones") or {}
+    ai["auction"] = state.get("auction") or {}
+    ai["order_flow"] = state.get("order_flow") or {}
+    ai["macro_state"] = state.get("macro") or {}
+    ai["data_clock"] = state.get("data_clock") or {}
     return ai

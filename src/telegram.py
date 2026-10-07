@@ -112,137 +112,187 @@ def _format_analysis_message(parsed: dict, ai_result: dict) -> str:
 
 
 def _format_levels_message(parsed: dict, ai_result: dict) -> str:
-    """Render human-readable support/resistance only.
-
-    Gamma/scenario calculations remain available internally; Telegram keeps this
-    section focused on the price map a trader needs at a glance.
-    """
+    """Render the structural map so a trader can read the market in seconds."""
     market_map = ai_result.get("market_map") or {}
     trade = ai_result.get("trade_plan") or {}
-
-    # Legacy snapshots may only contain the old trade-plan fields.
     if not market_map:
         market_map = {
-            "R3": trade.get("long_tp3"),
-            "R2": trade.get("long_tp2"),
-            "R1": trade.get("long_tp1"),
+            "R1": trade.get("long_tp1"), "R2": trade.get("long_tp2"), "R3": trade.get("long_tp3"),
+            "R4": trade.get("long_tp4"), "R5": trade.get("long_tp5"),
+            "S1": trade.get("short_tp1"), "S2": trade.get("short_tp2"), "S3": trade.get("short_tp3"),
+            "S4": trade.get("short_tp4"), "S5": trade.get("short_tp5"),
+            "call_wall": trade.get("long_trigger"),
+            "put_wall": trade.get("short_trigger"),
             "long_trigger": trade.get("long_trigger"),
             "short_trigger": trade.get("short_trigger"),
-            "S1": trade.get("short_tp1"),
-            "S2": trade.get("short_tp2"),
-            "S3": trade.get("short_tp3"),
         }
+
+    def pick(name: str, *fallbacks: str):
+        for key in (name, *fallbacks):
+            value = market_map.get(key)
+            if value is not None:
+                return value
+        return None
 
     def show(value):
         return _escape(_show(value))
 
-    long_trigger = market_map.get("long_trigger")
-    short_trigger = market_map.get("short_trigger")
-    if long_trigger is not None and short_trigger is not None and long_trigger == short_trigger:
-        trigger_line = f"จุดเปลี่ยน: {show(long_trigger)} — ยืนเหนือ = มองขึ้น / รีเทสต์ไม่ผ่าน = มองลง"
-    else:
-        parts = []
-        if long_trigger is not None:
-            parts.append(f"ขึ้น: {show(long_trigger)}")
-        if short_trigger is not None:
-            parts.append(f"ลง: {show(short_trigger)}")
-        trigger_line = "จุดเปลี่ยน: " + (" | ".join(parts) if parts else "ยังไม่มี")
-
-    lines = [
-        "<b>KEY LEVELS</b>",
-        f"แนวต้าน: R1 {show(market_map.get('R1'))} | R2 {show(market_map.get('R2'))} | R3 {show(market_map.get('R3'))}",
-        f"แนวรับ: S1 {show(market_map.get('S1'))} | S2 {show(market_map.get('S2'))} | S3 {show(market_map.get('S3'))}",
-        trigger_line,
+    resistance = [
+        pick("R1"), pick("R2"), pick("R3"), pick("R4"), pick("R5"),
     ]
-    return "\n".join(lines)
+    support = [
+        pick("S1"), pick("S2"), pick("S3"), pick("S4"), pick("S5"),
+    ]
+
+    call_wall = pick("call_wall", "long_reclaim_trigger", "long_trigger", "R1")
+    put_wall = pick("put_wall", "long_support_trigger", "short_breakdown_trigger", "short_trigger", "S1")
+    pivot = pick("pivot")
+
+    r_text = " • ".join(show(x) for x in resistance if x is not None) or "ยังไม่มี"
+    s_text = " • ".join(show(x) for x in support if x is not None) or "ยังไม่มี"
+
+    return "\n".join([
+        "<b>📍 KEY LEVELS</b>",
+        f"🔴 <b>ต้าน</b>  {r_text}",
+        f"🟢 <b>รับ</b>   {s_text}",
+        "",
+        f"⚡ <b>Call Wall</b>  {show(call_wall)}",
+        f"⚡ <b>Put Wall</b>   {show(put_wall)}",
+        f"⚪ <b>Gamma Mean</b>  {show(pivot)}",
+        "",
+        "เหนือ Call Wall → รอแผน BUY เบรก/รีเทสต์",
+        "Call Wall ไม่ผ่าน → รอแผน SELL ฝั่งต้าน",
+        "Put Wall รับอยู่ → รอแผน BUY จากแนวรับ",
+        "Put Wall หลุดแล้วรีเทสต์ไม่ผ่าน → รอแผน SELL ลงต่อ",
+    ])
 
 
 def _format_trade_plan_message(parsed: dict, ai_result: dict) -> str:
-    """Render a trader-friendly plan: entry condition, SL and TP."""
+    """Render all four trade routes with entry reference, SL and TP1-TP5."""
     trade = ai_result.get("trade_plan") or {}
     execution = trade.get("execution_plan") or {}
 
-    # Backward-compatible adapter for legacy snapshots.
+    # Backward-compatible fallback for snapshots created before four-route mode.
+    if execution and not any(key in execution for key in ("long_reclaim", "long_support", "short_rejection", "short_breakdown")):
+        # Compatibility bridge for the previous 3-route execution payload.
+        execution["long_reclaim"] = execution.get("long") or {}
+        execution["long_support"] = execution.get("long_support") or {}
+        execution["short_rejection"] = execution.get("short") or {}
+        execution["short_breakdown"] = execution.get("short_breakdown") or {}
+
     if not execution:
+        def legacy_payload(prefix: str, side: str, title: str, strategy: str, action: str):
+            trigger = trade.get(f"{prefix}_trigger")
+            stop = trade.get(f"{prefix}_stop")
+            targets = [trade.get(f"{prefix}_tp{i}") for i in range(1, 6)]
+            return {
+                "route": title,
+                "title": title,
+                "strategy": strategy,
+                "side": side,
+                "state": trade.get(f"{prefix}_state") or trade.get("execution_state") or trade.get("status") or "DATA_INSUFFICIENT",
+                "trigger": trigger,
+                "stop": stop,
+                "targets": targets,
+                "action": action,
+                "risk": {},
+            }
+
         execution = {
             "state": trade.get("execution_state") or trade.get("status") or "DATA_INSUFFICIENT",
-            "long": {
-                "state": trade.get("long_state") or ("ARMED" if trade.get("long_trigger") is not None else "DATA_INSUFFICIENT"),
-                "trigger": trade.get("long_trigger"),
-                "stop": trade.get("long_stop"),
-                "targets": [x for x in (trade.get("long_tp1"), trade.get("long_tp2"), trade.get("long_tp3")) if x is not None],
-            },
-            "short": {
-                "state": trade.get("short_state") or ("ARMED" if trade.get("short_trigger") is not None else "DATA_INSUFFICIENT"),
-                "trigger": trade.get("short_trigger"),
-                "stop": trade.get("short_stop"),
-                "targets": [x for x in (trade.get("short_tp1"), trade.get("short_tp2"), trade.get("short_tp3")) if x is not None],
-            },
+            "long_reclaim": legacy_payload("long", "LONG", "BUY — เบรกต้าน", "BREAKOUT_RETEST", "เบรกและยืนเหนือโซน → รีเทสต์ไม่หลุด → BUY"),
+            "long_support": legacy_payload("long_support", "LONG_SUPPORT", "BUY — รับด้านล่าง", "REVERSAL", "แตะโซนรับ → reaction → M5 BOS ขึ้น → BUY"),
+            "short_rejection": legacy_payload("short", "SHORT", "SELL — ต้านไม่ผ่าน", "REVERSAL / FAILED_RETEST", "เด้งกลับต้าน → rejection → M5 BOS ลง → SELL"),
+            "short_breakdown": legacy_payload("short", "SHORT", "SELL — หลุดแนวรับ", "BREAKOUT_RETEST", "หลุดแนวรับ → รีเทสต์ไม่ผ่าน → SELL"),
         }
 
     def fmt(value):
         return _escape(_show(value))
 
-    def preferred_label(side: str) -> str:
-        bias = str(ai_result.get("bias") or "").upper()
-        if side == "SHORT" and bias in {"SELL", "SHORT_CONDITIONAL", "BEARISH"}:
-            return "แผนหลัก"
-        if side == "LONG" and bias in {"BUY", "LONG_CONDITIONAL", "BULLISH"}:
-            return "แผนหลัก"
-        return "แผนสำรอง"
+    def state_text(value: object) -> str:
+        state = str(value or "DATA_INSUFFICIENT").upper()
+        return {
+            "CONFIRMED": "✅ เข้าเงื่อนไข",
+            "TRIGGERED": "⏳ เข้าโซนแล้ว • รอยืนยัน",
+            "TRIGGERED_WAIT_CONFIRMATION": "⏳ เข้าโซนแล้ว • รอยืนยัน",
+            "TRIGGERED_WAIT_RISK_REWARD": "⚠️ เข้าโซน แต่ Risk ไม่ผ่าน",
+            "IN_ZONE": "📍 อยู่ในโซน • รอ Action",
+            "APPROACHING": "👀 กำลังเข้าโซน",
+            "ARMED": "👀 รอจังหวะ",
+            "WAIT": "— รอ",
+            "NO_TRADE": "🚫 NO TRADE",
+            "INVALIDATED": "❌ หลุดเงื่อนไข",
+            "DATA_INSUFFICIENT": "⚠️ ข้อมูลไม่พอ",
+        }.get(state, state)
 
-    def render_side(label: str, emoji: str, payload: dict) -> list[str]:
-        trigger = payload.get("trigger")
-        stop = payload.get("stop")
-        targets = [x for x in (payload.get("targets") or []) if x is not None]
-        state = str(payload.get("state") or "DATA_INSUFFICIENT").upper()
-        lines = [f"{emoji} <b>{label} — {preferred_label(label)}</b>"]
+    def risk_text(payload: dict) -> str | None:
+        risk = payload.get("risk") or {}
+        if risk.get("status") == "PASS":
+            return None
+        reason = str(risk.get("reason") or "").upper()
+        if not reason:
+            return "🚫 Risk ยังไม่ผ่าน"
+        reason_map = {
+            "STOP_TOO_FAR": "🚫 SL ไกลเกิน volatility ที่กำหนด",
+            "RR_BELOW_MIN": "🚫 TP1 ได้ไม่ถึง 1R",
+            "NO_QUALIFIED_TP1": "🚫 ยังไม่มี TP1 ที่คุ้มความเสี่ยง",
+            "INVALID_STOP_DIRECTION": "🚫 ตำแหน่ง SL ไม่ถูกด้าน",
+            "MISSING_ENTRY_OR_STOP": "🚫 Entry/SL ข้อมูลไม่ครบ",
+        }
+        return reason_map.get(reason, f"🚫 Risk: {html.escape(reason.lower().replace('_', ' '))}")
 
-        if trigger is None or stop is None:
-            lines.append("ยังไม่มีจุดเข้า/SL ที่ข้อมูลรองรับครบ")
-            return lines
+    def render_route(payload: dict, title: str, emoji: str, default_action: str) -> list[str]:
+        p = payload or {}
+        trigger = p.get("trigger")
+        stop = p.get("stop")
+        targets = list(p.get("targets") or [])
+        targets.extend([None] * (5 - len(targets)))
+        action = _text(p.get("action")) if p.get("action") else default_action
 
-        if label == "SHORT":
-            lines.append(f"เข้า: ราคาเด้งกลับทดสอบ {fmt(trigger)} แล้วไม่ผ่าน พร้อม M15/M5 ยืนยันลง")
-        else:
-            lines.append(f"เข้า: ราคาเบรกและยืนเหนือ {fmt(trigger)} พร้อม M15/M5 ยืนยันขึ้น")
-
-        lines.append(f"SL: {fmt(stop)}")
-
-        if targets:
-            lines.append("TP: " + " → ".join(fmt(x) for x in targets[:3]))
-        else:
-            lines.append("TP: ยังไม่มีระดับที่คุ้มความเสี่ยง")
-
-        if state in {"TRIGGERED_WAIT_CONFIRMATION", "TRIGGERED_WAIT_RISK_REWARD"}:
-            lines.append("สถานะ: ราคาเข้าโซนแล้ว แต่ยังรอการยืนยัน")
-        elif state == "CONFIRMED":
-            lines.append("สถานะ: เงื่อนไขครบตามระบบ")
-        elif state == "ARMED":
-            lines.append("สถานะ: รอจังหวะเข้า")
+        lines = [
+            f"{emoji} <b>{title}</b>",
+            f"เข้าเมื่อ: {_escape(action)} @ <b>{fmt(trigger)}</b>",
+            f"🛑 SL: <b>{fmt(stop)}</b>",
+        ]
+        for i, value in enumerate(targets[:5], 1):
+            lines.append(f"🎯 TP{i}: <b>{fmt(value)}</b>")
+        lines.append(f"สถานะ: {state_text(p.get('state'))}")
+        warning = risk_text(p)
+        if warning:
+            lines.append(warning)
         return lines
 
-    overall = str(execution.get("state") or trade.get("status") or "UNKNOWN").upper()
-    bias = str(ai_result.get("bias") or trade.get("direction") or "WAIT").upper()
+    routes = [
+        ("long_reclaim", "🟢", "BUY 1 — เบรกแนวต้าน", "เบรกและยืนเหนือโซน → รีเทสต์ไม่หลุด → BUY"),
+        ("long_support", "🟢", "BUY 2 — รับด้านล่าง", "แตะโซนรับ → rejection/absorption → M5 BOS ขึ้น → BUY"),
+        ("short_rejection", "🔴", "SELL 1 — ต้านไม่ผ่าน", "เด้งกลับต้าน → rejection → M5 BOS ลง → SELL"),
+        ("short_breakdown", "🔴", "SELL 2 — หลุดแนวรับ", "หลุดแนวรับ → รีเทสต์ไม่ผ่าน → M5 BOS ลง → SELL"),
+    ]
 
-    status_text = {
-        "CONFIRMED": "ยืนยันแล้ว",
-        "TRIGGERED": "เข้าโซนแล้ว รอยืนยัน",
-        "ARMED": "รอจังหวะ",
-        "DATA_INSUFFICIENT": "ข้อมูลไม่พอ",
-    }.get(overall, overall)
+    bias = str(ai_result.get("bias") or trade.get("direction") or "WAIT").upper()
+    preferred_key = execution.get("preferred_setup")
+    preferred = execution.get(preferred_key) if preferred_key else None
+    if not isinstance(preferred, dict):
+        preferred = execution.get("short_rejection") if bias in {"SELL", "BEARISH"} else execution.get("long_reclaim")
+    pref_title = preferred.get("title") if isinstance(preferred, dict) else None
 
     lines = [
-        "<b>TRADE PLAN</b>",
-        f"มุมมอง: <b>{_escape(bias)}</b> | สถานะ: <b>{_escape(status_text)}</b>",
+        "📋 <b>TRADE PLAN</b>",
+        "ครบทุกทาง: BUY 2 แผน + SELL 2 แผน",
+        f"มุมมองตอนนี้: <b>{_escape(bias)}</b>",
+        f"แผนที่ระบบให้ความสำคัญ: <b>{_escape(pref_title or 'WAIT')}</b>",
+        "หลักการ: รอ Action ที่โซนก่อน ไม่ไล่ราคา",
         "",
     ]
-    lines.extend(render_side("LONG", "🟢", execution.get("long") or {}))
-    lines += ["",]
-    lines.extend(render_side("SHORT", "🔴", execution.get("short") or {}))
+
+    for i, (key, emoji, title, action) in enumerate(routes):
+        if i:
+            lines.append("")
+        lines.extend(render_route(execution.get(key) or {}, title, emoji, action))
+
     lines += [
         "",
-        "หมายเหตุ: แผนนี้เป็น conditional plan; OI/ΔOI/GEX ใช้เป็นบริบท ไม่ใช่หลักฐานว่า dealer อยู่ฝั่งใด และระบบนี้ไม่ส่งคำสั่ง",
+        "หมายเหตุ: TP1-TP5 เป็น target จาก source structure ที่ผ่านกฎความเสี่ยงของระบบ • OI/ΔOI/GEX เป็นบริบท ไม่ใช่หลักฐาน dealer position • ระบบไม่ส่งคำสั่ง",
     ]
     return "\n".join(lines)
 
