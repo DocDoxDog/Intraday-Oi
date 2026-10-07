@@ -181,6 +181,44 @@ export async function GET() {
       "รอให้เกิด Action ที่โซน";
   }
 
+  const localMaxDistance = Math.max(
+    5,
+    Number.isFinite(Number(process.env.LOCAL_TRADE_MAX_DISTANCE))
+      ? Number(process.env.LOCAL_TRADE_MAX_DISTANCE)
+      : 15,
+  );
+  const gateLocalRoute = (route: Record<string, any> | null): Record<string, any> | null => {
+    if (!route) return route;
+    const trigger = num(route.trigger ?? route.entry_reference);
+    const current = num(row.cfd_price);
+    if (trigger === null || current === null || Math.abs(trigger - current) <= localMaxDistance) return route;
+    return {
+      ...route,
+      state: "WAIT",
+      trigger: null,
+      entry_reference: null,
+      stop: null,
+      targets: [],
+      risk_blocked: true,
+      risk: { status: "NO_TRADE", reason: "LEVEL_TOO_FAR" },
+      watch_level: trigger,
+      distance_from_current: Math.abs(trigger - current),
+    };
+  };
+  for (const key of ["long_reclaim", "long_support", "short_rejection", "short_breakdown"]) {
+    execution[key] = gateLocalRoute(execution[key] ?? null);
+  }
+  const activeRoutes = [
+    execution.short_rejection, execution.short_breakdown,
+    execution.long_reclaim, execution.long_support,
+  ].filter((route: any) =>
+    route && !["WAIT", "NO_TRADE", "INVALIDATED", "DATA_INSUFFICIENT"].includes(String(route.state ?? "").toUpperCase())
+  );
+  if (!activeRoutes.length) {
+    execution.preferred_setup = null;
+    execution.preferred_action = "รอให้เกิด Action ที่โซนใกล้ราคา";
+  }
+
   const gamma = parseJson(raw.multi_expiry_gamma);
   const gammaZones = parseJson(raw.multi_expiry_gamma_zones);
   const primaryRows = Array.isArray(raw.strike_rows) ? raw.strike_rows : [];
@@ -257,6 +295,9 @@ export async function GET() {
       putWall: num(marketMap.put_wall),
       longTrigger: num(marketMap.long_trigger),
       shortTrigger: num(marketMap.short_trigger),
+      localTradeMaxDistance: num(marketMap.local_trade_max_distance),
+      localActionResistance: num(marketMap.local_action_resistance),
+      localActionSupport: num(marketMap.local_action_support),
       longSupportTrigger: num(marketMap.long_support_trigger),
       longReclaimTrigger: num(marketMap.long_reclaim_trigger),
       shortRejectionTrigger: num(marketMap.short_rejection_trigger),
