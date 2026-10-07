@@ -676,10 +676,12 @@ def _deterministic_trade_levels(
     decision = ((raw.get("market_state") or {}).get("decision_framework") or {})
     htf = str((((decision.get("steps") or {}).get("1_market_state") or {}).get("htf_structure") or "mixed")).lower()
     current = cfd
+    # Each setup gets its own structural invalidation. Never use a distant
+    # opposite wall as a generic stop: that can create absurd risk distances.
     long_trigger = call_wall
     short_trigger = put_wall
-    long_stop = put_wall
-    short_stop = call_wall
+    long_stop = None
+    short_stop = None
     def nearest_source_level(anchor: float | None, *, above: bool) -> float | None:
         """Return the nearest observed source strike on the requested side."""
         if anchor is None or future is None or cfd is None:
@@ -700,6 +702,9 @@ def _deterministic_trade_levels(
             return None
         return min(candidates) if above else max(candidates)
 
+    long_stop = nearest_source_level(call_wall, above=False) if call_wall is not None else None
+    short_stop = nearest_source_level(put_wall, above=True) if put_wall is not None else None
+
     if htf == "bearish" and current is not None and call_wall is not None and current <= call_wall:
         # Bearish failed-retest setup: trigger is the broken call wall and
         # invalidation must sit ABOVE that trigger. Use the nearest source
@@ -711,6 +716,11 @@ def _deterministic_trade_levels(
         # invalidation must sit BELOW that trigger.
         long_trigger = put_wall
         long_stop = nearest_source_level(put_wall, above=False)
+
+    # Separate support-reaction LONG setup. It remains available even when
+    # the primary regime is bearish, but still requires confirmation.
+    long_support_trigger = put_wall
+    long_support_stop = nearest_source_level(put_wall, above=False) if put_wall is not None else None
 
     def source_candidates(side: str, anchor: float | None) -> list[dict[str, float]]:
         if anchor is None or future is None or cfd is None:
@@ -778,6 +788,13 @@ def _deterministic_trade_levels(
     long_targets = trade_targets(
         "LONG", long_trigger, long_stop, [item["level"] for item in long_candidates]
     )
+    long_support_candidates = source_candidates("LONG", long_support_trigger)
+    long_support_targets = trade_targets(
+        "LONG",
+        long_support_trigger,
+        long_support_stop,
+        [item["level"] for item in long_support_candidates],
+    )
     short_targets = trade_targets(
         "SHORT", short_trigger, short_stop, [item["level"] for item in short_candidates]
     )
@@ -789,6 +806,11 @@ def _deterministic_trade_levels(
         "long_tp1": long_targets[0] if len(long_targets) > 0 else None,
         "long_tp2": long_targets[1] if len(long_targets) > 1 else None,
         "long_tp3": long_targets[2] if len(long_targets) > 2 else None,
+        "long_support_trigger": long_support_trigger,
+        "long_support_stop": long_support_stop,
+        "long_support_tp1": long_support_targets[0] if len(long_support_targets) > 0 else None,
+        "long_support_tp2": long_support_targets[1] if len(long_support_targets) > 1 else None,
+        "long_support_tp3": long_support_targets[2] if len(long_support_targets) > 2 else None,
         "short_trigger": short_trigger,
         "short_stop": short_stop,
         "short_key_levels": short_key_levels,
