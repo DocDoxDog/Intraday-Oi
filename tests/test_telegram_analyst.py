@@ -101,14 +101,14 @@ def test_telegram_renders_three_text_message_sections():
     m5 = telegram._format_trade_plan_message(parsed, ai)
     assert "WHAT text" in m3 and "WHY text" in m3 and "POSITIONING text" in m3
     assert "KEY LEVELS" in m4
-    assert "แนวต้าน:" in m4 and "แนวรับ:" in m4
-    assert "4,252.49" in m4
+    assert "🔴 <b>ต้าน</b>" in m4 and "🟢 <b>รับ</b>" in m4
+    assert "4,252.49" in m4 and "จุดเปลี่ยน" in m4
     assert "GAMMA TERM STRUCTURE" not in m4
     assert "SCENARIO" not in m4
     assert "<b>TRADE PLAN</b>" in m5
-    assert "SL:" in m5
-    assert "TP:" in m5
-    assert "เข้า:" in m5
+    assert "🛑 SL" in m5
+    assert "🎯 TP" in m5
+    assert "เข้าเมื่อ:" in m5
     assert "ยกเลิกแผนเมื่อ:" not in m5
     assert "Confirmation:" not in m5
 
@@ -296,5 +296,5 @@ def test_telegram_renders_support_reaction_long_setup():
     }
     message = telegram._format_trade_plan_message({}, ai)
     assert "LONG รับด้านล่าง" in message
-    assert "ราคาลงถึง 4,072.88 แล้วรับอยู่" in message
-    assert "SL: 4,067.88" in message
+    assert "ลงถึงโซนรับ <b>4,072.88</b>" in message
+    assert "🛑 SL  4,067.88" in message
