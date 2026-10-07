@@ -278,3 +278,23 @@ def test_trade_targets_use_source_strikes_not_gamma_mean():
     assert trade["short_tp3"] == 4105.33829
     assert trade["long_tp1"] != 4137.63829
     assert trade["short_tp1"] != 4137.63829
+
+
+def test_telegram_renders_support_reaction_long_setup():
+    from src import telegram
+    ai = {
+        "bias": "SELL",
+        "trade_plan": {
+            "status": "CONDITIONAL",
+            "execution_plan": {
+                "state": "ARMED",
+                "long": {"state": "ARMED", "trigger": 4137.88, "stop": 4132.88, "targets": [4147.88]},
+                "long_support": {"state": "ARMED", "trigger": 4072.88, "stop": 4067.88, "targets": [4082.88]},
+                "short": {"state": "ARMED", "trigger": 4137.88, "stop": 4142.88, "targets": [4132.88]},
+            },
+        },
+    }
+    message = telegram._format_trade_plan_message({}, ai)
+    assert "LONG รับด้านล่าง" in message
+    assert "ราคาลงถึง 4,072.88 แล้วรับอยู่" in message
+    assert "SL: 4,067.88" in message
