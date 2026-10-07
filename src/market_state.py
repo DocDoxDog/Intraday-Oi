@@ -1215,4 +1215,11 @@ def normalize_analyst_output(
     ai["trade_plan"]["execution_state"] = execution_plan["state"]
     ai["trade_plan"]["execution_plan"] = execution_plan
     ai["market_state"] = state
+    # Stable top-level accessors keep dashboard/Telegram consumers simple.
+    ai["regime_engine"] = state.get("regime") or {}
+    ai["action_zones"] = state.get("action_zones") or {}
+    ai["auction"] = state.get("auction") or {}
+    ai["order_flow"] = state.get("order_flow") or {}
+    ai["macro_state"] = state.get("macro") or {}
+    ai["data_clock"] = state.get("data_clock") or {}
     return ai
