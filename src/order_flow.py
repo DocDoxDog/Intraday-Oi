@@ -78,7 +78,7 @@ def build_order_flow_context(trades: list[dict[str, Any]] | None = None,
         # Candidate only: low displacement relative to heavy aggression.
         # The ratio is intentionally exposed as derived evidence, not a signal score.
         aggression_per_move = total / max(abs(displacement), 1e-9)
-        if aggression_per_move > max(total, 1) / max(abs(displacement), 1e-9) * 0.8:
+        if aggression_per_move > 0:
             hypotheses.append({
                 "type": "ABSORPTION_CANDIDATE",
                 "status": "CANDIDATE",
