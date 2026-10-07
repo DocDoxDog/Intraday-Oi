@@ -127,10 +127,12 @@ def build_trade_execution_plan(state: dict[str, Any]) -> dict[str, Any]:
             return result
         return fallback_confirmation(side, trigger)
 
-    def target_list(prefix: str) -> list[float | None]:
-        values = []
-        for i in range(1, 6):
-            values.append(_n(market_map.get(f"{prefix}_tp{i}")))
+    def target_list(prefix: str, legacy_prefix: str | None = None) -> list[float | None]:
+        values = [_n(market_map.get(f"{prefix}_tp{i}")) for i in range(1, 6)]
+        if not any(v is not None for v in values) and legacy_prefix:
+            legacy = market_map.get(legacy_prefix)
+            if isinstance(legacy, list):
+                values = [_n(x) for x in legacy[:5]]
         return values
 
     def side_payload(
@@ -213,9 +215,9 @@ def build_trade_execution_plan(state: dict[str, Any]) -> dict[str, Any]:
         long_support_conf.setdefault("conditions", []).append("waiting_support_reaction")
 
     target_map = {
-        "long_reclaim": target_list("long_reclaim"),
+        "long_reclaim": target_list("long_reclaim", "long_trade_targets"),
         "long_support": [_n(market_map.get(f"long_support_tp{i}")) for i in range(1, 6)],
-        "short_rejection": [_n(market_map.get(f"short_rejection_tp{i}")) for i in range(1, 6)],
+        "short_rejection": [_n(market_map.get(f"short_rejection_tp{i}")) for i in range(1, 6)] or [_n(x) for x in (market_map.get("short_trade_targets") or [])[:5]],
         "short_breakdown": [_n(market_map.get(f"short_breakdown_tp{i}")) for i in range(1, 6)],
     }
 
