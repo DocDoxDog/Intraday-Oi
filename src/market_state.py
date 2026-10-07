@@ -347,6 +347,17 @@ def _decision_framework(
     current = _num(parsed.get("cfd_price"))
     long_trigger = _num(levels.get("resistance_current"))
     short_trigger = _num(levels.get("support_current"))
+
+    # Keep the decision framework aligned with the canonical failed-retest
+    # semantics used by the trade-plan builder. In bearish structure, once
+    # price is already below the call wall, the actionable short trigger is
+    # the call-wall retest rather than the distant put wall. The bullish mirror
+    # uses the put-wall retest.
+    if htf == "bearish" and current is not None and long_trigger is not None and current <= long_trigger:
+        short_trigger = long_trigger
+    elif htf == "bullish" and current is not None and short_trigger is not None and current >= short_trigger:
+        long_trigger = short_trigger
+
     location = {
         "current_cfd": current,
         "relative_to_long_trigger": (
@@ -669,12 +680,37 @@ def _deterministic_trade_levels(
     short_trigger = put_wall
     long_stop = put_wall
     short_stop = call_wall
+    def nearest_source_level(anchor: float | None, *, above: bool) -> float | None:
+        """Return the nearest observed source strike on the requested side."""
+        if anchor is None or future is None or cfd is None:
+            return None
+        candidates = []
+        for row in rows:
+            strike = _num(row.get("strike"))
+            if strike is None:
+                continue
+            level = _cfd_level(strike, future, cfd)
+            if level is None:
+                continue
+            if above and level > anchor:
+                candidates.append(level)
+            elif not above and level < anchor:
+                candidates.append(level)
+        if not candidates:
+            return None
+        return min(candidates) if above else max(candidates)
+
     if htf == "bearish" and current is not None and call_wall is not None and current <= call_wall:
+        # Bearish failed-retest setup: trigger is the broken call wall and
+        # invalidation must sit ABOVE that trigger. Use the nearest source
+        # strike above it, never an unrelated lower put wall.
         short_trigger = call_wall
-        short_stop = put_wall
+        short_stop = nearest_source_level(call_wall, above=True)
     elif htf == "bullish" and current is not None and put_wall is not None and current >= put_wall:
+        # Bullish failed-reclaim mirror: trigger is the broken put wall and
+        # invalidation must sit BELOW that trigger.
         long_trigger = put_wall
-        long_stop = call_wall
+        long_stop = nearest_source_level(put_wall, above=False)
 
     def source_candidates(side: str, anchor: float | None) -> list[dict[str, float]]:
         if anchor is None or future is None or cfd is None:
