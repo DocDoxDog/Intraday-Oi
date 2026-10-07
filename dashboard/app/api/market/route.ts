@@ -33,6 +33,61 @@ function clean(value: unknown): unknown {
   return value;
 }
 
+function routeFromLegacy(
+  tradePlan: Record<string, any>,
+  prefix: string,
+  title: string,
+  route: string,
+  side: string,
+  strategy: string,
+  action: string,
+): Record<string, any> {
+  const trigger = num(tradePlan[prefix + "_trigger"]);
+  const stop = num(tradePlan[prefix + "_stop"]);
+  const targets = [1, 2, 3, 4, 5]
+    .map((i) => num(tradePlan[prefix + "_tp" + i]))
+    .filter((v): v is number => v !== null);
+  return {
+    route,
+    title,
+    side,
+    strategy,
+    state: tradePlan[prefix + "_state"] ?? (trigger !== null && stop !== null ? "ARMED" : "DATA_INSUFFICIENT"),
+    trigger,
+    entry_reference: trigger,
+    stop,
+    targets,
+    action,
+    risk: {},
+    execution_authority: "NONE",
+    legacy_fallback: true,
+  };
+}
+
+function unavailableRoute(
+  title: string,
+  route: string,
+  side: string,
+  strategy: string,
+  action: string,
+): Record<string, any> {
+  return {
+    route,
+    title,
+    side,
+    strategy,
+    state: "DATA_INSUFFICIENT",
+    trigger: null,
+    entry_reference: null,
+    stop: null,
+    targets: [],
+    action,
+    risk: { status: "NO_TRADE", reason: "WAIT_FOR_NEW_DETERMINISTIC_SNAPSHOT" },
+    execution_authority: "NONE",
+    legacy_fallback: true,
+  };
+}
+
 export async function GET() {
   const url = process.env.SUPABASE_URL;
   const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -85,7 +140,46 @@ export async function GET() {
   const technical = parseJson(row.technical_context);
   const marketMap = parseJson(ai.market_map);
   const tradePlan = parseJson(ai.trade_plan);
-  const execution = parseJson(tradePlan.execution_plan);
+  const rawExecution = parseJson(tradePlan.execution_plan);
+
+  // Older DB snapshots may predate the four-route engine. Normalize them at
+  // the API boundary so the customer UI never loses a route silently.
+  const execution = { ...rawExecution };
+  if (!execution.long_reclaim) {
+    execution.long_reclaim = execution.long ?? routeFromLegacy(
+      tradePlan, "long", "BUY — เบรกต้าน", "BUY_BREAKOUT", "LONG",
+      "BREAKOUT_RETEST", "เบรกและยืนเหนือโซน → รีเทสต์ไม่หลุด → BUY"
+    );
+  }
+  if (!execution.long_support) {
+    execution.long_support = unavailableRoute(
+      "BUY — รับด้านล่าง", "BUY_SUPPORT", "LONG_SUPPORT",
+      "REVERSAL", "แตะโซนรับ → reaction → M5 BOS ขึ้น → BUY"
+    );
+  }
+  if (!execution.short_rejection) {
+    execution.short_rejection = execution.short ?? routeFromLegacy(
+      tradePlan, "short", "SELL — ต้านไม่ผ่าน", "SELL_REJECTION", "SHORT",
+      "REVERSAL / FAILED_RETEST", "เด้งกลับต้าน → rejection → M5 BOS ลง → SELL"
+    );
+  }
+  if (!execution.short_breakdown) {
+    execution.short_breakdown = unavailableRoute(
+      "SELL — หลุดแนวรับ", "SELL_BREAKDOWN", "SHORT",
+      "BREAKOUT_RETEST", "หลุดแนวรับ → รีเทสต์ไม่ผ่าน → SELL"
+    );
+  }
+
+  if (!execution.preferred_setup) {
+    const bias = String(ai.bias ?? tradePlan.direction ?? "WAIT").toUpperCase();
+    execution.preferred_setup =
+      bias === "SELL" ? execution.short_rejection?.route :
+      bias === "BUY" ? execution.long_reclaim?.route : null;
+    execution.preferred_action =
+      bias === "SELL" ? execution.short_rejection?.action :
+      bias === "BUY" ? execution.long_reclaim?.action :
+      "รอให้เกิด Action ที่โซน";
+  }
 
   const gamma = parseJson(raw.multi_expiry_gamma);
   const gammaZones = parseJson(raw.multi_expiry_gamma_zones);
