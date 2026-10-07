@@ -721,25 +721,37 @@ def _deterministic_trade_levels(
             return None
         return min(candidates) if above else max(candidates)
 
-    long_stop = nearest_source_level(call_wall, above=False) if call_wall is not None else None
-    short_stop = nearest_source_level(put_wall, above=True) if put_wall is not None else None
+    long_stop = (
+        nearest_source_level(call_wall, above=False)
+        if call_wall is not None
+        else None
+    ) or _num(levels.get("support_main"))
+    short_stop = (
+        nearest_source_level(put_wall, above=True)
+        if put_wall is not None
+        else None
+    ) or _num(levels.get("resistance_main"))
 
     if htf == "bearish" and current is not None and call_wall is not None and current <= call_wall:
         # Bearish failed-retest setup: trigger is the broken call wall and
         # invalidation must sit ABOVE that trigger. Use the nearest source
         # strike above it, never an unrelated lower put wall.
         short_trigger = call_wall
-        short_stop = nearest_source_level(call_wall, above=True)
+        short_stop = nearest_source_level(call_wall, above=True) or _num(levels.get("resistance_main"))
     elif htf == "bullish" and current is not None and put_wall is not None and current >= put_wall:
         # Bullish failed-reclaim mirror: trigger is the broken put wall and
         # invalidation must sit BELOW that trigger.
         long_trigger = put_wall
-        long_stop = nearest_source_level(put_wall, above=False)
+        long_stop = nearest_source_level(put_wall, above=False) or _num(levels.get("support_main"))
 
     # Separate support-reaction LONG setup. It remains available even when
     # the primary regime is bearish, but still requires confirmation.
     long_support_trigger = put_wall
-    long_support_stop = nearest_source_level(put_wall, above=False) if put_wall is not None else None
+    long_support_stop = (
+        nearest_source_level(put_wall, above=False)
+        if put_wall is not None
+        else None
+    ) or _num(levels.get("support_deep")) or _num(levels.get("support_main"))
 
     def source_candidates(side: str, anchor: float | None) -> list[dict[str, float]]:
         if anchor is None or future is None or cfd is None:
