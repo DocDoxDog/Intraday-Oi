@@ -138,9 +138,6 @@ def _format_levels_message(parsed: dict, ai_result: dict) -> str:
 
     long_trigger = market_map.get("long_trigger")
     short_trigger = market_map.get("short_trigger")
-    long_role = str((market_map.get("roles") or {}).get("long_trigger") or "").upper()
-    short_role = str((market_map.get("roles") or {}).get("short_trigger") or "").upper()
-
     if long_trigger is not None and short_trigger is not None and long_trigger == short_trigger:
         trigger_line = f"จุดเปลี่ยน: {show(long_trigger)} — ยืนเหนือ = มองขึ้น / รีเทสต์ไม่ผ่าน = มองลง"
     else:
@@ -154,7 +151,7 @@ def _format_levels_message(parsed: dict, ai_result: dict) -> str:
     lines = [
         "<b>KEY LEVELS</b>",
         f"แนวต้าน: R1 {show(market_map.get('R1'))} | R2 {show(market_map.get('R2'))} | R3 {show(market_map.get('R3'))}",
-        f"แนวรับ: R? " + show(None) if False else f"แนวรับ: S1 {show(market_map.get('S1'))} | S2 {show(market_map.get('S2'))} | S3 {show(market_map.get('S3'))}",
+        f"แนวรับ: S1 {show(market_map.get('S1'))} | S2 {show(market_map.get('S2'))} | S3 {show(market_map.get('S3'))}",
         trigger_line,
     ]
     return "\n".join(lines)
