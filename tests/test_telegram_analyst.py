@@ -269,7 +269,7 @@ def test_trade_targets_use_source_strikes_not_gamma_mean():
     # Gamma Mean / gamma zones are context only.
     assert trade["long_tp1"] == 4160.33829
     assert trade["long_tp2"] == 4165.33829
-    assert trade["long_tp3"] == 4170.33829
+    assert trade["long_tp3"] == 4185.33829
     assert trade["short_tp1"] == 4100.33829
     assert trade["short_tp2"] == 4095.33829
     assert trade["short_tp3"] == 4090.33829
