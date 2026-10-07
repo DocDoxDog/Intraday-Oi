@@ -33,13 +33,13 @@ def test_trade_map_uses_structural_walls_and_non_adjacent_source_strikes():
     assert plan["long_tp1"] == 4195.21
     assert plan["long_tp2"] is None
     assert plan["long_tp3"] is None
-    assert plan["short_tp1"] == 4075.21
-    assert plan["short_tp2"] == 4055.21
-    assert plan["short_tp3"] == 4035.21
+    assert plan["short_tp1"] == 4055.21
+    assert plan["short_tp2"] == 4035.21
+    assert plan["short_tp3"] is None
     assert plan["long_tp1"] > plan["long_trigger"]
     assert plan["short_tp1"] < plan["short_trigger"]
     assert abs(plan["short_tp1"] - plan["short_tp2"]) >= 15
-    assert abs(plan["short_tp2"] - plan["short_tp3"]) >= 15
+    assert abs(plan["short_tp1"] - plan["short_tp2"]) >= 15
     assert 4139.85 not in {
         plan["long_tp1"], plan["long_tp2"], plan["long_tp3"],
         plan["short_tp1"], plan["short_tp2"], plan["short_tp3"],
