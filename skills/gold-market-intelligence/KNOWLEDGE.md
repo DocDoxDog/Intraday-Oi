@@ -32,6 +32,15 @@ BALANCE: overlapping auction / mixed structure; mean reversion is permitted.
 TRANSITION: structure conflict, sweeps, failed breaks, changing value; reversal / failed breakout setups are permitted.
 EVENT: high-impact fresh catalyst or data uncertainty; WAIT until reaction is observable.
 
+## Four-route customer map
+The customer-facing product should answer “ต้องทำอะไรถึงเข้า?” with four routes:
+- BUY breakout/reclaim at resistance
+- BUY reaction at support
+- SELL rejection at resistance
+- SELL breakdown/retest below support
+
+For each route, render Entry reference + SL + TP1/TP2/TP3/TP4/TP5. The route is valid only when its setup event, confirmation, and risk gate are satisfied. A directional market bias changes the preferred route, but the dashboard/Telegram still exposes all four alternatives so a lower support reaction or opposite reversal is not silently discarded.
+
 ## Setup semantics
 PULLBACK: established trend + impulse + retracement + structural zone + reaction + lower-timeframe continuation.
 BREAKOUT + RETEST: break → acceptance → retest → hold/rejection → continuation. Breakout candle is not confirmation.
