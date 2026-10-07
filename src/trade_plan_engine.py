@@ -7,6 +7,9 @@ from __future__ import annotations
 
 from typing import Any
 
+from src.confirmation_engine import confirm_setup
+from src.risk_engine import evaluate_setup_risk
+
 
 def _n(v: Any) -> float | None:
     if isinstance(v, bool) or v is None or v == "":
@@ -107,18 +110,39 @@ def build_trade_execution_plan(state: dict[str, Any]) -> dict[str, Any]:
     long_support_targets = [_n(x) for x in (market_map.get("long_support_trade_targets") or [])]
     short_targets = [_n(x) for x in (market_map.get("short_trade_targets") or [])]
 
-    long_conf = _side_confirmation(state, "LONG", current, long_trigger)
-    short_conf = _side_confirmation(state, "SHORT", current, short_trigger)
+    # Action Zone Engine is the preferred semantic gate. Keep the old
+    # confirmation function as a compatibility fallback for snapshots that do
+    # not yet contain action_zones.
+    action_zones = state.get("action_zones") or {}
+    setups = action_zones.get("setups") or {}
+
+    def _zone_confirmation(key: str, fallback_side: str, trigger: float | None) -> dict[str, Any]:
+        setup = setups.get(key)
+        if isinstance(setup, dict):
+            result = confirm_setup(setup, state)
+            result["zone_state"] = setup.get("state")
+            result["event_required"] = setup.get("event_required")
+            return result
+        return _side_confirmation(state, fallback_side, current, trigger)
+
+    long_conf = _zone_confirmation("breakout_retest_long", "LONG", long_trigger)
+    short_conf = _zone_confirmation("breakout_retest_short", "SHORT", short_trigger)
 
     # Support-reaction LONG: price reaches the lower structural zone, then
     # requires bullish M15/M5 confirmation and M5 BOS. This is an alternative
     # setup, not an automatic BUY merely because OI/volume is large.
-    long_support_conf = _side_confirmation(
-        state,
-        "LONG",
-        current,
-        long_support_trigger,
-    )
+    support_setup = setups.get("reversal_long")
+    if isinstance(support_setup, dict):
+        long_support_conf = confirm_setup(support_setup, state)
+        long_support_conf["zone_state"] = support_setup.get("state")
+        long_support_conf["event_required"] = support_setup.get("event_required")
+    else:
+        long_support_conf = _side_confirmation(
+            state,
+            "LONG",
+            current,
+            long_support_trigger,
+        )
     if long_support_conf["state"] == "CONFIRMED" and current is not None and long_support_trigger is not None and current > long_support_trigger:
         long_support_conf["state"] = "ARMED"
         long_support_conf["conditions"].append("waiting_support_reaction")
@@ -130,6 +154,19 @@ def build_trade_execution_plan(state: dict[str, Any]) -> dict[str, Any]:
         effective_state = conf["state"]
         if effective_state == "CONFIRMED" and not rr1_ok:
             effective_state = "TRIGGERED_WAIT_RISK_REWARD"
+        technical = state.get("technical") or {}
+        atr = _n(((technical.get("m5") or {}).get("atr14")))
+        flow = state.get("order_flow") or {}
+        book = flow.get("book") or {}
+        spread = _n(book.get("spread"))
+        risk = evaluate_setup_risk(
+            side, trigger, stop, targets,
+            atr=atr, spread=spread, slippage=None,
+        )
+        if effective_state == "CONFIRMED" and risk.get("status") != "PASS":
+            effective_state = "NO_TRADE"
+        elif effective_state == "TRIGGERED_WAIT_RISK_REWARD" and risk.get("status") == "NO_TRADE":
+            effective_state = "NO_TRADE"
         return {
             "side": side,
             "state": effective_state,
@@ -141,8 +178,11 @@ def build_trade_execution_plan(state: dict[str, Any]) -> dict[str, Any]:
             "risk_per_unit": risk_per_unit,
             "minimum_rr1": 1.0,
             "rr1_eligible": rr1_ok,
-            "confirmation": conf["conditions"],
-            "position_sizing": "risk_budget / abs(entry_reference - stop); execution engine applies contract value, tick size and max-risk limits",
+            "confirmation": conf.get("conditions") or conf.get("checks") or [],
+            "zone_state": conf.get("zone_state"),
+            "event_required": conf.get("event_required"),
+            "risk": risk,
+            "position_sizing": "risk_budget / abs(entry_reference - stop); downstream execution engine applies contract value, tick size and max-risk limits",
             "cancel_if": (
                 "HTF structure invalidates thesis or trigger is reclaimed before confirmation"
                 if side == "SHORT"
