@@ -110,3 +110,83 @@ def test_confirmation_requires_zone_event_and_lower_timeframe_structure():
     result = confirm_setup(setup, state)
     assert result["state"] == "CONFIRMED"
     assert result["confirmed"] is True
+
+
+def test_market_map_can_generate_five_source_qualified_targets_for_both_sides():
+    from src.market_state import _deterministic_trade_levels
+
+    parsed = {
+        "future_price": 4200.0,
+        "cfd_price": 4200.0,
+        "raw_series": {
+            "gex": {
+                "rows": [
+                    {"strike": x, "net_gex": 1.0}
+                    for x in (
+                        4170, 4175, 4180, 4185, 4190, 4195,
+                        4200, 4205, 4210, 4215, 4220, 4225,
+                        4230, 4235, 4240, 4245,
+                    )
+                ]
+            },
+            "market_state": {
+                "decision_framework": {
+                    "steps": {"1_market_state": {"htf_structure": "bearish"}}
+                }
+            },
+        },
+    }
+    levels = {
+        "resistance_main": 4210.0,
+        "support_main": 4190.0,
+        "resistance_current": 4205.0,
+        "support_current": 4195.0,
+        "support_deep": 4180.0,
+    }
+    result = _deterministic_trade_levels(parsed, levels, {})
+
+    assert result["long_reclaim_trigger"] == 4210.0
+    assert result["long_reclaim_tp1"] == 4215.0
+    assert result["long_reclaim_tp5"] == 4235.0
+
+    assert result["long_support_trigger"] == 4190.0
+    assert result["long_support_tp1"] == 4195.0
+    assert result["long_support_tp5"] == 4215.0
+
+    assert result["short_rejection_trigger"] == 4210.0
+    assert result["short_rejection_tp1"] == 4205.0
+    assert result["short_rejection_tp5"] == 4185.0
+
+    assert result["short_breakdown_trigger"] == 4190.0
+    assert result["short_breakdown_tp1"] == 4185.0
+    assert result["short_breakdown_tp5"] == 4165.0
+
+
+def test_trade_execution_plan_exposes_four_customer_routes():
+    from src.trade_plan_engine import build_trade_execution_plan
+
+    state = base_state()
+    state["market_map"].update({
+        "call_wall": 4210.0,
+        "put_wall": 4190.0,
+        "long_reclaim_trigger": 4210.0,
+        "long_reclaim_stop": 4205.0,
+        "long_reclaim_tp1": 4215.0,
+        "long_support_trigger": 4190.0,
+        "long_support_invalidation": 4185.0,
+        "long_support_tp1": 4195.0,
+        "short_rejection_trigger": 4210.0,
+        "short_rejection_stop": 4215.0,
+        "short_rejection_tp1": 4205.0,
+        "short_breakdown_trigger": 4190.0,
+        "short_breakdown_stop": 4195.0,
+        "short_breakdown_tp1": 4185.0,
+    })
+    state["action_zones"] = {}
+    plan = build_trade_execution_plan(state)
+
+    assert plan["long_reclaim"]["route"] == "BUY_BREAKOUT"
+    assert plan["long_support"]["route"] == "BUY_SUPPORT"
+    assert plan["short_rejection"]["route"] == "SELL_REJECTION"
+    assert plan["short_breakdown"]["route"] == "SELL_BREAKDOWN"
+    assert len(plan["routes"]) == 4
