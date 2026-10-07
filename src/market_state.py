@@ -733,10 +733,18 @@ def _deterministic_trade_levels(
             )
         ][:3]
 
-    long_key_levels = structural_levels("LONG", long_trigger)
-    short_key_levels = structural_levels("SHORT", short_trigger)
-    long_targets = trade_targets("LONG", long_trigger, long_stop, long_key_levels)
-    short_targets = trade_targets("SHORT", short_trigger, short_stop, short_key_levels)
+    long_candidates = source_candidates("LONG", long_trigger)
+    short_candidates = source_candidates("SHORT", short_trigger)
+    long_key_levels = [item["level"] for item in long_candidates[:3]]
+    short_key_levels = [item["level"] for item in short_candidates[:3]]
+    # Search the full source ladder for executable targets. Structural R/S are
+    # only the first three context levels and must not cap the TP search.
+    long_targets = trade_targets(
+        "LONG", long_trigger, long_stop, [item["level"] for item in long_candidates]
+    )
+    short_targets = trade_targets(
+        "SHORT", short_trigger, short_stop, [item["level"] for item in short_candidates]
+    )
 
     return {
         "long_trigger": long_trigger,
@@ -1013,7 +1021,7 @@ def normalize_analyst_output(
         "pivot": pivot,
         "location_state": location_state,
         "roles": {
-            "long_trigger": "CALL_WALL_OR_BULLISH_RETEST",
+            "long_trigger": "CALL_WALL",
             "short_trigger": "CALL_WALL_RETEST" if deterministic["short_trigger"] == deterministic["long_trigger"] and deterministic["short_trigger"] is not None else "PUT_WALL",
             "long_invalidation": "PUT_WALL",
             "short_invalidation": "PUT_WALL" if deterministic["short_stop"] == deterministic["long_stop"] and deterministic["short_stop"] is not None else "CALL_WALL",
