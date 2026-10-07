@@ -102,7 +102,11 @@ def test_telegram_renders_three_text_message_sections():
     assert "WHAT text" in m3 and "WHY text" in m3 and "POSITIONING text" in m3
     assert "KEY LEVELS" in m4
     assert "🔴 <b>ต้าน</b>" in m4 and "🟢 <b>รับ</b>" in m4
-    assert "Call Wall" in m4 and "4,197.49" in m4 and "Put Wall" in m4
+    assert "R1 • 4,232.49" in m4 and "R4 •" in m4
+    assert "Mean • 4,197.49" in m4
+    assert "S1 • 4,172.49" in m4 and "S4 •" in m4
+    assert "Call Wall" not in m4
+    assert "Put Wall" not in m4
     assert "GAMMA TERM STRUCTURE" not in m4
     assert "SCENARIO" not in m4
     assert "<b>TRADE PLAN</b>" in m5
