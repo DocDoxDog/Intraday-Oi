@@ -182,80 +182,80 @@ def _format_levels_message(parsed: dict, ai_result: dict) -> str:
 
 
 def _format_trade_plan_message(parsed: dict, ai_result: dict) -> str:
-    """Render the same canonical map used by KEY LEVELS and SCENARIO."""
+    """Render only the executable/conditional trade plan.
+
+    Key Levels and Scenario are internal calculation layers. Telegram exposes
+    only the action plan so users see trigger, confirmation, invalidation,
+    risk-qualified targets and current execution state.
+    """
     trade = ai_result.get("trade_plan") or {}
-    market_map = ai_result.get("market_map") or {}
-    # Backward-compatible adapter for direct renderer tests/callers.
-    # A valid side needs trigger + stop + TP1. Later targets are optional.
-    if not market_map:
-        long_available = all(trade.get(k) is not None for k in ("long_trigger", "long_stop", "long_tp1"))
-        short_available = all(trade.get(k) is not None for k in ("short_trigger", "short_stop", "short_tp1"))
-        market_map = {
-            "R3": trade.get("long_tp3"),
-            "R2": trade.get("long_tp2"),
-            "R1": trade.get("long_tp1"),
-            "long_trigger": trade.get("long_trigger"),
-            "short_trigger": trade.get("short_trigger"),
-            "S1": trade.get("short_tp1"),
-            "S2": trade.get("short_tp2"),
-            "S3": trade.get("short_tp3"),
-            "long_status": "AVAILABLE" if long_available else "UNAVAILABLE",
-            "short_status": "AVAILABLE" if short_available else "UNAVAILABLE",
-        }
+    execution = trade.get("execution_plan") or {}
+    long_exec = execution.get("long") or {}
+    short_exec = execution.get("short") or {}
 
     def fmt(value):
         return _escape(_show(value))
 
-    execution = trade.get("execution_plan") or {}
-    long_exec = execution.get("long") or {}
-    short_exec = execution.get("short") or {}
-    long_state = str(long_exec.get("state") or ("ARMED" if market_map.get("long_status") == "AVAILABLE" else "UNAVAILABLE")).upper()
-    short_state = str(short_exec.get("state") or ("ARMED" if market_map.get("short_status") == "AVAILABLE" else "UNAVAILABLE")).upper()
+    def render_side(label: str, emoji: str, payload: dict, fallback_state: str) -> list[str]:
+        state = str(payload.get("state") or fallback_state or "DATA_INSUFFICIENT").upper()
+        trigger = payload.get("trigger")
+        stop = payload.get("stop")
+        targets = [x for x in (payload.get("targets") or []) if x is not None]
+        rr = [x for x in (payload.get("rr") or []) if x is not None]
+        lines = [f"{emoji} <b>{label} — {state}</b>"]
 
-    def target_lines(side: str, labels: tuple[str, ...]) -> list[str]:
-        prefix = "" if side == "LONG" else "S"
-        source = [market_map.get(label) for label in labels]
-        return [f"เป้าหมาย {i + 1}: {fmt(value)}" for i, value in enumerate(source) if value is not None]
+        if trigger is None or stop is None:
+            lines.append("ยังไม่มี trigger/invalidation ที่ source-derived ครบ")
+            return lines
+
+        if label == "SHORT":
+            lines.append(f"Trigger: {fmt(trigger)}")
+            lines.append("Entry: รอ failed retest / rejection + M15/M5 confirmation")
+            lines.append(f"Invalidation: กลับเหนือ {fmt(stop)}")
+        else:
+            lines.append(f"Trigger: {fmt(trigger)}")
+            lines.append("Entry: รอ acceptance / retest + M15/M5 confirmation")
+            lines.append(f"Invalidation: หลุด {fmt(stop)}")
+
+        if targets:
+            for idx, value in enumerate(targets[:3], 1):
+                lines.append(f"TP{idx}: {fmt(value)}")
+        else:
+            lines.append("TP: ยังไม่มีระดับที่ผ่าน RR ≥ 1R")
+
+        if rr:
+            lines.append("RR: " + " | ".join(f"TP{idx + 1}={fmt(value)}R" for idx, value in enumerate(rr[:3])))
+
+        confirmation = payload.get("confirmation") or []
+        if confirmation:
+            lines.append("Confirmation: " + ", ".join(str(x) for x in confirmation[:4]))
+
+        return lines
+
+    overall = str(execution.get("state") or trade.get("status") or "UNKNOWN").upper()
+    bias = str(ai_result.get("bias") or trade.get("direction") or "WAIT").upper()
 
     lines = [
         "<b>TRADE PLAN</b>",
-        f"Overall state: <b>{_escape(str(execution.get('state') or trade.get('status') or 'UNKNOWN').upper())}</b>",
+        f"Status: <b>{_escape(overall)}</b> | Bias: <b>{_escape(bias)}</b>",
         "",
-        f"🟢 <b>LONG — { _escape(long_state) }</b>",
     ]
-    if long_state not in {"UNAVAILABLE", "DATA_INSUFFICIENT"}:
-        lines += [
-            f"เข้าเมื่อ: เบรกเหนือ {fmt(market_map.get('long_trigger'))} แล้ว acceptance/retest + M15/M5 confirmation",
-            f"ยกเลิกแผนเมื่อ: หลุด {fmt(trade.get('long_stop'))}",
-            *target_lines("LONG", ("R1", "R2", "R3")),
-        ]
-        rr = long_exec.get("rr") or []
-        if any(x is not None for x in rr):
-            lines.append("RR: " + " | ".join(f"{i + 1}R={fmt(x)}" for i, x in enumerate(rr) if x is not None))
-    else:
-        lines.append(f"ยัง activate ไม่ได้ — source trigger={fmt(market_map.get('long_trigger'))}; ต้องมี trigger/stop/TP1 ครบ")
+    lines.extend(render_side("LONG", "🟢", long_exec, "DATA_INSUFFICIENT"))
+    lines += ["",]
+    lines.extend(render_side("SHORT", "🔴", short_exec, "DATA_INSUFFICIENT"))
 
-    lines += ["", f"🔴 <b>SHORT — { _escape(short_state) }</b>"]
-    if short_state not in {"UNAVAILABLE", "DATA_INSUFFICIENT"}:
-        lines += [
-            f"เข้าเมื่อ: หลุด {fmt(market_map.get('short_trigger'))} แล้ว failed retest + M15/M5 confirmation",
-            f"ยกเลิกแผนเมื่อ: กลับเหนือ {fmt(trade.get('short_stop'))}",
-            *target_lines("SHORT", ("S1", "S2", "S3")),
-        ]
-        rr = short_exec.get("rr") or []
-        if any(x is not None for x in rr):
-            lines.append("RR: " + " | ".join(f"{i + 1}R={fmt(x)}" for i, x in enumerate(rr) if x is not None))
+    if overall in {"TRIGGERED", "CONFIRMED"}:
+        lines += ["", "Execution: <b>WAIT FOR PLAN CONDITIONS</b>"]
+    elif overall == "ARMED":
+        lines += ["", "Execution: <b>WAIT FOR TRIGGER</b>"]
     else:
-        lines.append(f"ยัง activate ไม่ได้ — source trigger={fmt(market_map.get('short_trigger'))}; ต้องมี trigger/stop/TP1 ครบ")
+        lines += ["", "Execution: <b>WAIT</b>"]
 
     lines += [
         "",
-        f"Execution state: <b>{_escape(str(execution.get('state') or 'UNKNOWN').upper())}</b>",
-        f"Status: <b>{_escape(str(trade.get('status') or 'UNKNOWN').upper())}</b> | "
-        f"Bias: <b>{_escape(str(ai_result.get('bias') or 'WAIT').upper())}</b>",
+        "หมายเหตุ: OI/ΔOI/GEX ใช้เป็น evidence/context; ไม่ได้ยืนยัน dealer position และไม่มีการส่งคำสั่งจากระบบนี้",
     ]
     return "\n".join(lines)
-
 
 def format_message(parsed: dict, ai_result: dict) -> str:
     return _format_analysis_message(parsed, ai_result)
