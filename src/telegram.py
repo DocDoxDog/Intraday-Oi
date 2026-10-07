@@ -227,7 +227,7 @@ def _format_trade_plan_message(parsed: dict, ai_result: dict) -> str:
     }.get(overall, overall)
 
     lines = [
-        "<b>📋 TRADE PLAN</b>",
+        "📋 <b>TRADE PLAN</b>",
         f"มุมมอง: <b>{_escape(bias)}</b>  •  <b>{_escape(status_text)}</b>",
         "",
     ]
@@ -247,7 +247,7 @@ def _format_trade_plan_message(parsed: dict, ai_result: dict) -> str:
     if execution.get("long_support"):
         lines += [""]
         lines.extend(render_side(
-            "LONG — รับด้านล่าง",
+            "LONG รับด้านล่าง",
             "🟢",
             execution.get("long_support") or {},
             "ลงถึงโซนรับ",
