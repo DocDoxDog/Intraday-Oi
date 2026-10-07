@@ -112,7 +112,7 @@ def _format_analysis_message(parsed: dict, ai_result: dict) -> str:
 
 
 def _format_levels_message(parsed: dict, ai_result: dict) -> str:
-    """Render four resistance/support levels plus the central Mean in one glance."""
+    """Render compact resistance / Mean / support map for traders."""
     market_map = ai_result.get("market_map") or {}
     trade = ai_result.get("trade_plan") or {}
     if not market_map:
@@ -123,38 +123,17 @@ def _format_levels_message(parsed: dict, ai_result: dict) -> str:
             "S3": trade.get("short_tp3"), "S4": trade.get("short_tp4"),
             "pivot": trade.get("gamma_mean"),
         }
-
-    def pick(name: str, *fallbacks: str):
-        for key in (name, *fallbacks):
-            value = market_map.get(key)
-            if value is not None:
-                return value
-        return None
-
     def show(value):
         return _escape(_show(value))
-
-    resistance = [pick("R1"), pick("R2"), pick("R3"), pick("R4")]
-    support = [pick("S1"), pick("S2"), pick("S3"), pick("S4")]
-    pivot = pick("pivot", "gamma_mean")
-
-    lines = [
-        "<b>📍 KEY LEVELS</b>",
-        "",
-        "🔴 <b>ต้าน</b>",
-    ]
+    resistance = [market_map.get(f'R{i}') for i in range(1, 5)]
+    support = [market_map.get(f'S{i}') for i in range(1, 5)]
+    pivot = market_map.get('pivot', market_map.get('gamma_mean'))
+    lines = ["<b>📍 KEY LEVELS</b>", "", "🔴 <b>ต้าน</b>"]
     for i, value in enumerate(resistance, 1):
         lines.append(f"R{i} • {show(value)}")
-
-    lines += [
-        "",
-        f"Mean • {show(pivot)}",
-        "",
-        "🟢 <b>รับ</b>",
-    ]
+    lines += ["", f"Mean • {show(pivot)}", "", "🟢 <b>รับ</b>"]
     for i, value in enumerate(support, 1):
         lines.append(f"S{i} • {show(value)}")
-
     return "\n".join(lines)
 
 def _format_trade_plan_message(parsed: dict, ai_result: dict) -> str:
