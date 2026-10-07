@@ -23,9 +23,14 @@ function stateLabel(v: unknown) {
   return ({
     CONFIRMED: "ยืนยันแล้ว",
     TRIGGERED: "เข้าโซน • รอยืนยัน",
+    TRIGGERED_WAIT_CONFIRMATION: "เข้าโซน • รอยืนยัน",
     ARMED: "รอจังหวะ",
+    APPROACHING: "กำลังเข้าโซน",
+    IN_ZONE: "อยู่ในโซน • รอ Action",
+    WAIT: "WAIT",
     CONDITIONAL: "รอเงื่อนไข",
     DATA_INSUFFICIENT: "ข้อมูลไม่พอ",
+    INVALIDATED: "หลุดเงื่อนไข",
     NO_TRADE: "NO TRADE",
   } as Record<string, string>)[s] ?? s;
 }
