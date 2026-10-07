@@ -731,6 +731,9 @@ RULES
 - ห้ามสร้างข้อมูลเพื่อเติมช่อง
 - ห้ามอ้างข่าวถ้า input ไม่มี news evidence
 - ใช้เฉพาะ evidence_refs ที่ input ให้
+- ห้ามคำนวณและใส่ตัวเลขอนุพันธ์ใหม่ เช่น RR/R-multiple, percentage, ratio, probability, distance หรือ expected move หากตัวเลขนั้นไม่ได้อยู่ใน evidence โดยตรง
+- Trade plan ของ LLM ให้ระบุเฉพาะเงื่อนไข/ระดับที่ source-derived; ห้ามคำนวณ RR เอง เพราะ deterministic execution engine เป็นผู้คำนวณ
+- ห้ามใช้ตัวเลขเช่น 1.5, 2.0 หรือ 0.75 เป็นตัวเลขประกอบ narrative เพียงเพราะเป็น heuristic; เปลี่ยนเป็นคำอธิบายเชิงคุณภาพแทน
 - ภาษาไทยธรรมชาติแบบ institutional trader อธิบายให้คนทั่วไปเข้าใจ
 """
 
@@ -807,6 +810,7 @@ def analyze_with_supabot(parsed: dict[str, Any], history: dict[str, Any] | None 
                 "format": "human_analyst_thai",
                 "priority": ["MARKET_READ","WHY_NOW","CONFLICT","LEVELS","SCENARIO","CONFIRMATION","INVALIDATION","TRADE_PLAN"],
                 "numeric_level_policy": "PRICE CLAIMS MAY USE ONLY VALUES PRESENT IN deterministic_levels OR current market snapshot. Do not invent, interpolate, calculate, or introduce any new price number.",
+                "derived_numeric_policy": "Do not calculate or emit new RR/R-multiple, percentages, ratios, probabilities, distances, expected-move values, or other derived numbers. The deterministic execution layer owns those calculations.",
                 "allowed_price_levels": payload["deterministic_levels"],
             },
         )
