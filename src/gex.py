@@ -7,7 +7,7 @@ from __future__ import annotations
 import math
 from typing import Any
 
-GC_CONTRACT_MULTIPLIER = 100.0
+GC_CONTRACT_MULTIPLIER = 100.0\nGEX_MODEL = "dealer_short_all"\nGEX_MODEL_VERSION = "canonical-gex-v2"
 
 
 def _num(v: Any) -> float | None:
@@ -87,7 +87,7 @@ def calculate_gex(
             "net_gex": net_gex,
             "gamma": gamma,
             "gex_multiplier": multiplier,
-            "gamma_source": source,
+            "gamma_source": source,\n            "gex_model": GEX_MODEL,\n            "gex_model_version": GEX_MODEL_VERSION,
         })
         out.append(item)
 
@@ -119,7 +119,7 @@ def calculate_gex(
         "future_price": F,
         "contract_multiplier": multiplier,
         "gex_unit": "USD per 1% underlying move",
-        "convention": "dealer_call_positive_put_negative",
+        "convention": "dealer_call_positive_put_negative",\n        "model": GEX_MODEL,\n        "model_version": GEX_MODEL_VERSION,
         "net_gex": net,
         "call_gex_total": call_total,
         "put_gex_total": put_total,
