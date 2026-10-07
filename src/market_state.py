@@ -1016,7 +1016,7 @@ def normalize_analyst_output(
             "long_trigger": "CALL_WALL_OR_BULLISH_RETEST",
             "short_trigger": "CALL_WALL_RETEST" if deterministic["short_trigger"] == deterministic["long_trigger"] and deterministic["short_trigger"] is not None else "PUT_WALL",
             "long_invalidation": "PUT_WALL",
-            "short_invalidation": "PUT_WALL" if deterministic["short_stop"] == put_wall and deterministic["short_stop"] is not None else "CALL_WALL",
+            "short_invalidation": "PUT_WALL" if deterministic["short_stop"] == deterministic["long_stop"] and deterministic["short_stop"] is not None else "CALL_WALL",
             "pivot": "GAMMA_MEAN",
         },
         "source": "QUIKSTRIKE_GEX_STRIKES_NORMALIZED_TO_CFD",
