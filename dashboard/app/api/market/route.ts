@@ -229,6 +229,20 @@ export async function GET() {
   if (!rankedRoutes.length) {
     execution.preferred_setup = null;
     execution.preferred_action = "รอให้เกิด Action ที่โซนใกล้ราคา";
+  } else {
+    const preferredRoute = execution[execution.preferred_setup as string];
+    if (!preferredRoute || ["WAIT", "NO_TRADE", "INVALIDATED", "DATA_INSUFFICIENT"].includes(
+      String(preferredRoute.state ?? "").toUpperCase()
+    )) {
+      const bias = String(ai.bias ?? tradePlan.direction ?? "WAIT").toUpperCase();
+      const candidate = bias === "SELL"
+        ? (execution.short_rejection?.state !== "WAIT" ? execution.short_rejection : execution.short_breakdown)
+        : bias === "BUY"
+          ? (execution.long_reclaim?.state !== "WAIT" ? execution.long_reclaim : execution.long_support)
+          : rankedRoutes[0];
+      execution.preferred_setup = candidate?.route ?? null;
+      execution.preferred_action = candidate?.action ?? "รอให้เกิด Action ที่โซนใกล้ราคา";
+    }
   }
 
   const gamma = parseJson(raw.multi_expiry_gamma);
