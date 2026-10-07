@@ -969,15 +969,26 @@ def normalize_analyst_output(
     else:
         location_state = "UNKNOWN"
 
+    long_key_levels = deterministic.get("long_key_levels") or []
+    short_key_levels = deterministic.get("short_key_levels") or []
     ai["market_map"] = {
-        "R3": validated_plan["long_tp3"],
-        "R2": validated_plan["long_tp2"],
-        "R1": validated_plan["long_tp1"],
+        # R/S are structural key levels, not automatic trade targets.
+        "R1": long_key_levels[0] if len(long_key_levels) > 0 else None,
+        "R2": long_key_levels[1] if len(long_key_levels) > 1 else None,
+        "R3": long_key_levels[2] if len(long_key_levels) > 2 else None,
         "long_trigger": long_trigger_map,
         "short_trigger": short_trigger_map,
-        "S1": validated_plan["short_tp1"],
-        "S2": validated_plan["short_tp2"],
-        "S3": validated_plan["short_tp3"],
+        "S1": short_key_levels[0] if len(short_key_levels) > 0 else None,
+        "S2": short_key_levels[1] if len(short_key_levels) > 1 else None,
+        "S3": short_key_levels[2] if len(short_key_levels) > 2 else None,
+        "long_trade_targets": [
+            value for value in (validated_plan["long_tp1"], validated_plan["long_tp2"], validated_plan["long_tp3"])
+            if value is not None
+        ],
+        "short_trade_targets": [
+            value for value in (validated_plan["short_tp1"], validated_plan["short_tp2"], validated_plan["short_tp3"])
+            if value is not None
+        ],
         "long_status": validated_plan.get("long_status", "UNAVAILABLE"),
         "short_status": validated_plan.get("short_status", "UNAVAILABLE"),
         "pivot": pivot,
@@ -988,7 +999,7 @@ def normalize_analyst_output(
             "pivot": "GAMMA_MEAN",
         },
         "source": "QUIKSTRIKE_GEX_STRIKES_NORMALIZED_TO_CFD",
-        "execution_targets_exclude": ["gamma_mean", "positive_gamma_zone", "negative_gex_zone"],
+        "execution_targets_exclude": ["gamma_mean", "positive_gamma_zone", "negative_gex_zone", "R1", "R2", "R3", "S1", "S2", "S3"],
     }
 
     # Give the state machine the exact same canonical map used by rendering.
