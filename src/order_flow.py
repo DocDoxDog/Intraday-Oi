@@ -4,6 +4,7 @@ The module is source-agnostic. It never invents trades/book observations.
 """
 from __future__ import annotations
 from typing import Any
+import os
 
 def _num(v: Any) -> float | None:
     if isinstance(v, bool) or v in (None, ""):
@@ -78,7 +79,9 @@ def build_order_flow_context(trades: list[dict[str, Any]] | None = None,
         # Candidate only: low displacement relative to heavy aggression.
         # The ratio is intentionally exposed as derived evidence, not a signal score.
         aggression_per_move = total / max(abs(displacement), 1e-9)
-        if aggression_per_move > 0:
+        max_disp = float(os.environ.get("ORDER_FLOW_ABSORPTION_MAX_DISPLACEMENT", "0.5"))
+        min_trades = int(__import__("os").environ.get("ORDER_FLOW_ABSORPTION_MIN_TRADES", "5"))
+        if len(classified) >= min_trades and abs(displacement) <= max_disp:
             hypotheses.append({
                 "type": "ABSORPTION_CANDIDATE",
                 "status": "CANDIDATE",
