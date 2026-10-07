@@ -395,9 +395,10 @@ def send(
         if screenshot_url:
             _send_photo_with_fallback(token, cid, screenshot_url, "QUIKSTRIKE OI — Source Screenshot")
 
-        # Telegram is intentionally trade-plan-first. Analysis, Key Levels,
-        # Scenario and Gamma context remain internal calculation/evidence layers.
+        # Keep the full analyst bundle: Market Analysis -> Key Levels/Scenario -> Trade Plan.
         for message in (
+            _format_analysis_message(parsed, ai_result),
+            _format_levels_message(parsed, ai_result),
             _format_trade_plan_message(parsed, ai_result),
         ):
             for chunk in _chunk(message):
