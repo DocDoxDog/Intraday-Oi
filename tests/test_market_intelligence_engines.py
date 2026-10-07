@@ -162,6 +162,38 @@ def test_market_map_can_generate_five_source_qualified_targets_for_both_sides():
     assert result["short_breakdown_tp5"] == 4165.0
 
 
+def test_local_trade_map_uses_atr_normalized_window():
+    from src.market_state import _deterministic_trade_levels
+
+    parsed = {
+        "future_price": 4120.0,
+        "cfd_price": 4120.0,
+        "technical_context": {"atr14": 5.0},
+        "raw_series": {
+            "gex": {
+                "rows": [
+                    {"strike": 4125.0, "oiTotal": 500, "net_gex": 4},
+                    {"strike": 4115.0, "oiTotal": 600, "net_gex": 5},
+                    {"strike": 4160.0, "oiTotal": 2000, "net_gex": 20},
+                    {"strike": 4080.0, "oiTotal": 2000, "net_gex": 20},
+                ]
+            }
+        },
+    }
+    levels = {"resistance_main": 4160.0, "support_main": 4080.0}
+
+    out = _deterministic_trade_levels(parsed, levels, {})
+
+    assert out["local_distance_mode"] == "ATR"
+    assert out["local_max_atr"] == 1.5
+    assert out["local_action_resistance"] == 4125.0
+    assert out["local_action_support"] == 4115.0
+    assert out["long_reclaim_trigger"] == 4125.0
+    assert out["short_rejection_trigger"] == 4125.0
+    assert out["long_support_trigger"] == 4115.0
+    assert out["short_breakdown_trigger"] == 4115.0
+
+
 def test_trade_execution_plan_exposes_four_customer_routes():
     from src.trade_plan_engine import build_trade_execution_plan
 
