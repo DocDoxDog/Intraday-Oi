@@ -1121,6 +1121,14 @@ def normalize_analyst_output(
 
     # Give the state machine the exact same canonical map used by rendering.
     state["market_map"] = ai["market_map"]
+
+    # Recompute Action Zones after the canonical market map exists so the
+    # customer-facing state and execution state use the same triggers.
+    from src.action_zone_engine import build_action_zones
+    from src.data_clock import apply_data_clock
+    state["action_zones"] = build_action_zones(state)
+    apply_data_clock(parsed)
+
     execution_plan = build_trade_execution_plan(state)
 
     # From this point onward, every rendered field must come from the
