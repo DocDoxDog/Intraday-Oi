@@ -210,12 +210,10 @@ function GammaTable({ gamma }: { gamma: any }) {
 
 function LevelRail({ levels }: { levels: any }) {
   const resistance = [
-    ["R1", levels.r1], ["R2", levels.r2], ["R3", levels.r3],
-    ["R4", levels.r4], ["R5", levels.r5],
+    ["R1", levels.r1], ["R2", levels.r2], ["R3", levels.r3], ["R4", levels.r4],
   ];
   const support = [
-    ["S1", levels.s1], ["S2", levels.s2], ["S3", levels.s3],
-    ["S4", levels.s4], ["S5", levels.s5],
+    ["S1", levels.s1], ["S2", levels.s2], ["S3", levels.s3], ["S4", levels.s4],
   ];
 
   return (
@@ -224,24 +222,21 @@ function LevelRail({ levels }: { levels: any }) {
         <div><span className="eyebrow">PRICE MAP</span><h2>Key Levels</h2></div>
         <span className="source-tag">โซน ≠ Entry</span>
       </div>
-      <div className="wall-strip">
-        <div><span>🔴 CALL WALL</span><strong>{price(levels.callWall)}</strong></div>
-        <div><span>🟢 PUT WALL</span><strong>{price(levels.putWall)}</strong></div>
-        <div><span>⚪ GAMMA MEAN</span><strong>{price(levels.pivot)}</strong></div>
-      </div>
-      <div className="levels-grid">
-        <div className="level-column">
-          <div className="level-label resistance-label">แนวต้าน</div>
+      <div className="levels-clean">
+        <div className="level-block resistance-block">
+          <div className="level-label resistance-label">🔴 ต้าน</div>
           {resistance.map(([name, value]) =>
             <div className="level-row resistance" key={name}><span>{name}</span><strong>{price(value)}</strong></div>)}
         </div>
-        <div className="decision-card">
-          <span>จุดที่ต้องดู Action</span>
-          <strong>{price(levels.callWall)}</strong>
-          <small>เหนือแล้วรีเทสต์อยู่ → BUY<br/>รีเทสต์ไม่ผ่าน → SELL</small>
+
+        <div className="mean-block">
+          <span className="eyebrow">MEAN</span>
+          <strong>{price(levels.pivot)}</strong>
+          <small>จุดกึ่งกลางของ Market Map</small>
         </div>
-        <div className="level-column">
-          <div className="level-label support-label">แนวรับ</div>
+
+        <div className="level-block support-block">
+          <div className="level-label support-label">🟢 รับ</div>
           {support.map(([name, value]) =>
             <div className="level-row support" key={name}><span>{name}</span><strong>{price(value)}</strong></div>)}
         </div>

@@ -112,19 +112,16 @@ def _format_analysis_message(parsed: dict, ai_result: dict) -> str:
 
 
 def _format_levels_message(parsed: dict, ai_result: dict) -> str:
-    """Render the structural map so a trader can read the market in seconds."""
+    """Render four resistance/support levels plus the central Mean in one glance."""
     market_map = ai_result.get("market_map") or {}
     trade = ai_result.get("trade_plan") or {}
     if not market_map:
         market_map = {
-            "R1": trade.get("long_tp1"), "R2": trade.get("long_tp2"), "R3": trade.get("long_tp3"),
-            "R4": trade.get("long_tp4"), "R5": trade.get("long_tp5"),
-            "S1": trade.get("short_tp1"), "S2": trade.get("short_tp2"), "S3": trade.get("short_tp3"),
-            "S4": trade.get("short_tp4"), "S5": trade.get("short_tp5"),
-            "call_wall": trade.get("long_trigger"),
-            "put_wall": trade.get("short_trigger"),
-            "long_trigger": trade.get("long_trigger"),
-            "short_trigger": trade.get("short_trigger"),
+            "R1": trade.get("long_tp1"), "R2": trade.get("long_tp2"),
+            "R3": trade.get("long_tp3"), "R4": trade.get("long_tp4"),
+            "S1": trade.get("short_tp1"), "S2": trade.get("short_tp2"),
+            "S3": trade.get("short_tp3"), "S4": trade.get("short_tp4"),
+            "pivot": trade.get("gamma_mean"),
         }
 
     def pick(name: str, *fallbacks: str):
@@ -137,35 +134,28 @@ def _format_levels_message(parsed: dict, ai_result: dict) -> str:
     def show(value):
         return _escape(_show(value))
 
-    resistance = [
-        pick("R1"), pick("R2"), pick("R3"), pick("R4"), pick("R5"),
-    ]
-    support = [
-        pick("S1"), pick("S2"), pick("S3"), pick("S4"), pick("S5"),
-    ]
+    resistance = [pick("R1"), pick("R2"), pick("R3"), pick("R4")]
+    support = [pick("S1"), pick("S2"), pick("S3"), pick("S4")]
+    pivot = pick("pivot", "gamma_mean")
 
-    call_wall = pick("call_wall", "long_reclaim_trigger", "long_trigger", "R1")
-    put_wall = pick("put_wall", "long_support_trigger", "short_breakdown_trigger", "short_trigger", "S1")
-    pivot = pick("pivot")
-
-    r_text = " • ".join(show(x) for x in resistance if x is not None) or "ยังไม่มี"
-    s_text = " • ".join(show(x) for x in support if x is not None) or "ยังไม่มี"
-
-    return "\n".join([
+    lines = [
         "<b>📍 KEY LEVELS</b>",
-        f"🔴 <b>ต้าน</b>  {r_text}",
-        f"🟢 <b>รับ</b>   {s_text}",
         "",
-        f"⚡ <b>Call Wall</b>  {show(call_wall)}",
-        f"⚡ <b>Put Wall</b>   {show(put_wall)}",
-        f"⚪ <b>Gamma Mean</b>  {show(pivot)}",
-        "",
-        "เหนือ Call Wall → รอแผน BUY เบรก/รีเทสต์",
-        "Call Wall ไม่ผ่าน → รอแผน SELL ฝั่งต้าน",
-        "Put Wall รับอยู่ → รอแผน BUY จากแนวรับ",
-        "Put Wall หลุดแล้วรีเทสต์ไม่ผ่าน → รอแผน SELL ลงต่อ",
-    ])
+        "🔴 <b>ต้าน</b>",
+    ]
+    for i, value in enumerate(resistance, 1):
+        lines.append(f"R{i} • {show(value)}")
 
+    lines += [
+        "",
+        f"Mean • {show(pivot)}",
+        "",
+        "🟢 <b>รับ</b>",
+    ]
+    for i, value in enumerate(support, 1):
+        lines.append(f"S{i} • {show(value)}")
+
+    return "\n".join(lines)
 
 def _format_trade_plan_message(parsed: dict, ai_result: dict) -> str:
     """Render all four trade routes with entry reference, SL and TP1-TP5."""
