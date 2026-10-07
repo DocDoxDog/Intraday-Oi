@@ -889,27 +889,27 @@ def _deterministic_trade_levels(
         "long_trigger": long_trigger,
         "long_stop": long_stop,
         "long_key_levels": long_key_levels,
-        **{f"long_tp{i}": v for i, v in enumerate(legacy_long_targets, start=1)},
+        **{f"long_tp{i}": (legacy_long_targets[i - 1] if i <= len(legacy_long_targets) else None) for i in range(1, 6)},
         "long_support_trigger": long_support_trigger,
         "long_support_stop": long_support_stop,
-        **{f"long_support_tp{i}": v for i, v in enumerate(long_support_targets, start=1)},
+        **{f"long_support_tp{i}": (long_support_targets[i - 1] if i <= len(long_support_targets) else None) for i in range(1, 6)},
         "short_trigger": short_trigger,
         "short_stop": short_stop,
         "short_key_levels": short_key_levels,
-        **{f"short_tp{i}": v for i, v in enumerate(legacy_short_targets, start=1)},
+        **{f"short_tp{i}": (legacy_short_targets[i - 1] if i <= len(legacy_short_targets) else None) for i in range(1, 6)},
 
         # Explicit four-route trade map used by the new Telegram/Dashboard UI.
         "call_wall": call_wall,
         "put_wall": put_wall,
         "long_reclaim_trigger": long_reclaim_trigger,
         "long_reclaim_stop": long_reclaim_stop,
-        **{f"long_reclaim_tp{i}": v for i, v in enumerate(long_reclaim_targets, start=1)},
+        **{f"long_reclaim_tp{i}": (long_reclaim_targets[i - 1] if i <= len(long_reclaim_targets) else None) for i in range(1, 6)},
         "short_rejection_trigger": short_rejection_trigger,
         "short_rejection_stop": short_rejection_stop,
-        **{f"short_rejection_tp{i}": v for i, v in enumerate(short_rejection_targets, start=1)},
+        **{f"short_rejection_tp{i}": (short_rejection_targets[i - 1] if i <= len(short_rejection_targets) else None) for i in range(1, 6)},
         "short_breakdown_trigger": short_breakdown_trigger,
         "short_breakdown_stop": short_breakdown_stop,
-        **{f"short_breakdown_tp{i}": v for i, v in enumerate(short_breakdown_targets, start=1)},
+        **{f"short_breakdown_tp{i}": (short_breakdown_targets[i - 1] if i <= len(short_breakdown_targets) else None) for i in range(1, 6)},
     }
 
 
