@@ -271,7 +271,8 @@ def _format_trade_plan_message(parsed: dict, ai_result: dict) -> str:
     pref_title = preferred.get("title") if isinstance(preferred, dict) else None
 
     lines = [
-        "📋 <b>TRADE PLAN — ครบทุกทาง</b>",
+        "📋 <b>TRADE PLAN</b>",
+        "ครบทุกทาง: BUY 2 แผน + SELL 2 แผน",
         f"มุมมองตอนนี้: <b>{_escape(bias)}</b>",
         f"แผนที่ระบบให้ความสำคัญ: <b>{_escape(pref_title or 'WAIT')}</b>",
         "หลักการ: รอ Action ที่โซนก่อน ไม่ไล่ราคา",
