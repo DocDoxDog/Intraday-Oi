@@ -23,7 +23,7 @@ def _fake_generate(envelope, static_prefix, dynamic):
 def test_builds_governed_envelope(monkeypatch):
     captured = {}
     monkeypatch.setattr(supabot_llm, "generate_market_narrative",
-                        lambda envelope, static_prefix, dynamic: (captured.update(envelope=envelope) or _fake_generate(envelope, static_prefix, dynamic)))
+                        lambda envelope, static_prefix, dynamic: (captured.update(envelope=envelope, dynamic=dynamic, static_prefix=static_prefix) or _fake_generate(envelope, static_prefix, dynamic)))
     parsed = {
         "product_symbol":"GC","contract":"GC","future_price":4300,"cfd_price":4297,
         "observed_at":"2026-10-01T06:00:00+00:00",
@@ -38,6 +38,8 @@ def test_builds_governed_envelope(monkeypatch):
     assert envelope["output_schema_version"]=="market-analyst.v2"
     assert envelope["input_refs"]==["itb:oi:deterministic","itb:oi:history"]
     assert "deterministic_levels" in envelope["input_payload"]
+    assert captured["dynamic"]["derived_numeric_policy"].startswith("Do not calculate or emit new RR/R-multiple")
+    assert "deterministic execution layer owns those calculations" in captured["dynamic"]["derived_numeric_policy"]
     assert result["short_bias"]=="WAIT"
     assert result["llm_run_id"]=="run-1"
     assert result["llm_verification"]["verdict"]=="PASS"
