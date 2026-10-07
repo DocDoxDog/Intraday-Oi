@@ -102,22 +102,15 @@ def build_action_zones(market_state: dict[str, Any]) -> dict[str, Any]:
         or _n(levels.get("support_main"))
         or _n(levels.get("support_current"))
     )
-    long_reclaim = (
-        _n(market_map.get("long_reclaim_trigger"))
-        or call_wall
-    )
-    long_support = (
-        _n(market_map.get("long_support_trigger"))
-        or put_wall
-    )
-    short_rejection = (
-        _n(market_map.get("short_rejection_trigger"))
-        or call_wall
-    )
-    short_breakdown = (
-        _n(market_map.get("short_breakdown_trigger"))
-        or put_wall
-    )
+    # Action-state display follows the local execution map. Global Call/Put
+    # Walls remain market-map context and are never used as immediate entries.
+    local_resistance = _n(market_map.get("local_action_resistance"))
+    local_support = _n(market_map.get("local_action_support"))
+
+    long_reclaim = local_resistance
+    long_support = local_support
+    short_rejection = local_resistance
+    short_breakdown = local_support
 
     atr = _n((_tf(market_state, "m5")).get("atr14"))
     bin_size = _n(auction.get("bin_size"))
