@@ -175,7 +175,7 @@ def test_decision_framework_requires_structure_and_trigger_before_direction():
     framework = parsed["raw_series"]["market_state"]["decision_framework"]
     assert framework["steps"]["8_decision"] == "SHORT_CONDITIONAL"
     assert framework["steps"]["7_gates"]["htf_structure"] == "BEARISH"
-    assert framework["steps"]["7_gates"]["trigger"] == "TRIGGER_BREACHED"
+    assert framework["steps"]["7_gates"]["trigger"] == "SHORT_LEVEL_REACHED"
 
 
 def test_decision_framework_records_source_oi_change_separately_from_eod():
