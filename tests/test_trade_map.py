@@ -29,16 +29,17 @@ def test_trade_map_uses_structural_walls_and_non_adjacent_source_strikes():
     plan = _deterministic_trade_levels(parsed, levels, {})
     assert plan["long_trigger"] == 4140.42
     assert plan["short_trigger"] == 4100.42
-    assert plan["long_tp1"] == 4155.21
-    assert plan["long_tp2"] == 4175.21
-    assert plan["long_tp3"] == 4195.21
-    assert plan["short_tp1"] == 4075.21
-    assert plan["short_tp2"] == 4055.21
-    assert plan["short_tp3"] == 4035.21
-    assert abs(plan["long_tp2"] - plan["long_tp1"]) >= 15
-    assert abs(plan["long_tp3"] - plan["long_tp2"]) >= 15
+    # TP is a separate execution layer: only source strikes offering >=1R qualify.
+    assert plan["long_tp1"] == 4195.21
+    assert plan["long_tp2"] is None
+    assert plan["long_tp3"] is None
+    assert plan["short_tp1"] == 4055.21
+    assert plan["short_tp2"] == 4035.21
+    assert plan["short_tp3"] is None
+    assert plan["long_tp1"] > plan["long_trigger"]
+    assert plan["short_tp1"] < plan["short_trigger"]
     assert abs(plan["short_tp1"] - plan["short_tp2"]) >= 15
-    assert abs(plan["short_tp2"] - plan["short_tp3"]) >= 15
+    assert abs(plan["short_tp1"] - plan["short_tp2"]) >= 15
     assert 4139.85 not in {
         plan["long_tp1"], plan["long_tp2"], plan["long_tp3"],
         plan["short_tp1"], plan["short_tp2"], plan["short_tp3"],
@@ -62,7 +63,7 @@ def test_trade_validation_keeps_valid_side_when_other_side_is_incomplete():
     }
     out = _validate_or_clear_trade_plan(plan)
     assert out["long_status"] == "CONDITIONAL"
-    assert out["short_status"] == "NO_TRADE"
+    assert out["short_status"] == "CONDITIONAL"
     assert out["long_tp3"] == 4200
-    assert out["short_trigger"] is None
+    assert out["short_trigger"] == 4100
     assert out["status"] == "CONDITIONAL"

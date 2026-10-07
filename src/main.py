@@ -39,6 +39,7 @@ from src.multi_expiry import build_gamma_matrix, summarize_gamma_zones, merge_ex
 from src.gamma_chart import render_gamma_table, render_gamma_table_full
 from src.news_announcement import collect_news, format_news_announcement
 from src.market_state import enrich_market_state, normalize_analyst_output
+from src.quant_metrics import enrich_quant_metrics
 from intelligence.news.free_feed import collect_free_news
 
 
@@ -320,6 +321,7 @@ def run():
     # Deterministic state is prepared AFTER news so the same governed input
     # reaches both the analyst and the Telegram/LINE renderers.
     parsed = enrich_market_state(parsed, hist_context)
+    parsed = enrich_quant_metrics(parsed, hist_context)
     market_state = (parsed.get("raw_series") or {}).get("market_state") or {}
     print(
         f"    market state: CFD={'OK' if market_state.get('cfd_complete') else 'UNKNOWN'} | "
@@ -344,155 +346,12 @@ def run():
 
     ai_failed = "error" in ai_result
     if ai_failed:
-        raw = parsed.get("raw_series") or {}
-        gex = raw.get("gex") or {}
-        gamma = raw.get("multi_expiry_gamma") or {}
-
-        future_price = parsed.get("future_price")
-        cfd_price = parsed.get("cfd_price")
-
-        def to_cfd(strike):
-            if not isinstance(strike, (int, float)):
-                return None
-            if isinstance(future_price, (int, float)) and isinstance(cfd_price, (int, float)):
-                return float(strike) - float(future_price) + float(cfd_price)
-            # Never label a Futures strike as CFD when the basis is unavailable.
-            return None
-
-        strikes = sorted({
-            float(row.get("strike"))
-            for row in (gex.get("rows") or [])
-            if isinstance(row, dict) and isinstance(row.get("strike"), (int, float))
-        })
-
-        def nearest_above(value, fallback=None):
-            if not isinstance(value, (int, float)):
-                return fallback
-            candidates = [x for x in strikes if x > float(value)]
-            return candidates[0] if candidates else fallback
-
-        def nearest_below(value, fallback=None):
-            if not isinstance(value, (int, float)):
-                return fallback
-            candidates = [x for x in strikes if x < float(value)]
-            return candidates[-1] if candidates else fallback
-
-        current_fut = future_price if isinstance(future_price, (int, float)) else None
-        call_wall_fut = gex.get("call_wall")
-        put_wall_fut = gex.get("put_wall")
-        resistance_main_fut = call_wall_fut
-        support_main_fut = put_wall_fut
-        resistance_current_fut = nearest_above(current_fut, call_wall_fut)
-        support_current_fut = nearest_below(current_fut, put_wall_fut)
-        resistance_far_fut = nearest_above(call_wall_fut, resistance_current_fut)
-        support_deep_fut = nearest_below(put_wall_fut, support_current_fut)
-
-        resistance_current = to_cfd(resistance_current_fut)
-        resistance_main = to_cfd(resistance_main_fut)
-        resistance_far = to_cfd(resistance_far_fut)
-        support_current = to_cfd(support_current_fut)
-        support_main = to_cfd(support_main_fut)
-        support_deep = to_cfd(support_deep_fut)
-
-        fmt = lambda v: f"{v:.2f}" if isinstance(v, (int, float)) else "UNKNOWN"
-
-        current_totals = (parsed.get("raw_series") or {}).get("totals") or {}
-        news_available = bool(parsed.get("news_context"))
-
-        ai_result = {
-            "analysis_status": "DEGRADED",
-            "market_overview": "รอบนี้ LLM output ไม่ผ่าน verification จึงใช้ deterministic market state เป็นฐาน โดยไม่ปั้นข้อสรุปใหม่",
-            "what": (
-                f"Futures {fmt(future_price)} | CFD {fmt(cfd_price)} | "
-                f"Net GEX={fmt(gex.get('net_gex'))} | DTE={fmt(parsed.get('dte'))}"
-            ),
-            "why": "ยังมี source-derived OI/GEX/level สำหรับทำ conditional roadmap แต่ analyst narrative จาก LLM ใช้ไม่ได้ในรอบนี้",
-            "positioning": (
-                f"OI Put={fmt(current_totals.get('open_interest_put'))} | "
-                f"Call={fmt(current_totals.get('open_interest_call'))} | "
-                f"OI Change Put={fmt(current_totals.get('oi_change_put'))} | "
-                f"Call={fmt(current_totals.get('oi_change_call'))} | "
-                f"Churn={fmt(current_totals.get('churn'))}"
-            ),
-            "levels": {
-                "resistance_far": resistance_far,
-                "resistance_main": resistance_main,
-                "resistance_current": resistance_current,
-                "support_current": support_current,
-                "support_main": support_main,
-                "support_deep": support_deep,
-            },
-            "scenarios": {
-                "bull": (
-                    f"รอราคายืนเหนือ {fmt(resistance_current)} แล้ว Break/Hold เหนือ "
-                    f"{fmt(resistance_main)}; Retest ต้องไม่เสียระดับ breakout"
-                ),
-                "bear": (
-                    f"รอราคาหลุด {fmt(support_main)} แล้ว Retest ไม่ผ่าน; "
-                    f"จึงติดตาม {fmt(support_current)} → {fmt(support_deep)}"
-                ),
-                "sideway": (
-                    f"ถ้าราคายังอยู่ระหว่าง {fmt(support_main)} และ {fmt(resistance_main)} "
-                    "โดยไม่มี trigger ชัดเจน ให้มองเป็น range"
-                ),
-            },
-            "bias": "WAIT",
-            "uncertainty": 1.0,
-            "trade_plan": {
-                "status": "CONDITIONAL",
-                "direction": "WAIT",
-                "entry": (
-                    f"LONG: Break + Hold/Retest {fmt(resistance_current)} → {fmt(resistance_main)} | "
-                    f"SHORT: Break + Retest Fail {fmt(support_main)}"
-                ),
-                "stop_loss": (
-                    f"LONG invalidation: ต่ำกว่า {fmt(support_current)} | "
-                    f"SHORT invalidation: เหนือ {fmt(resistance_current)}"
-                ),
-                "take_profit_1": (
-                    f"LONG: {fmt(resistance_main)} | SHORT: {fmt(support_current)}"
-                ),
-                "take_profit_2": (
-                    f"LONG: {fmt(resistance_far)} | SHORT: {fmt(support_deep)}"
-                ),
-                "setup": "Conditional plan จาก deterministic price levels; รอ price action/technical confirmation ก่อนเข้า",
-                "trigger": "LONG = Break + Hold/Retest success; SHORT = Break + Retest failure",
-                "confirmation": "ต้องมี price action/technical confirmation; ΔOI/OI baseline ที่ไม่มีให้ถือเป็น UNKNOWN",
-                "invalidation": "เมื่อ breakout ไม่สามารถ hold/retest ได้ตามเงื่อนไข หรือราคากลับผ่าน invalidation",
-                "risk_reward": "คำนวณจาก Entry/Stop/TP หลัง trigger ยืนยัน",
-                "market_condition": "DEGRADED / PRICE-TRIGGER REQUIRED",
-                "position_risk": "จำกัดความเสี่ยงต่อสถานะตามกติกาพอร์ตของผู้ใช้หลัง trigger ชัดเจน",
-                "risk_note": "แผนนี้เป็น conditional roadmap ไม่ใช่คำสั่ง execute และไม่สร้างตัวเลขนอก deterministic evidence",
-            },
-            "data_limitations": [
-                "LLM output rejected before delivery: " + str(ai_result.get("error")),
-                "มี news evidence ใน input" if news_available else "ไม่มี news evidence ในรอบนี้",
-                "DEGRADED fallback ไม่ตีความ Macro/News เพิ่มเกิน deterministic evidence",
-            ],
-            "market_regime": "TRANSITION_UNCERTAIN",
-            "macro": "NEWS evidence available แต่ไม่ได้ให้ LLM narrative ในรอบนี้" if news_available else "UNKNOWN",
-            "financial_engineering": (
-                f"Net GEX={fmt(gex.get('net_gex'))} | "
-                f"Call Wall={fmt(resistance_main)} | Put Wall={fmt(support_main)}"
-            ),
-            "market_microstructure": "ใช้เฉพาะ deterministic price/level mapping; ไม่มี order-flow claim เพิ่ม",
-            "market_psychology": "UNKNOWN",
-            "history_comparison": "ดู deterministic history fields ใน input; LLM narrative unavailable",
-            "base_case": (
-                f"ราคาแกว่งระหว่าง {fmt(support_main)} และ {fmt(resistance_main)} จนกว่าจะเกิด trigger"
-            ),
-            "alternative_case": (
-                f"เหนือ {fmt(resistance_current)} มีโอกาสเปิด upside path; "
-                f"ต่ำกว่า {fmt(support_main)} มีโอกาสเปิด downside path"
-            ),
-            "invalidation_case": "เมื่อ deterministic levels ไม่สอดคล้องกับ current snapshot",
-            "final_trade_idea": (
-                f"Conditional roadmap: LONG เหนือ {fmt(resistance_current)} ไป {fmt(resistance_main)} "
-                f"หรือ SHORT ใต้ {fmt(support_main)} ไป {fmt(support_current)}"
-            ),
-            "evidence_refs": ["itb:oi:deterministic", "itb:oi:history"] + (["itb:news:latest"] if news_available else []),
-        }
-        print("    ⚠️ ใช้ DEGRADED V2: มี conditional trade roadmap จาก deterministic levels")
+        # LLM failure must degrade analyst quality, not collapse the market read into a raw data dump.
+        from src.deterministic_analyst import build_deterministic_fallback
+        ai_result = build_deterministic_fallback(
+            parsed, hist_context, error=str(ai_result.get("error") or "LLM_UNAVAILABLE")
+        )
+        print("    ⚠️ ใช้ deterministic analyst fallback: conditional roadmap preserved")
 
     # Hard post-processing boundary: the LLM may narrate, but it cannot
     # replace deterministic CFD levels, history coverage, or the requirement

@@ -1,0 +1,319 @@
+{
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "analysis_id": {
+      "type": "string"
+    },
+    "as_of": {
+      "type": "string"
+    },
+    "product": {
+      "type": "string"
+    },
+    "regime": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "state": {
+          "type": "string",
+          "enum": [
+            "TREND_UP",
+            "TREND_DOWN",
+            "RANGE",
+            "COMPRESSION",
+            "EXPANSION",
+            "REVERSAL",
+            "EVENT_DRIVEN",
+            "LIQUIDITY_VACUUM",
+            "MIXED",
+            "UNKNOWN"
+          ]
+        },
+        "confidence": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "evidence_refs": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "limitations": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "required": [
+        "state",
+        "confidence",
+        "evidence_refs",
+        "limitations"
+      ]
+    },
+    "facts": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "domain": {
+            "type": "string"
+          },
+          "statement": {
+            "type": "string"
+          },
+          "evidence_refs": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "confidence": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1
+          }
+        },
+        "required": [
+          "id",
+          "domain",
+          "statement",
+          "evidence_refs",
+          "confidence"
+        ]
+      }
+    },
+    "interpretations": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "statement": {
+            "type": "string"
+          },
+          "supports": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "confidence": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1
+          },
+          "epistemic_status": {
+            "type": "string",
+            "enum": [
+              "INTERPRETATION",
+              "HYPOTHESIS"
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "statement",
+          "supports",
+          "confidence",
+          "epistemic_status"
+        ]
+      }
+    },
+    "conflicts": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "domains": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "severity": {
+            "type": "string",
+            "enum": [
+              "LOW",
+              "MEDIUM",
+              "HIGH"
+            ]
+          },
+          "description": {
+            "type": "string"
+          },
+          "resolution": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "domains",
+          "severity",
+          "description",
+          "resolution"
+        ]
+      }
+    },
+    "scenarios": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "bias": {
+            "type": "string",
+            "enum": [
+              "BULLISH",
+              "BEARISH",
+              "NEUTRAL"
+            ]
+          },
+          "priority": {
+            "type": "string",
+            "enum": [
+              "BASE",
+              "ALTERNATIVE",
+              "INVALIDATION"
+            ]
+          },
+          "conditions": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "triggers": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "invalidation": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "targets": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "evidence_refs": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "confidence": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1
+          }
+        },
+        "required": [
+          "id",
+          "bias",
+          "priority",
+          "conditions",
+          "triggers",
+          "invalidation",
+          "targets",
+          "evidence_refs",
+          "confidence"
+        ]
+      }
+    },
+    "trade_plan": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "state": {
+          "type": "string",
+          "enum": [
+            "WAIT",
+            "CONDITIONAL",
+            "READY"
+          ]
+        },
+        "long": {
+          "type": "object"
+        },
+        "short": {
+          "type": "object"
+        }
+      },
+      "required": [
+        "state",
+        "long",
+        "short"
+      ]
+    },
+    "why_not_long": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "why_not_short": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "uncertainties": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "narrative": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "string"
+      }
+    },
+    "evidence_refs": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    }
+  },
+  "required": [
+    "analysis_id",
+    "as_of",
+    "product",
+    "regime",
+    "facts",
+    "interpretations",
+    "conflicts",
+    "scenarios",
+    "trade_plan",
+    "why_not_long",
+    "why_not_short",
+    "uncertainties",
+    "narrative",
+    "evidence_refs"
+  ]
+}

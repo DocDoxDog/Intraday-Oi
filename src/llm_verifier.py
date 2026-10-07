@@ -33,6 +33,19 @@ def _cited_evidence_numbers(evidence: dict[str, Any], refs: list[str]) -> set[st
     return numbers
 
 
+def _strip_non_market_numeric(value: Any) -> Any:
+    """Remove model-confidence metadata before market-number verification."""
+    if isinstance(value, dict):
+        return {
+            key: _strip_non_market_numeric(child)
+            for key, child in value.items()
+            if key not in {"confidence", "uncertainty"}
+        }
+    if isinstance(value, list):
+        return [_strip_non_market_numeric(child) for child in value]
+    return value
+
+
 def _number_is_supported(claim_number: str, evidence_numbers: set[str]) -> bool:
     """Accept exact evidence numbers plus ordinary display rounding.
 
@@ -118,13 +131,15 @@ def verify_output(
             for key in (
                 "market_overview", "what", "why", "positioning",
                 "levels", "scenarios", "trade_plan", "bias",
+                "regime", "facts", "interpretations", "conflicts",
+                "why_not_long", "why_not_short", "uncertainties", "narrative",
             )
             if key in output
         }
     else:
         claim_payload = output
 
-    output_numbers = _numeric_strings(claim_payload)
+    output_numbers = _numeric_strings(_strip_non_market_numeric(claim_payload))
     cited_evidence_numbers = _cited_evidence_numbers(
         envelope["evidence"], evidence_refs
     )
@@ -162,6 +177,14 @@ def verify_output(
         "limit order",
         "stop loss order",
         "take profit order",
+        "dealer is short gamma",
+        "dealer is long gamma",
+        "market maker is short gamma",
+        "market maker is long gamma",
+        "dealers are short gamma",
+        "dealers are long gamma",
+        "market makers are short gamma",
+        "market makers are long gamma",
     )
     forbidden_claims = [
         pattern for pattern in forbidden_patterns if pattern in claim_text

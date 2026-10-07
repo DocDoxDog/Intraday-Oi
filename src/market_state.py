@@ -654,8 +654,27 @@ def _deterministic_trade_levels(
         if isinstance(row, dict) and _num(row.get("strike")) is not None
     ]
 
-    long_trigger = _num(levels.get("resistance_main"))
-    short_trigger = _num(levels.get("support_main"))
+    call_wall = _num(levels.get("resistance_main"))
+    put_wall = _num(levels.get("support_main"))
+
+    # A trade trigger is the level the market must reclaim/reject for the
+    # setup to become actionable. In a bearish regime already below the
+    # call wall, the short setup is a failed-retest of that broken wall;
+    # using the put wall as the short trigger would put the trigger above the
+    # invalidation and incorrectly erase the setup.
+    decision = ((raw.get("market_state") or {}).get("decision_framework") or {})
+    htf = str((((decision.get("steps") or {}).get("1_market_state") or {}).get("htf_structure") or "mixed")).lower()
+    current = cfd
+    long_trigger = call_wall
+    short_trigger = put_wall
+    long_stop = put_wall
+    short_stop = call_wall
+    if htf == "bearish" and current is not None and call_wall is not None and current <= call_wall:
+        short_trigger = call_wall
+        short_stop = put_wall
+    elif htf == "bullish" and current is not None and put_wall is not None and current >= put_wall:
+        long_trigger = put_wall
+        long_stop = call_wall
 
     def source_candidates(side: str, anchor: float | None) -> list[dict[str, float]]:
         if anchor is None or future is None or cfd is None:
@@ -684,54 +703,59 @@ def _deterministic_trade_levels(
             })
         return sorted(out, key=lambda x: x["level"], reverse=side == "SHORT")
 
-    def choose_targets(side: str, anchor: float | None) -> list[float]:
+    def structural_levels(side: str, anchor: float | None) -> list[float]:
         candidates = source_candidates(side, anchor)
         if not candidates:
             return []
+        # Key levels describe the nearest real source structure. They are not
+        # automatically executable targets.
+        return [item["level"] for item in candidates[:3]]
 
-        # Use observed source structure to rank significance. Normalize each
-        # component so a large OI number cannot drown out GEX solely by units.
-        max_oi = max((x["oi"] for x in candidates), default=0.0)
-        max_gex = max((x["gex"] for x in candidates), default=0.0)
-        for item in candidates:
-            item["score"] = (
-                (item["oi"] / max_oi if max_oi else 0.0)
-                + (item["gex"] / max_gex if max_gex else 0.0)
+    def trade_targets(
+        side: str,
+        anchor: float | None,
+        stop: float | None,
+        structural: list[float],
+    ) -> list[float]:
+        if anchor is None or stop is None:
+            return []
+        risk = abs(anchor - stop)
+        if risk <= 0:
+            return []
+        # A resistance/support becomes a trade target only if it offers >=1R.
+        minimum_distance = risk
+        return [
+            level for level in structural
+            if (
+                level - anchor >= minimum_distance
+                if side == "LONG"
+                else anchor - level >= minimum_distance
             )
+        ][:3]
 
-        # Select structural peaks first, but preserve price order in the final
-        # map. A 15-point minimum keeps $5/$10 adjacent strikes from becoming
-        # artificial execution ladders while still using real source strikes.
-        min_gap = 15.0
-        selected: list[dict[str, float]] = []
-        for item in sorted(candidates, key=lambda x: (-x["score"], x["level"])):
-            if all(abs(item["level"] - picked["level"]) >= min_gap for picked in selected):
-                selected.append(item)
-            if len(selected) >= 3:
-                break
-        selected.sort(key=lambda x: x["level"], reverse=side == "SHORT")
-
-        # If prominence is sparse, fill from real source strikes at the same
-        # spacing rule. Never manufacture a price between strikes.
-        for item in candidates:
-            if len(selected) >= 3:
-                break
-            if all(abs(item["level"] - picked["level"]) >= min_gap for picked in selected):
-                selected.append(item)
-                selected.sort(key=lambda x: x["level"], reverse=side == "SHORT")
-        return [item["level"] for item in selected[:3]]
-
-    long_targets = choose_targets("LONG", long_trigger)
-    short_targets = choose_targets("SHORT", short_trigger)
+    long_candidates = source_candidates("LONG", long_trigger)
+    short_candidates = source_candidates("SHORT", short_trigger)
+    long_key_levels = [item["level"] for item in long_candidates[:3]]
+    short_key_levels = [item["level"] for item in short_candidates[:3]]
+    # Search the full source ladder for executable targets. Structural R/S are
+    # only the first three context levels and must not cap the TP search.
+    long_targets = trade_targets(
+        "LONG", long_trigger, long_stop, [item["level"] for item in long_candidates]
+    )
+    short_targets = trade_targets(
+        "SHORT", short_trigger, short_stop, [item["level"] for item in short_candidates]
+    )
 
     return {
         "long_trigger": long_trigger,
-        "long_stop": short_trigger,
+        "long_stop": long_stop,
+        "long_key_levels": long_key_levels,
         "long_tp1": long_targets[0] if len(long_targets) > 0 else None,
         "long_tp2": long_targets[1] if len(long_targets) > 1 else None,
         "long_tp3": long_targets[2] if len(long_targets) > 2 else None,
         "short_trigger": short_trigger,
-        "short_stop": long_trigger,
+        "short_stop": short_stop,
+        "short_key_levels": short_key_levels,
         "short_tp1": short_targets[0] if len(short_targets) > 0 else None,
         "short_tp2": short_targets[1] if len(short_targets) > 1 else None,
         "short_tp3": short_targets[2] if len(short_targets) > 2 else None,
@@ -755,33 +779,88 @@ def _valid_trade_ladder(plan: dict[str, Any]) -> bool:
 
 
 def _validate_or_clear_trade_plan(plan: dict[str, Any]) -> dict[str, Any]:
-    """Validate LONG and SHORT independently; one bad side must not erase the other."""
-    out = dict(plan)
-    long_values = [out.get(k) for k in ("long_stop","long_trigger","long_tp1","long_tp2","long_tp3")]
-    short_values = [out.get(k) for k in ("short_tp3","short_tp2","short_tp1","short_trigger","short_stop")]
+    """Validate each side to the minimum usable execution ladder.
 
-    long_ok = all(_num(v) is not None for v in long_values) and all(
-        _num(long_values[i]) < _num(long_values[i + 1]) for i in range(len(long_values) - 1)
+    A side needs:
+    - structural trigger
+    - structural stop/invalidation
+    - TP1 is preferred for executable RR gating, but optional for keeping the
+      conditional roadmap visible.
+
+    TP2/TP3 are optional. Sparse/near-expiry option books may provide no target
+    beyond the structural wall; that must not erase Trigger/Invalidation.
+    """
+    out = dict(plan)
+
+    def validate_side(
+        keys: tuple[str, str, str, str, str],
+        side: str,
+    ) -> bool:
+        stop_key, trigger_key, tp1_key, tp2_key, tp3_key = keys
+        stop = _num(out.get(stop_key))
+        trigger = _num(out.get(trigger_key))
+        tp1 = _num(out.get(tp1_key))
+        tp2 = _num(out.get(tp2_key))
+        tp3 = _num(out.get(tp3_key))
+
+        # Trigger + structural stop are enough to keep a conditional roadmap
+        # alive. TP1 is required for execution confirmation/RR gating, but its
+        # absence must not erase the usable trigger/invalidation map.
+        if stop is None or trigger is None:
+            return False
+
+        if side == "LONG" and stop >= trigger:
+            return False
+        if side == "SHORT" and trigger >= stop:
+            return False
+
+        if tp1 is None:
+            out[tp2_key] = None
+            out[tp3_key] = None
+            return True
+
+        if (side == "LONG" and tp1 <= trigger) or (side == "SHORT" and tp1 >= trigger):
+            return False
+
+        if tp2 is not None:
+            if (side == "LONG" and tp2 <= tp1) or (side == "SHORT" and tp2 >= tp1):
+                out[tp2_key] = None
+        if tp3 is not None:
+            valid_tp2 = _num(out.get(tp2_key))
+            # TP3 without a valid TP2 is not a contiguous target ladder.
+            if valid_tp2 is None:
+                out[tp3_key] = None
+            elif (side == "LONG" and tp3 <= valid_tp2) or (side == "SHORT" and tp3 >= valid_tp2):
+                out[tp3_key] = None
+        return True
+
+    long_ok = validate_side(
+        ("long_stop", "long_trigger", "long_tp1", "long_tp2", "long_tp3"),
+        "LONG",
     )
-    short_ok = all(_num(v) is not None for v in short_values) and all(
-        _num(short_values[i]) < _num(short_values[i + 1]) for i in range(len(short_values) - 1)
+    short_ok = validate_side(
+        ("short_stop", "short_trigger", "short_tp1", "short_tp2", "short_tp3"),
+        "SHORT",
     )
 
     out["long_status"] = "CONDITIONAL" if long_ok else "NO_TRADE"
     out["short_status"] = "CONDITIONAL" if short_ok else "NO_TRADE"
     out["status"] = "CONDITIONAL" if long_ok or short_ok else "NO_TRADE"
-    # Direction is actionable only when its corresponding side survives validation.
-    # Never preserve a stale BUY/SELL bias after both ladders fail.
-    if not long_ok and not short_ok:
+
+    # Bias remains a directional view, not proof that execution is confirmed.
+    requested = str(out.get("direction") or "WAIT").upper()
+    if requested == "BUY" and not long_ok:
         out["direction"] = "WAIT"
-    elif out.get("direction") not in {"BUY", "SELL"}:
+    elif requested == "SELL" and not short_ok:
+        out["direction"] = "WAIT"
+    elif requested not in {"BUY", "SELL", "WAIT"}:
         out["direction"] = "WAIT"
 
     if not long_ok:
-        for key in ("long_trigger","long_stop","long_tp1","long_tp2","long_tp3"):
+        for key in ("long_trigger", "long_stop", "long_tp1", "long_tp2", "long_tp3"):
             out[key] = None
     if not short_ok:
-        for key in ("short_trigger","short_stop","short_tp1","short_tp2","short_tp3"):
+        for key in ("short_trigger", "short_stop", "short_tp1", "short_tp2", "short_tp3"):
             out[key] = None
     return out
 
@@ -811,6 +890,9 @@ def _rr(side: str, p: dict[str, float | None]) -> tuple[float | None, float | No
         round(r1, 2) if r1 is not None else None,
         round(r2, 2) if r2 is not None else None,
     )
+
+
+from src.trade_plan_engine import build_trade_execution_plan
 
 
 def normalize_analyst_output(
@@ -896,20 +978,62 @@ def normalize_analyst_output(
     # Canonical market map: KEY LEVELS, SCENARIO and TRADE PLAN must all
     # consume exactly the same deterministic object. Structural gamma references
     # stay separate and can never silently become execution targets.
+    pivot = _num(gamma.get("gamma_mean"))
+    current_cfd = _num((state.get("price") or {}).get("cfd"))
+    long_trigger_map = validated_plan["long_trigger"]
+    short_trigger_map = validated_plan["short_trigger"]
+    if current_cfd is not None and long_trigger_map is not None and short_trigger_map is not None:
+        if short_trigger_map < current_cfd < long_trigger_map:
+            location_state = "INSIDE_GAMMA_BAND"
+        elif current_cfd >= long_trigger_map:
+            location_state = "ABOVE_CALL_WALL"
+        elif current_cfd <= short_trigger_map:
+            location_state = "BELOW_PUT_WALL"
+        else:
+            location_state = "UNKNOWN"
+    else:
+        location_state = "UNKNOWN"
+
+    long_key_levels = deterministic.get("long_key_levels") or []
+    short_key_levels = deterministic.get("short_key_levels") or []
     ai["market_map"] = {
-        "R3": validated_plan["long_tp3"],
-        "R2": validated_plan["long_tp2"],
-        "R1": validated_plan["long_tp1"],
-        "long_trigger": validated_plan["long_trigger"],
-        "short_trigger": validated_plan["short_trigger"],
-        "S1": validated_plan["short_tp1"],
-        "S2": validated_plan["short_tp2"],
-        "S3": validated_plan["short_tp3"],
-        "long_status": validated_plan.get("long_status", "NO_TRADE"),
-        "short_status": validated_plan.get("short_status", "NO_TRADE"),
+        # R/S are structural key levels, not automatic trade targets.
+        "R1": long_key_levels[0] if len(long_key_levels) > 0 else None,
+        "R2": long_key_levels[1] if len(long_key_levels) > 1 else None,
+        "R3": long_key_levels[2] if len(long_key_levels) > 2 else None,
+        "long_trigger": long_trigger_map,
+        "short_trigger": short_trigger_map,
+        "S1": short_key_levels[0] if len(short_key_levels) > 0 else None,
+        "S2": short_key_levels[1] if len(short_key_levels) > 1 else None,
+        "S3": short_key_levels[2] if len(short_key_levels) > 2 else None,
+        "long_trade_targets": [
+            value for value in (validated_plan["long_tp1"], validated_plan["long_tp2"], validated_plan["long_tp3"])
+            if value is not None
+        ],
+        "short_trade_targets": [
+            value for value in (validated_plan["short_tp1"], validated_plan["short_tp2"], validated_plan["short_tp3"])
+            if value is not None
+        ],
+        "long_status": validated_plan.get("long_status", "UNAVAILABLE"),
+        "short_status": validated_plan.get("short_status", "UNAVAILABLE"),
+        "long_invalidation": validated_plan["long_stop"],
+        "short_invalidation": validated_plan["short_stop"],
+        "pivot": pivot,
+        "location_state": location_state,
+        "roles": {
+            "long_trigger": "CALL_WALL",
+            "short_trigger": "CALL_WALL_RETEST" if deterministic["short_trigger"] == deterministic["long_trigger"] and deterministic["short_trigger"] is not None else "PUT_WALL",
+            "long_invalidation": "PUT_WALL",
+            "short_invalidation": "PUT_WALL" if deterministic["short_stop"] == deterministic["long_stop"] and deterministic["short_stop"] is not None else "CALL_WALL",
+            "pivot": "GAMMA_MEAN",
+        },
         "source": "QUIKSTRIKE_GEX_STRIKES_NORMALIZED_TO_CFD",
-        "execution_targets_exclude": ["gamma_mean", "positive_gamma_zone", "negative_gex_zone"],
+        "execution_targets_exclude": ["gamma_mean", "positive_gamma_zone", "negative_gex_zone", "R1", "R2", "R3", "S1", "S2", "S3"],
     }
+
+    # Give the state machine the exact same canonical map used by rendering.
+    state["market_map"] = ai["market_map"]
+    execution_plan = build_trade_execution_plan(state)
 
     # From this point onward, every rendered field must come from the
     # validated plan. Never leave a stale pre-validation entry/TP string.
@@ -954,36 +1078,45 @@ def normalize_analyst_output(
         "risk_note": old_trade.get("risk_note") or "Conditional roadmap จาก deterministic evidence; ไม่ใช่คำสั่ง execute",
     }
 
-    if plan_status == "CONDITIONAL":
-        bull = (
-            f"ถ้าราคาเบรกเหนือ {_fmt(plan['long']['entry'])} แล้ว acceptance/retest ยืนได้"
-            f" → {_fmt(plan['long']['tp1'])} → {_fmt(plan['long']['tp2'])} → {_fmt(plan['long']['tp3'])}"
-            if validated_plan.get("long_status") == "CONDITIONAL"
-            else "NO_TRADE — ระดับฝั่งขึ้นยังไม่ครบ"
+    def _scenario_line(side: str, payload: dict[str, Any], available: bool) -> str:
+        if not available:
+            return (
+                "UNAVAILABLE — ไม่มี trigger/stop/TP1 ที่เป็น source-derived ครบ"
+            )
+        state_name = str(payload.get("state") or "ARMED")
+        trigger = _fmt(payload.get("trigger"))
+        target_values = list(payload.get("targets") or [])[:3]
+        target_values.extend([None] * (3 - len(target_values)))
+        targets = target_values
+        target_text = " → ".join(_fmt(v) for v in targets if v is not None)
+        if side == "LONG":
+            return (
+                f"{state_name} — Break/accept เหนือ {trigger} แล้ว confirmation; "
+                f"path {target_text or 'TP1 UNKNOWN'}"
+            )
+        return (
+            f"{state_name} — Break/retest-fail ใต้ {trigger} แล้ว confirmation; "
+            f"path {target_text or 'TP1 UNKNOWN'}"
         )
-        bear = (
-            f"ถ้าราคาหลุด {_fmt(plan['short']['entry'])} แล้ว failed retest"
-            f" → {_fmt(plan['short']['tp1'])} → {_fmt(plan['short']['tp2'])} → {_fmt(plan['short']['tp3'])}"
-            if validated_plan.get("short_status") == "CONDITIONAL"
-            else "NO_TRADE — ระดับฝั่งลงยังไม่ครบ"
-        )
-        ai["scenarios"] = {
-            "bull": bull,
-            "bear": bear,
-            "sideway": (
-                f"ถ้ายังอยู่ระหว่าง {_fmt(plan['short']['entry'])} กับ {_fmt(plan['long']['entry'])}"
-                " และไม่มี acceptance/failed retest ให้ WAIT"
-            ),
-        }
-    else:
-        ai["scenarios"] = {
-            "bull": "NO_TRADE — ฝั่งขึ้นไม่ผ่าน deterministic validation",
-            "bear": "NO_TRADE — ฝั่งลงไม่ผ่าน deterministic validation",
-            "sideway": "WAIT — ข้อมูลหรือโครงสร้างยังไม่พอสำหรับ execution",
-        }
+
+    long_exec = execution_plan.get("long") or {}
+    short_exec = execution_plan.get("short") or {}
+    long_available = validated_plan.get("long_status") == "CONDITIONAL"
+    short_available = validated_plan.get("short_status") == "CONDITIONAL"
+    ai["scenarios"] = {
+        "bull": _scenario_line("LONG", long_exec, long_available),
+        "bear": _scenario_line("SHORT", short_exec, short_available),
+        "sideway": (
+            f"RANGE / WAIT — ราคาอยู่ระหว่าง {_fmt(plan['short']['entry'])} ถึง {_fmt(plan['long']['entry'])}"
+            if plan["short"]["entry"] is not None and plan["long"]["entry"] is not None
+            else "WAIT — ยังไม่มี gamma/structural band ที่ครบ"
+        ),
+    }
 
     # Replace model-authored execution language with the deterministic gate
     # interpretation. The model still supplies the broader thesis fields.
     ai["final_trade_idea"] = deterministic_idea
+    ai["trade_plan"]["execution_state"] = execution_plan["state"]
+    ai["trade_plan"]["execution_plan"] = execution_plan
     ai["market_state"] = state
     return ai
