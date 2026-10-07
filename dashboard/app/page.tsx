@@ -313,7 +313,7 @@ export default function Dashboard() {
       <nav className="quick-nav"><a href="#action">Action</a><a href="#gamma">Gamma</a><a href="#levels">Levels</a><a href="#plan">Plan</a></nav>
 
       <section className="panel action-panel" id="action">
-        <div className="panel-head"><div><span className="eyebrow">DECISION LAYER</span><h2>Nearby Action</h2></div><span className="source-tag">ATR-normalized • ไม่ไล่ราคา</span></div>
+        <div className="panel-head"><div><span className="eyebrow">DECISION LAYER</span><h2>Nearby Action</h2></div><span className="source-tag">{levels.localDistanceMode === "ATR" ? `ATR × ${levels.localMaxAtr ?? "—"}` : "Fallback distance"} • ไม่ไล่ราคา</span></div>
         <div className="action-grid">
           <div className="action-zone long"><span>🟢 BUY — เบรกต้าน</span><strong>{price(levels.localActionResistance)}</strong><small>Break → Hold → Retest → Buy</small></div>
           <div className="action-zone support"><span>🟢 BUY — รับด้านล่าง</span><strong>{price(levels.localActionSupport)}</strong><small>Support → Reaction → Buy</small></div>
