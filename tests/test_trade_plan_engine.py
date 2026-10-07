@@ -34,3 +34,23 @@ def test_touch_without_confirmation_stays_triggered():
 def test_below_trigger_is_armed():
     p = build_trade_execution_plan(_state(price=4190.0))
     assert p["long"]["state"] == "ARMED"
+
+
+def test_structural_key_levels_are_not_automatic_trade_targets():
+    state = _state(price=4140.0)
+    state["levels"] = {
+        "resistance_current": 4141.33,
+        "support_current": 4076.33,
+        "resistance_main": 4141.33,
+        "support_main": 4076.33,
+    }
+    state["market_map"] = {
+        "R1": 4146.33, "R2": 4161.33, "R3": 4176.33,
+        "S1": None, "S2": None, "S3": None,
+        "long_trade_targets": [],
+        "short_trade_targets": [],
+    }
+    p = build_trade_execution_plan(state)
+    assert p["long"]["targets"] == []
+    assert p["long"]["rr"][0] is None
+    assert p["long"]["state"] in {"ARMED", "TRIGGERED_WAIT_RISK_REWARD", "TRIGGERED_WAIT_CONFIRMATION"}
