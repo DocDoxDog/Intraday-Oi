@@ -145,7 +145,10 @@ def build_trade_execution_plan(state: dict[str, Any]) -> dict[str, Any]:
         )
     if long_support_conf["state"] == "CONFIRMED" and current is not None and long_support_trigger is not None and current > long_support_trigger:
         long_support_conf["state"] = "ARMED"
-        long_support_conf["conditions"].append("waiting_support_reaction")
+        if "conditions" in long_support_conf:
+            long_support_conf["conditions"].append("waiting_support_reaction")
+        elif "checks" in long_support_conf:
+            long_support_conf["checks"].append({"name": "waiting_support_reaction", "pass": False})
 
     def side_payload(side: str, trigger: float | None, stop: float | None, targets: list[float | None], conf: dict[str, Any]) -> dict[str, Any]:
         rr = [_risk_reward(side, trigger, stop, x) for x in targets]
