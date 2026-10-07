@@ -7,7 +7,11 @@ def _state(price=4210.0):
         "levels": {"resistance_current": 4200.0, "support_current": 4175.0,
                    "resistance_main": 4200.0, "support_main": 4175.0},
         "market_map": {"R1": 4230.0, "R2": 4250.0, "R3": 4270.0,
-                       "S1": 4160.0, "S2": 4140.0, "S3": 4120.0},
+                       "S1": 4160.0, "S2": 4140.0, "S3": 4120.0,
+                       "long_trigger": 4200.0, "short_trigger": 4175.0,
+                       "long_invalidation": 4175.0, "short_invalidation": 4200.0,
+                       "long_trade_targets": [4230.0],
+                       "short_trade_targets": [4160.0]},
         "decision_framework": {"steps": {"1_market_state": {"htf_structure": "bullish"}}},
         "technical": {
             "m15": {"trend": "bullish", "bos": "bullish", "momentum_5": 1},
@@ -18,9 +22,9 @@ def _state(price=4210.0):
 
 def test_long_becomes_confirmed_only_after_all_conditions():
     p = build_trade_execution_plan(_state())
-    assert p["long"]["state"] == "TRIGGERED_WAIT_RISK_REWARD"
-    assert p["state"] == "TRIGGERED"
-    assert p["long"]["rr"][0] is not None
+    assert p["long"]["state"] == "CONFIRMED"
+    assert p["state"] == "CONFIRMED"
+    assert p["long"]["rr"][0] == 1.2
 
 
 def test_touch_without_confirmation_stays_triggered():
