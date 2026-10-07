@@ -618,6 +618,25 @@ def enrich_market_state(parsed: dict[str, Any], history: dict[str, Any] | None =
         raw["market_state"]["levels"],
         raw["market_state"]["history"],
     )
+
+    # Compose the next-generation deterministic engines without changing the
+    # existing canonical OI/GEX calculations.
+    from src.action_zone_engine import build_action_zones
+    from src.data_clock import apply_data_clock
+    from src.order_flow import build_order_flow_context
+    from src.regime_engine import build_market_regime
+
+    order_flow_input = raw.get("order_flow") or {}
+    state = raw["market_state"]
+    state["auction"] = technical.get("auction") or {}
+    state["macro"] = raw.get("macro_state") or {}
+    state["order_flow"] = build_order_flow_context(
+        trades=order_flow_input.get("trades") if isinstance(order_flow_input, dict) else None,
+        book=order_flow_input.get("book") if isinstance(order_flow_input, dict) else None,
+    )
+    state["regime"] = build_market_regime(state)
+    state["action_zones"] = build_action_zones(state)
+    apply_data_clock(parsed)
     return parsed
 
 
