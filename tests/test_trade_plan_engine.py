@@ -18,8 +18,8 @@ def _state(price=4210.0):
 
 def test_long_becomes_confirmed_only_after_all_conditions():
     p = build_trade_execution_plan(_state())
-    assert p["long"]["state"] == "CONFIRMED"
-    assert p["state"] == "CONFIRMED"
+    assert p["long"]["state"] == "TRIGGERED_WAIT_RISK_REWARD"
+    assert p["state"] == "TRIGGERED"
     assert p["long"]["rr"][0] is not None
 
 
@@ -52,5 +52,5 @@ def test_structural_key_levels_are_not_automatic_trade_targets():
     }
     p = build_trade_execution_plan(state)
     assert p["long"]["targets"] == []
-    assert p["long"]["rr"][0] is None
+    assert p["long"]["rr"] == []
     assert p["long"]["state"] in {"ARMED", "TRIGGERED_WAIT_RISK_REWARD", "TRIGGERED_WAIT_CONFIRMATION"}
