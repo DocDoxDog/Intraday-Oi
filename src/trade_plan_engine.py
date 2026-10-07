@@ -109,7 +109,7 @@ def build_trade_execution_plan(state: dict[str, Any]) -> dict[str, Any]:
     def side_payload(side: str, trigger: float | None, stop: float | None, targets: list[float | None], conf: dict[str, Any]) -> dict[str, Any]:
         rr = [_risk_reward(side, trigger, stop, x) for x in targets]
         risk_per_unit = abs(trigger - stop) if trigger is not None and stop is not None else None
-        rr1_ok = rr[0] is not None and rr[0] >= 1.0
+        rr1_ok = bool(rr) and rr[0] is not None and rr[0] >= 1.0
         effective_state = conf["state"]
         if effective_state == "CONFIRMED" and not rr1_ok:
             effective_state = "TRIGGERED_WAIT_RISK_REWARD"
