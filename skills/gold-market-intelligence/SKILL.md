@@ -30,6 +30,19 @@ Missing optional evidence remains UNKNOWN. Never silently convert missing data i
 The deterministic risk boundary owns structural invalidation, risk distance, target qualification, RR, volatility sanity, spread / slippage when available, and cost-adjusted viability.
 Bad risk means NO TRADE. Do not force a plan because directional bias exists.
 
+## Customer-facing trade map
+Always expose all four executable route templates together:
+1. BUY — breakout/reclaim resistance: break → hold/accept → retest → confirmation → BUY.
+2. BUY — support reaction: reach support → rejection/absorption candidate → bullish structure shift → confirmation → BUY.
+3. SELL — resistance rejection: retest resistance → rejection/failed breakout → bearish structure shift → confirmation → SELL.
+4. SELL — support breakdown: break support → acceptance/breakdown → failed retest → confirmation → SELL.
+
+Directional bias controls priority, not whether the opposite-side plan is visible.
+Every route must show: action condition, entry reference, structural SL, TP1–TP5 when source-derived, current state, and risk gate result.
+TP1–TP5 are execution targets, not R/S labels. Missing target levels stay UNKNOWN rather than being synthesized.
+Risk gate failure must visibly become NO TRADE / risk blocked; never widen SL just to manufacture RR.
+These are conditional research routes; Intraday-Oi never places orders.
+
 ## Three core strategies
 ### PULLBACK
 TREND → IMPULSE → RETRACE → ACTION ZONE → FLOW / REACTION → STRUCTURE CONFIRM → CONTINUE
