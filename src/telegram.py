@@ -173,6 +173,13 @@ def _format_trade_plan_message(parsed: dict, ai_result: dict) -> str:
     execution = trade.get("execution_plan") or {}
 
     # Backward-compatible fallback for snapshots created before four-route mode.
+    if execution and not any(key in execution for key in ("long_reclaim", "long_support", "short_rejection", "short_breakdown")):
+        # Compatibility bridge for the previous 3-route execution payload.
+        execution["long_reclaim"] = execution.get("long") or {}
+        execution["long_support"] = execution.get("long_support") or {}
+        execution["short_rejection"] = execution.get("short") or {}
+        execution["short_breakdown"] = execution.get("short_breakdown") or {}
+
     if not execution:
         def legacy_payload(prefix: str, side: str, title: str, strategy: str, action: str):
             trigger = trade.get(f"{prefix}_trigger")
