@@ -114,6 +114,7 @@ function PlanCard({ title, tone, setup }: { title: string; tone: "long" | "short
   );
   const risk = setup.risk ?? {};
   const riskBlocked = setup.risk_blocked || risk.status === "NO_TRADE";
+  const hasTrigger = setup.trigger != null || setup.entry_reference != null;
 
   return (
     <article className={"setup-card " + tone}>
@@ -130,10 +131,14 @@ function PlanCard({ title, tone, setup }: { title: string; tone: "long" | "short
         <div className="setup-watch">เฝ้าระดับ {price(setup.watch_level)} • ยังไกลจากราคาปัจจุบัน</div>
       )}
 
-      <div className="trade-numbers">
-        <div><span>เข้าเมื่อ</span><strong>{price(setup.trigger ?? setup.entry_reference)}</strong></div>
-        <div><span>SL</span><strong>{price(setup.stop)}</strong></div>
-      </div>
+      {hasTrigger ? (
+        <div className="trade-numbers">
+          <div><span>เข้าเมื่อ</span><strong>{price(setup.trigger ?? setup.entry_reference)}</strong></div>
+          <div><span>SL</span><strong>{price(setup.stop)}</strong></div>
+        </div>
+      ) : (
+        <div className="setup-unavailable">ยังไม่มี Local Action Zone ใกล้ราคาปัจจุบัน → <b>WAIT</b></div>
+      )}
 
       <div className="tp-ladder">
         {[0, 1, 2, 3, 4].map((idx) => (
@@ -308,7 +313,7 @@ export default function Dashboard() {
       <nav className="quick-nav"><a href="#action">Action</a><a href="#gamma">Gamma</a><a href="#levels">Levels</a><a href="#plan">Plan</a></nav>
 
       <section className="panel action-panel" id="action">
-        <div className="panel-head"><div><span className="eyebrow">DECISION LAYER</span><h2>Action Zones</h2></div><span className="source-tag">รอ Action ไม่ไล่ราคา</span></div>
+        <div className="panel-head"><div><span className="eyebrow">DECISION LAYER</span><h2>Nearby Action</h2></div><span className="source-tag">ATR-normalized • ไม่ไล่ราคา</span></div>
         <div className="action-grid">
           <div className="action-zone long"><span>🟢 BUY — เบรกต้าน</span><strong>{price(levels.localActionResistance)}</strong><small>Break → Hold → Retest → Buy</small></div>
           <div className="action-zone support"><span>🟢 BUY — รับด้านล่าง</span><strong>{price(levels.localActionSupport)}</strong><small>Support → Reaction → Buy</small></div>
