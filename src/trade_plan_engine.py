@@ -85,93 +85,84 @@ def _risk_reward(side: str, entry: float | None, stop: float | None, tp: float |
 
 
 def build_trade_execution_plan(state: dict[str, Any]) -> dict[str, Any]:
-    """Build executable conditions from the canonical market state.
+    """Build the complete four-route trade map.
 
-    Prices remain source-derived. The state machine is the only component that
-    can promote a conditional setup to CONFIRMED.
+    Every route is visible at the same time:
+      BUY 1 = resistance breakout / reclaim
+      BUY 2 = support reaction
+      SELL 1 = resistance rejection / failed retest
+      SELL 2 = support breakdown / retest failure
+
+    The selected market bias changes priority, not the existence of the
+    alternative plans. No route places an order.
     """
-    levels = state.get("levels") or {}
     market_map = state.get("market_map") or {}
+    levels = state.get("levels") or {}
     current = _n((state.get("price") or {}).get("cfd"))
-    long_trigger = _n(market_map.get("long_trigger")) or _n(levels.get("resistance_current"))
-    short_trigger = _n(market_map.get("short_trigger")) or _n(levels.get("support_current"))
+    technical = state.get("technical") or {}
+    atr = _n(((technical.get("m5") or {}).get("atr14")))
+    flow = state.get("order_flow") or {}
+    book = flow.get("book") or {}
+    spread = _n(book.get("spread"))
 
-    market = state.get("decision_framework") or {}
-    htf = (((market.get("steps") or {}).get("1_market_state") or {}).get("htf_structure") or "mixed").lower()
-
-    long_stop = _n(market_map.get("long_invalidation")) or _n(levels.get("support_main"))
-    short_stop = _n(market_map.get("short_invalidation")) or _n(levels.get("resistance_main"))
-
-    # R/S are structural key levels. Execution targets are a separate,
-    # risk-qualified layer and must never be inferred from R/S automatically.
-    long_targets = [_n(x) for x in (market_map.get("long_trade_targets") or [])]
-    long_support_trigger = _n(market_map.get("long_support_trigger"))
-    long_support_stop = _n(market_map.get("long_support_invalidation"))
-    long_support_targets = [_n(x) for x in (market_map.get("long_support_trade_targets") or [])]
-    short_targets = [_n(x) for x in (market_map.get("short_trade_targets") or [])]
-
-    # Action Zone Engine is the preferred semantic gate. Keep the old
-    # confirmation function as a compatibility fallback for snapshots that do
-    # not yet contain action_zones.
     action_zones = state.get("action_zones") or {}
     setups = action_zones.get("setups") or {}
 
-    def _zone_confirmation(key: str, fallback_side: str, trigger: float | None) -> dict[str, Any]:
+    htf = str(
+        (((state.get("decision_framework") or {}).get("steps") or {})
+         .get("1_market_state") or {}).get("htf_structure") or "mixed"
+    ).lower()
+
+    def fallback_confirmation(side: str, trigger: float | None) -> dict[str, Any]:
+        return _side_confirmation(state, side, current, trigger)
+
+    def zone_confirmation(key: str, side: str, trigger: float | None) -> dict[str, Any]:
         setup = setups.get(key)
         if isinstance(setup, dict):
             result = confirm_setup(setup, state)
             result["zone_state"] = setup.get("state")
             result["event_required"] = setup.get("event_required")
+            result["action"] = setup.get("action")
+            result["invalidation"] = setup.get("invalidation")
             return result
-        return _side_confirmation(state, fallback_side, current, trigger)
+        return fallback_confirmation(side, trigger)
 
-    long_conf = _zone_confirmation("breakout_retest_long", "LONG", long_trigger)
-    short_conf = _zone_confirmation("breakout_retest_short", "SHORT", short_trigger)
+    def target_list(prefix: str) -> list[float | None]:
+        values = []
+        for i in range(1, 6):
+            values.append(_n(market_map.get(f"{prefix}_tp{i}")))
+        return values
 
-    # Support-reaction LONG: price reaches the lower structural zone, then
-    # requires bullish M15/M5 confirmation and M5 BOS. This is an alternative
-    # setup, not an automatic BUY merely because OI/volume is large.
-    support_setup = setups.get("reversal_long")
-    if isinstance(support_setup, dict):
-        long_support_conf = confirm_setup(support_setup, state)
-        long_support_conf["zone_state"] = support_setup.get("state")
-        long_support_conf["event_required"] = support_setup.get("event_required")
-    else:
-        long_support_conf = _side_confirmation(
-            state,
-            "LONG",
-            current,
-            long_support_trigger,
-        )
-    if long_support_conf["state"] == "CONFIRMED" and current is not None and long_support_trigger is not None and current > long_support_trigger:
-        long_support_conf["state"] = "ARMED"
-        if "conditions" in long_support_conf:
-            long_support_conf["conditions"].append("waiting_support_reaction")
-        elif "checks" in long_support_conf:
-            long_support_conf["checks"].append({"name": "waiting_support_reaction", "pass": False})
-
-    def side_payload(side: str, trigger: float | None, stop: float | None, targets: list[float | None], conf: dict[str, Any]) -> dict[str, Any]:
+    def side_payload(
+        key: str,
+        title: str,
+        strategy: str,
+        side: str,
+        trigger: float | None,
+        stop: float | None,
+        targets: list[float | None],
+        conf: dict[str, Any],
+        action: str,
+        cancel_if: str,
+    ) -> dict[str, Any]:
         rr = [_risk_reward(side, trigger, stop, x) for x in targets]
         risk_per_unit = abs(trigger - stop) if trigger is not None and stop is not None else None
         rr1_ok = bool(rr) and rr[0] is not None and rr[0] >= 1.0
-        effective_state = conf["state"]
-        if effective_state == "CONFIRMED" and not rr1_ok:
-            effective_state = "TRIGGERED_WAIT_RISK_REWARD"
-        technical = state.get("technical") or {}
-        atr = _n(((technical.get("m5") or {}).get("atr14")))
-        flow = state.get("order_flow") or {}
-        book = flow.get("book") or {}
-        spread = _n(book.get("spread"))
+        effective_state = str(conf.get("state") or "WAIT")
         risk = evaluate_setup_risk(
             side, trigger, stop, targets,
             atr=atr, spread=spread, slippage=None,
         )
-        if effective_state == "CONFIRMED" and risk.get("status") != "PASS":
+
+        risk_blocked = risk.get("status") != "PASS"
+        if effective_state == "CONFIRMED" and risk_blocked:
             effective_state = "NO_TRADE"
-        elif effective_state == "TRIGGERED_WAIT_RISK_REWARD" and risk.get("status") == "NO_TRADE":
-            effective_state = "NO_TRADE"
+
         return {
             "side": side,
+            "route": key,
+            "title": title,
+            "strategy": strategy,
             "state": effective_state,
             "trigger": trigger,
             "entry_reference": trigger,
@@ -181,70 +172,154 @@ def build_trade_execution_plan(state: dict[str, Any]) -> dict[str, Any]:
             "risk_per_unit": risk_per_unit,
             "minimum_rr1": 1.0,
             "rr1_eligible": rr1_ok,
-            "confirmation": conf.get("conditions") or conf.get("checks") or [],
-            "zone_state": conf.get("zone_state"),
-            "event_required": conf.get("event_required"),
             "risk": risk,
+            "risk_blocked": risk_blocked,
+            "action": action,
+            "confirmation": conf.get("conditions") or conf.get("checks") or [],
+            "event_required": conf.get("event_required"),
+            "zone_state": conf.get("zone_state"),
+            "cancel_if": cancel_if,
             "position_sizing": "risk_budget / abs(entry_reference - stop); downstream execution engine applies contract value, tick size and max-risk limits",
-            "cancel_if": (
-                "HTF structure invalidates thesis or trigger is reclaimed before confirmation"
-                if side == "SHORT"
-                else "HTF structure invalidates thesis or trigger is lost before confirmation"
-            ),
             "execution_authority": "NONE",
         }
 
-    # A confirmed side is still only a research signal; Ai-trader must enforce
-    # portfolio risk and broker constraints before execution.
-    long_payload = side_payload("LONG", long_trigger, long_stop, long_targets, long_conf)
-    long_support_payload = side_payload(
+    # Explicit four route inputs. These come from the deterministic market map
+    # and are never fabricated by the LLM.
+    long_reclaim_trigger = _n(market_map.get("long_reclaim_trigger")) or _n(market_map.get("call_wall")) or _n(levels.get("resistance_main"))
+    long_support_trigger = _n(market_map.get("long_support_trigger")) or _n(market_map.get("put_wall")) or _n(levels.get("support_main"))
+    short_rejection_trigger = _n(market_map.get("short_rejection_trigger")) or _n(market_map.get("call_wall")) or _n(levels.get("resistance_main"))
+    short_breakdown_trigger = _n(market_map.get("short_breakdown_trigger")) or _n(market_map.get("put_wall")) or _n(levels.get("support_main"))
+
+    long_reclaim_stop = _n(market_map.get("long_reclaim_stop")) or _n(market_map.get("long_invalidation"))
+    long_support_stop = _n(market_map.get("long_support_invalidation"))
+    short_rejection_stop = _n(market_map.get("short_rejection_stop"))
+    short_breakdown_stop = _n(market_map.get("short_breakdown_stop")) or _n(market_map.get("short_invalidation"))
+
+    long_reclaim_conf = zone_confirmation("breakout_retest_long", "LONG", long_reclaim_trigger)
+    long_support_conf = zone_confirmation("reversal_long", "LONG", long_support_trigger)
+    short_rejection_conf = zone_confirmation("reversal_short", "SHORT", short_rejection_trigger)
+    short_breakdown_conf = zone_confirmation("breakout_retest_short", "SHORT", short_breakdown_trigger)
+
+    # Support reaction is only allowed after the market actually reaches the
+    # lower zone. A higher price being technically bullish is not a buy-at-
+    # support confirmation.
+    if (
+        long_support_conf.get("state") == "CONFIRMED"
+        and current is not None
+        and long_support_trigger is not None
+        and current > long_support_trigger
+    ):
+        long_support_conf["state"] = "ARMED"
+        long_support_conf.setdefault("conditions", []).append("waiting_support_reaction")
+
+    target_map = {
+        "long_reclaim": target_list("long_reclaim"),
+        "long_support": [_n(market_map.get(f"long_support_tp{i}")) for i in range(1, 6)],
+        "short_rejection": [_n(market_map.get(f"short_rejection_tp{i}")) for i in range(1, 6)],
+        "short_breakdown": [_n(market_map.get(f"short_breakdown_tp{i}")) for i in range(1, 6)],
+    }
+
+    long_reclaim = side_payload(
+        "BUY_BREAKOUT",
+        "BUY — เบรกต้าน",
+        "BREAKOUT_RETEST",
+        "LONG",
+        long_reclaim_trigger,
+        long_reclaim_stop,
+        target_map["long_reclaim"],
+        long_reclaim_conf,
+        "เบรกและยืนเหนือโซน → รีเทสต์ไม่หลุด → BUY",
+        "ยืนกลับใต้ breakout zone ก่อน confirmation",
+    )
+    long_support = side_payload(
+        "BUY_SUPPORT",
+        "BUY — รับด้านล่าง",
+        "REVERSAL",
         "LONG_SUPPORT",
         long_support_trigger,
         long_support_stop,
-        long_support_targets,
+        target_map["long_support"],
         long_support_conf,
+        "แตะโซนรับ → rejection/absorption → M5 BOS ขึ้น → BUY",
+        "รับไม่อยู่ / ยอมรับราคาต่ำกว่า support",
     )
-    short_payload = side_payload("SHORT", short_trigger, short_stop, short_targets, short_conf)
-    if long_payload["state"] == "CONFIRMED" or long_support_payload["state"] == "CONFIRMED" or short_payload["state"] == "CONFIRMED":
-        status = "CONFIRMED"
-    elif (
-        long_payload["state"] in {"TRIGGERED_WAIT_CONFIRMATION", "TRIGGERED_WAIT_RISK_REWARD"}
-        or long_support_payload["state"] in {"TRIGGERED_WAIT_CONFIRMATION", "TRIGGERED_WAIT_RISK_REWARD"}
-        or short_payload["state"] in {"TRIGGERED_WAIT_CONFIRMATION", "TRIGGERED_WAIT_RISK_REWARD"}
-    ):
-        status = "TRIGGERED"
-    elif (
-        long_payload["state"] == "ARMED"
-        or long_support_payload["state"] == "ARMED"
-        or short_payload["state"] == "ARMED"
-        or any(
-            (payload.get("zone_state") in {"APPROACHING", "IN_ZONE"})
-            for payload in (long_payload, long_support_payload, short_payload)
-        )
-    ):
-        status = "ARMED"
-    elif all(
-        payload["state"] == "NO_TRADE"
-        for payload in (long_payload, long_support_payload, short_payload)
-        if payload.get("trigger") is not None
-    ):
-        status = "NO_TRADE"
+    short_rejection = side_payload(
+        "SELL_REJECTION",
+        "SELL — ต้านไม่ผ่าน",
+        "REVERSAL / FAILED_RETEST",
+        "SHORT",
+        short_rejection_trigger,
+        short_rejection_stop,
+        target_map["short_rejection"],
+        short_rejection_conf,
+        "เด้งกลับต้าน → rejection → M5 BOS ลง → SELL",
+        "ยืนเหนือ resistance และรับราคาได้",
+    )
+    short_breakdown = side_payload(
+        "SELL_BREAKDOWN",
+        "SELL — หลุดแนวรับ",
+        "BREAKOUT_RETEST",
+        "SHORT",
+        short_breakdown_trigger,
+        short_breakdown_stop,
+        target_map["short_breakdown"],
+        short_breakdown_conf,
+        "หลุดแนวรับ → รีเทสต์ไม่ผ่าน → M5 BOS ลง → SELL",
+        "กลับขึ้นเหนือ breakdown zone",
+    )
+
+    # Compatibility aliases: existing Telegram/dashboard consumers can still
+    # use long / long_support / short, while the four explicit routes are
+    # canonical for the new UI.
+    primary_short = short_rejection if htf == "bearish" else short_breakdown
+    primary_long = long_reclaim if htf == "bullish" else long_support
+
+    routes = [long_reclaim, long_support, short_rejection, short_breakdown]
+    states = [str(x.get("state") or "WAIT").upper() for x in routes]
+
+    if "CONFIRMED" in states:
+        overall = "CONFIRMED"
+    elif any(x in states for x in {"TRIGGERED_WAIT_CONFIRMATION", "TRIGGERED", "TRIGGERED_WAIT_RISK_REWARD"}):
+        overall = "TRIGGERED"
+    elif any(x in states for x in {"IN_ZONE", "APPROACHING", "ARMED"}):
+        overall = "ARMED"
+    elif all(x in {"NO_TRADE", "WAIT", "DATA_INSUFFICIENT", "INVALIDATED"} for x in states):
+        risk_ready = any(bool(route.get("trigger") is not None and route.get("stop") is not None) for route in routes)
+        overall = "NO_TRADE" if risk_ready else "DATA_INSUFFICIENT"
     else:
-        status = "DATA_INSUFFICIENT"
+        overall = "WAIT"
+
+    if overall == "CONFIRMED":
+        priority = [x for x in routes if x.get("state") == "CONFIRMED"]
+    elif htf == "bearish":
+        priority = [short_rejection, short_breakdown, long_support, long_reclaim]
+    elif htf == "bullish":
+        priority = [long_reclaim, long_support, short_rejection, short_breakdown]
+    else:
+        priority = [long_reclaim, long_support, short_rejection, short_breakdown]
+
+    preferred = next((x for x in priority if x.get("state") not in {"WAIT", "NO_TRADE", "INVALIDATED", "DATA_INSUFFICIENT"}), priority[0])
 
     return {
-        "version": "trade-plan-v2",
-        "state": status,
+        "version": "trade-plan-v3-four-routes",
+        "state": overall,
         "htf_context": htf,
         "current_price": current,
-        "long": long_payload,
-        "long_support": long_support_payload,
-        "short": short_payload,
+        "preferred_setup": preferred.get("route"),
+        "preferred_action": preferred.get("action"),
+        "long": primary_long,
+        "long_support": long_support,
+        "short": primary_short,
+        "long_reclaim": long_reclaim,
+        "short_rejection": short_rejection,
+        "short_breakdown": short_breakdown,
+        "routes": routes,
         "rules": [
-            "Reaching a structural trigger moves the setup to TRIGGERED; it is not confirmation.",
-            "Confirmation requires trigger reached plus M15/M5 alignment and M5 BOS confirmation.",
-            "Stop is structural invalidation; position size must be derived from actual risk budget.",
-            "Targets are source-derived levels only; missing targets remain UNKNOWN.",
+            "Price touching a level is not an entry.",
+            "Each route requires its own market event and confirmation.",
+            "TP1-TP5 are source-derived structural levels; missing levels stay UNKNOWN.",
+            "Risk failure blocks confirmation and must render NO TRADE.",
+            "Directional bias changes priority, not the availability of the opposite setup.",
             "No order is placed by this module.",
         ],
     }
