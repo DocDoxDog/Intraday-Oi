@@ -244,8 +244,7 @@ def _format_trade_plan_message(parsed: dict, ai_result: dict) -> str:
 
         lines = [
             f"{emoji} <b>{title}</b>",
-            f"ทำแบบนี้: {_escape(action)}",
-            f"จุดเข้าอ้างอิง: <b>{fmt(trigger)}</b>",
+            f"เข้าเมื่อ: {_escape(action)} @ <b>{fmt(trigger)}</b>",
             f"🛑 SL: <b>{fmt(stop)}</b>",
         ]
         for i, value in enumerate(targets[:5], 1):
