@@ -73,8 +73,9 @@ def _side_confirmation(state: dict[str, Any], side: str, current: float | None, 
 def _risk_reward(side: str, entry: float | None, stop: float | None, tp: float | None) -> float | None:
     if None in (entry, stop, tp):
         return None
-    risk = entry - stop if side == "LONG" else stop - entry
-    reward = tp - entry if side == "LONG" else entry - tp
+    is_long = str(side).upper().startswith("LONG")
+    risk = entry - stop if is_long else stop - entry
+    reward = tp - entry if is_long else entry - tp
     if risk <= 0 or reward <= 0:
         return None
     return round(reward / risk, 2)
