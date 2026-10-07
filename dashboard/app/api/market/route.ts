@@ -332,6 +332,9 @@ export async function GET() {
       longSupportInvalidation: num(marketMap.long_support_invalidation),
       shortInvalidation: num(marketMap.short_invalidation),
       location: marketMap.location_state ?? "UNKNOWN",
+      localActionResistance: num(marketMap.local_action_resistance ?? marketMap.local_resistance),
+      localActionSupport: num(marketMap.local_action_support ?? marketMap.local_support),
+      localZoneMaxAtr: num(marketMap.local_zone_max_atr),
     },
     trade: {
       status: execution.state ?? tradePlan.status ?? "UNKNOWN",
