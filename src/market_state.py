@@ -1068,6 +1068,15 @@ def normalize_analyst_output(
             value for value in (validated_plan["long_tp1"], validated_plan["long_tp2"], validated_plan["long_tp3"])
             if value is not None
         ],
+        "long_support_trigger": deterministic.get("long_support_trigger"),
+        "long_support_invalidation": deterministic.get("long_support_stop"),
+        "long_support_trade_targets": [
+            value for value in (
+                deterministic.get("long_support_tp1"),
+                deterministic.get("long_support_tp2"),
+                deterministic.get("long_support_tp3"),
+            ) if value is not None
+        ],
         "short_trade_targets": [
             value for value in (validated_plan["short_tp1"], validated_plan["short_tp2"], validated_plan["short_tp3"])
             if value is not None
@@ -1079,10 +1088,12 @@ def normalize_analyst_output(
         "pivot": pivot,
         "location_state": location_state,
         "roles": {
-            "long_trigger": "CALL_WALL",
-            "short_trigger": "CALL_WALL_RETEST" if deterministic["short_trigger"] == deterministic["long_trigger"] and deterministic["short_trigger"] is not None else "PUT_WALL",
-            "long_invalidation": "PUT_WALL",
-            "short_invalidation": "PUT_WALL" if deterministic["short_stop"] == deterministic["long_stop"] and deterministic["short_stop"] is not None else "CALL_WALL",
+            "long_trigger": "CALL_WALL_RECLAIM",
+            "long_support_trigger": "PUT_WALL_REACTION",
+            "short_trigger": "CALL_WALL_RETEST" if deterministic["short_trigger"] == deterministic["long_trigger"] and deterministic["short_trigger"] is not None else "PUT_WALL_BREAKDOWN",
+            "long_invalidation": "NEAREST_SOURCE_BELOW_TRIGGER",
+            "long_support_invalidation": "NEAREST_SOURCE_BELOW_SUPPORT",
+            "short_invalidation": "NEAREST_SOURCE_ABOVE_TRIGGER",
             "pivot": "GAMMA_MEAN",
         },
         "source": "QUIKSTRIKE_GEX_STRIKES_NORMALIZED_TO_CFD",
