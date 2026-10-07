@@ -102,15 +102,17 @@ def test_telegram_renders_three_text_message_sections():
     assert "WHAT text" in m3 and "WHY text" in m3 and "POSITIONING text" in m3
     assert "KEY LEVELS" in m4
     assert "🔴 <b>ต้าน</b>" in m4 and "🟢 <b>รับ</b>" in m4
-    assert "4,252.49" in m4 and "จุดเปลี่ยน" in m4
+    assert "Call Wall" in m4 and "4,197.49" in m4 and "Put Wall" in m4
     assert "GAMMA TERM STRUCTURE" not in m4
     assert "SCENARIO" not in m4
     assert "<b>TRADE PLAN</b>" in m5
     assert "🛑 SL" in m5
     assert "🎯 TP" in m5
     assert "เข้าเมื่อ:" in m5
-    assert "ยกเลิกแผนเมื่อ:" not in m5
-    assert "Confirmation:" not in m5
+    assert "BUY 1 — เบรกแนวต้าน" in m5
+    assert "BUY 2 — รับด้านล่าง" in m5
+    assert "SELL 1 — ต้านไม่ผ่าน" in m5
+    assert "SELL 2 — หลุดแนวรับ" in m5
 
 
 def test_line_renders_canonical_analysis_without_local_trade_plan():
@@ -295,6 +297,52 @@ def test_telegram_renders_support_reaction_long_setup():
         },
     }
     message = telegram._format_trade_plan_message({}, ai)
-    assert "LONG รับด้านล่าง" in message
-    assert "ลงถึงโซนรับ <b>4,072.88</b>" in message
-    assert "🛑 SL  4,067.88" in message
+    assert "BUY 2 — รับด้านล่าง" in message
+    assert "จุดเข้าอ้างอิง: <b>4,072.88</b>" in message
+    assert "🛑 SL: <b>4,067.88</b>" in message
+    assert "🎯 TP1: <b>4,082.88</b>" in message
+
+
+def test_telegram_four_route_plan_renders_tp1_to_tp5():
+    from src import telegram
+
+    ai = {
+        "bias": "SELL",
+        "trade_plan": {
+            "execution_plan": {
+                "state": "ARMED",
+                "preferred_setup": "SELL_REJECTION",
+                "preferred_action": "เด้งกลับต้าน → rejection → SELL",
+                "long_reclaim": {
+                    "state": "ARMED", "trigger": 4210, "stop": 4205,
+                    "targets": [4215, 4220, 4225, 4230, 4235],
+                    "action": "เบรกและยืนเหนือโซน → รีเทสต์ไม่หลุด → BUY",
+                    "risk": {"status": "PASS"},
+                },
+                "long_support": {
+                    "state": "ARMED", "trigger": 4190, "stop": 4185,
+                    "targets": [4195, 4200, 4205, 4210, 4215],
+                    "action": "แตะโซนรับ → reaction → BUY",
+                    "risk": {"status": "PASS"},
+                },
+                "short_rejection": {
+                    "state": "ARMED", "trigger": 4210, "stop": 4215,
+                    "targets": [4205, 4200, 4195, 4190, 4185],
+                    "action": "เด้งกลับต้าน → rejection → SELL",
+                    "risk": {"status": "PASS"},
+                },
+                "short_breakdown": {
+                    "state": "ARMED", "trigger": 4190, "stop": 4195,
+                    "targets": [4185, 4180, 4175, 4170, 4165],
+                    "action": "หลุดแนวรับ → รีเทสต์ไม่ผ่าน → SELL",
+                    "risk": {"status": "PASS"},
+                },
+            }
+        },
+    }
+    message = telegram._format_trade_plan_message({}, ai)
+    assert all(f"TP{i}:" in message for i in range(1, 6))
+    assert "BUY 1 — เบรกแนวต้าน" in message
+    assert "BUY 2 — รับด้านล่าง" in message
+    assert "SELL 1 — ต้านไม่ผ่าน" in message
+    assert "SELL 2 — หลุดแนวรับ" in message
