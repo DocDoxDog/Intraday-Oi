@@ -225,5 +225,5 @@ def test_execution_routes_ignore_distant_levels():
     assert out["short_breakdown_trigger"] is None
     assert out["local_action_resistance"] is None
     assert out["local_action_support"] is None
-    assert out["R1"] == 4145.0
-    assert out["S1"] == 4080.0
+    assert out["long_key_levels"][0] == 4145.0
+    assert out["short_key_levels"][0] == 4080.0
