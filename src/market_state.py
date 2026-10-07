@@ -684,54 +684,53 @@ def _deterministic_trade_levels(
             })
         return sorted(out, key=lambda x: x["level"], reverse=side == "SHORT")
 
-    def choose_targets(side: str, anchor: float | None) -> list[float]:
+    def structural_levels(side: str, anchor: float | None) -> list[float]:
         candidates = source_candidates(side, anchor)
         if not candidates:
             return []
+        # Key levels describe the nearest real source structure. They are not
+        # automatically executable targets.
+        return [item["level"] for item in candidates[:3]]
 
-        # Use observed source structure to rank significance. Normalize each
-        # component so a large OI number cannot drown out GEX solely by units.
-        max_oi = max((x["oi"] for x in candidates), default=0.0)
-        max_gex = max((x["gex"] for x in candidates), default=0.0)
-        for item in candidates:
-            item["score"] = (
-                (item["oi"] / max_oi if max_oi else 0.0)
-                + (item["gex"] / max_gex if max_gex else 0.0)
+    def trade_targets(
+        side: str,
+        anchor: float | None,
+        stop: float | None,
+        structural: list[float],
+    ) -> list[float]:
+        if anchor is None or stop is None:
+            return []
+        risk = abs(anchor - stop)
+        if risk <= 0:
+            return []
+        # A resistance/support becomes a trade target only if it offers >=1R.
+        minimum_distance = risk
+        return [
+            level for level in structural
+            if (
+                level - anchor >= minimum_distance
+                if side == "LONG"
+                else anchor - level >= minimum_distance
             )
+        ][:3]
 
-        # Preserve the existing structural spacing rule. The important
-        # change is that fewer than three targets are now allowed; sparse books
-        # must not erase TP1 simply because TP2/TP3 are unavailable.
-        min_gap = 15.0
-        selected: list[dict[str, float]] = []
-        for item in sorted(candidates, key=lambda x: (-x["score"], x["level"])):
-            if all(abs(item["level"] - picked["level"]) >= min_gap for picked in selected):
-                selected.append(item)
-            if len(selected) >= 3:
-                break
-        selected.sort(key=lambda x: x["level"], reverse=side == "SHORT")
-
-        # If prominence is sparse, fill from real source strikes at the same
-        # spacing rule. Never manufacture a price between strikes.
-        for item in candidates:
-            if len(selected) >= 3:
-                break
-            if all(abs(item["level"] - picked["level"]) >= min_gap for picked in selected):
-                selected.append(item)
-                selected.sort(key=lambda x: x["level"], reverse=side == "SHORT")
-        return [item["level"] for item in selected[:3]]
-
-    long_targets = choose_targets("LONG", long_trigger)
-    short_targets = choose_targets("SHORT", short_trigger)
+    long_stop = _num(levels.get("support_main"))
+    short_stop = _num(levels.get("resistance_main"))
+    long_key_levels = structural_levels("LONG", long_trigger)
+    short_key_levels = structural_levels("SHORT", short_trigger)
+    long_targets = trade_targets("LONG", long_trigger, long_stop, long_key_levels)
+    short_targets = trade_targets("SHORT", short_trigger, short_stop, short_key_levels)
 
     return {
         "long_trigger": long_trigger,
-        "long_stop": short_trigger,
+        "long_stop": long_stop,
+        "long_key_levels": long_key_levels,
         "long_tp1": long_targets[0] if len(long_targets) > 0 else None,
         "long_tp2": long_targets[1] if len(long_targets) > 1 else None,
         "long_tp3": long_targets[2] if len(long_targets) > 2 else None,
         "short_trigger": short_trigger,
-        "short_stop": long_trigger,
+        "short_stop": short_stop,
+        "short_key_levels": short_key_levels,
         "short_tp1": short_targets[0] if len(short_targets) > 0 else None,
         "short_tp2": short_targets[1] if len(short_targets) > 1 else None,
         "short_tp3": short_targets[2] if len(short_targets) > 2 else None,
