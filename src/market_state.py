@@ -807,11 +807,24 @@ def _deterministic_trade_levels(
         return _unique_sorted(values, reverse=direction == "BELOW")
 
     # Execution uses nearby levels only. Distant walls stay in the global market map.
+    # Local execution distance is volatility-normalized. Structural R/S can
+    # be far away and remain valid context; only source-derived levels within
+    # the configured ATR window can become executable action zones.
+    technical_context = parsed.get("technical_context") or {}
+    atr14 = _num(technical_context.get("atr14"))
+    if atr14 is None:
+        atr14 = _num((technical_context.get("m5") or {}).get("atr14"))
     try:
-        local_max_distance = float(os.environ.get("LOCAL_TRADE_MAX_DISTANCE", "15"))
+        local_max_atr = float(os.environ.get("LOCAL_ZONE_MAX_ATR", "1.5"))
     except (TypeError, ValueError):
-        local_max_distance = 15.0
-    local_max_distance = max(5.0, local_max_distance)
+        local_max_atr = 1.5
+    local_max_atr = max(0.5, local_max_atr)
+
+    try:
+        local_fallback_distance = float(os.environ.get("LOCAL_TRADE_MAX_DISTANCE", "15"))
+    except (TypeError, ValueError):
+        local_fallback_distance = 15.0
+    local_fallback_distance = max(5.0, local_fallback_distance)
 
     above_now = source_candidates("LONG", current)
     below_now = source_candidates("SHORT", current)
@@ -822,8 +835,21 @@ def _deterministic_trade_levels(
     above_levels = _unique_sorted(above_levels)
     below_levels = _unique_sorted(below_levels, reverse=True)
 
-    local_action_resistance = next((level for level in above_levels if current is not None and level - current <= local_max_distance), None)
-    local_action_support = next((level for level in below_levels if current is not None and current - level <= local_max_distance), None)
+    local_max_distance = (
+        round(atr14 * local_max_atr, 5)
+        if atr14 is not None and atr14 > 0
+        else local_fallback_distance
+    )
+    local_distance_mode = "ATR" if atr14 is not None and atr14 > 0 else "FALLBACK_ABSOLUTE"
+
+    local_action_resistance = next(
+        (level for level in above_levels if current is not None and level - current <= local_max_distance),
+        None,
+    )
+    local_action_support = next(
+        (level for level in below_levels if current is not None and current - level <= local_max_distance),
+        None,
+    )
 
     def structural_levels(side: str, anchor: float | None) -> list[float]:
         candidates = source_candidates(side, anchor)
@@ -925,6 +951,9 @@ def _deterministic_trade_levels(
         "call_wall": call_wall,
         "put_wall": put_wall,
         "local_trade_max_distance": local_max_distance,
+        "local_max_atr": local_max_atr,
+        "local_atr14": atr14,
+        "local_distance_mode": local_distance_mode,
         "local_action_resistance": local_action_resistance,
         "local_action_support": local_action_support,
         "long_reclaim_trigger": long_reclaim_trigger,
