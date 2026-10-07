@@ -126,6 +126,9 @@ function PlanCard({ title, tone, setup }: { title: string; tone: "long" | "short
       </div>
 
       <div className="setup-action">{action}</div>
+      {setup.watch_level != null && setup.trigger == null && (
+        <div className="setup-watch">เฝ้าระดับ {price(setup.watch_level)} • ยังไกลจากราคาปัจจุบัน</div>
+      )}
 
       <div className="trade-numbers">
         <div><span>เข้าเมื่อ</span><strong>{price(setup.trigger ?? setup.entry_reference)}</strong></div>
@@ -307,12 +310,12 @@ export default function Dashboard() {
       <section className="panel action-panel" id="action">
         <div className="panel-head"><div><span className="eyebrow">DECISION LAYER</span><h2>Action Zones</h2></div><span className="source-tag">รอ Action ไม่ไล่ราคา</span></div>
         <div className="action-grid">
-          <div className="action-zone long"><span>🟢 BUY — เบรกต้าน</span><strong>{price(levels.longReclaimTrigger ?? levels.callWall)}</strong><small>Break → Hold → Retest → Buy</small></div>
-          <div className="action-zone support"><span>🟢 BUY — รับด้านล่าง</span><strong>{price(levels.longSupportTrigger ?? levels.putWall)}</strong><small>Support → Reaction → Buy</small></div>
-          <div className="action-zone short"><span>🔴 SELL — ต้านไม่ผ่าน</span><strong>{price(levels.shortRejectionTrigger ?? levels.callWall)}</strong><small>Retest → Reject → Sell</small></div>
-          <div className="action-zone short"><span>🔴 SELL — หลุดแนวรับ</span><strong>{price(levels.shortBreakdownTrigger ?? levels.putWall)}</strong><small>Break → Retest Fail → Sell</small></div>
+          <div className="action-zone long"><span>🟢 BUY — เบรกต้าน</span><strong>{price(levels.localActionResistance)}</strong><small>Break → Hold → Retest → Buy</small></div>
+          <div className="action-zone support"><span>🟢 BUY — รับด้านล่าง</span><strong>{price(levels.localActionSupport)}</strong><small>Support → Reaction → Buy</small></div>
+          <div className="action-zone short"><span>🔴 SELL — ต้านไม่ผ่าน</span><strong>{price(levels.localActionResistance)}</strong><small>Retest → Reject → Sell</small></div>
+          <div className="action-zone short"><span>🔴 SELL — หลุดแนวรับ</span><strong>{price(levels.localActionSupport)}</strong><small>Break → Retest Fail → Sell</small></div>
         </div>
-        <div className="action-note">ระดับราคาเป็น “โซน” ไม่ใช่ออเดอร์ทันที — แตะอย่างเดียวไม่ถือว่าเข้า ต้องเกิด Action + confirmation</div>
+        <div className="action-note">โซนด้านบนคือ Local Action รอบราคาปัจจุบัน — ระดับไกลยังอยู่ใน Key Levels และไม่ถูกใช้เป็น Entry ทันที</div>
         <div className="action-state-grid">
           <ActionStateCard label="BUY — BREAKOUT / RECLAIM" setup={data.actionZones?.setups?.breakout_retest_long} tone="long"/>
           <ActionStateCard label="BUY — SUPPORT REACTION" setup={data.actionZones?.setups?.reversal_long} tone="long"/>
