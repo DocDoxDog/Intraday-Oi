@@ -11,6 +11,7 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 from typing import Any
+import os
 
 
 def _num(value: Any) -> float | None:
@@ -791,6 +792,46 @@ def _deterministic_trade_levels(
             })
         return sorted(out, key=lambda x: x["level"], reverse=side == "SHORT")
 
+    def canonical_candidates(direction: str, anchor: float | None) -> list[float]:
+        if anchor is None:
+            return []
+        values: list[float] = []
+        for value in levels.values():
+            num = _num(value)
+            if num is None:
+                continue
+            if direction == "ABOVE" and num > anchor:
+                values.append(num)
+            elif direction == "BELOW" and num < anchor:
+                values.append(num)
+        return _unique_sorted(values, reverse=direction == "BELOW")
+
+    # Execution uses nearby levels only. Distant walls stay in the global
+    # market map and are never promoted to an immediate entry.
+    try:
+        local_max_distance = float(os.environ.get("LOCAL_TRADE_MAX_DISTANCE", "15"))
+    except (TypeError, ValueError):
+        local_max_distance = 15.0
+    local_max_distance = max(5.0, local_max_distance)
+
+    above_now = source_candidates("LONG", current)
+    below_now = source_candidates("SHORT", current)
+    above_levels = [item["level"] for item in above_now]
+    below_levels = [item["level"] for item in below_now]
+    above_levels.extend(canonical_candidates("ABOVE", current))
+    below_levels.extend(canonical_candidates("BELOW", current))
+    above_levels = _unique_sorted(above_levels)
+    below_levels = _unique_sorted(below_levels, reverse=True)
+
+    local_action_resistance = next(
+        (level for level in above_levels if current is not None and level - current <= local_max_distance),
+        None,
+    )
+    local_action_support = next(
+        (level for level in below_levels if current is not None and current - level <= local_max_distance),
+        None,
+    )
+
     def structural_levels(side: str, anchor: float | None) -> list[float]:
         candidates = source_candidates(side, anchor)
         if not candidates:
@@ -824,47 +865,50 @@ def _deterministic_trade_levels(
     long_candidates = source_candidates("LONG", long_trigger)
     short_candidates = source_candidates("SHORT", short_trigger)
 
-    # Structural context stays compact (R/S), while executable TP ladders use
-    # the full source strike ladder and expose up to five risk-qualified levels.
-    long_key_levels = [item["level"] for item in long_candidates[:5]]
-    short_key_levels = [item["level"] for item in short_candidates[:5]]
+    # R/S are nearest structural context around current price.
+    long_key_levels = above_levels[:5]
+    short_key_levels = below_levels[:5]
 
-    long_reclaim_trigger = call_wall
+    # Four routes use the nearest reachable level. The event semantics differ:
+    # breakout/reclaim, support reaction, resistance rejection, breakdown.
+    long_reclaim_trigger = local_action_resistance
     long_reclaim_stop = (
-        nearest_source_level(call_wall, above=False)
-        if call_wall is not None
-        else None
-    ) or nearest_canonical_level(call_wall, above=False) or _num(levels.get("support_main"))
+        nearest_source_level(long_reclaim_trigger, above=False)
+        if long_reclaim_trigger is not None else None
+    ) or nearest_canonical_level(long_reclaim_trigger, above=False)
     long_reclaim_candidates = source_candidates("LONG", long_reclaim_trigger)
     long_reclaim_targets = trade_targets(
         "LONG", long_reclaim_trigger, long_reclaim_stop,
         [item["level"] for item in long_reclaim_candidates],
     )
 
+    long_support_trigger = local_action_support
+    long_support_stop = (
+        nearest_source_level(long_support_trigger, above=False)
+        if long_support_trigger is not None else None
+    ) or nearest_canonical_level(long_support_trigger, above=False)
     long_support_candidates = source_candidates("LONG", long_support_trigger)
     long_support_targets = trade_targets(
         "LONG", long_support_trigger, long_support_stop,
         [item["level"] for item in long_support_candidates],
     )
 
-    short_rejection_trigger = call_wall
+    short_rejection_trigger = local_action_resistance
     short_rejection_stop = (
-        nearest_source_level(call_wall, above=True)
-        if call_wall is not None
-        else None
-    ) or nearest_canonical_level(call_wall, above=True) or _num(levels.get("resistance_main"))
+        nearest_source_level(short_rejection_trigger, above=True)
+        if short_rejection_trigger is not None else None
+    ) or nearest_canonical_level(short_rejection_trigger, above=True)
     short_rejection_candidates = source_candidates("SHORT", short_rejection_trigger)
     short_rejection_targets = trade_targets(
         "SHORT", short_rejection_trigger, short_rejection_stop,
         [item["level"] for item in short_rejection_candidates],
     )
 
-    short_breakdown_trigger = put_wall
+    short_breakdown_trigger = local_action_support
     short_breakdown_stop = (
-        nearest_source_level(put_wall, above=True)
-        if put_wall is not None
-        else None
-    ) or nearest_canonical_level(put_wall, above=True) or _num(levels.get("resistance_main"))
+        nearest_source_level(short_breakdown_trigger, above=True)
+        if short_breakdown_trigger is not None else None
+    ) or nearest_canonical_level(short_breakdown_trigger, above=True)
     short_breakdown_candidates = source_candidates("SHORT", short_breakdown_trigger)
     short_breakdown_targets = trade_targets(
         "SHORT", short_breakdown_trigger, short_breakdown_stop,
@@ -901,6 +945,9 @@ def _deterministic_trade_levels(
         # Explicit four-route trade map used by the new Telegram/Dashboard UI.
         "call_wall": call_wall,
         "put_wall": put_wall,
+        "local_trade_max_distance": local_max_distance,
+        "local_action_resistance": local_action_resistance,
+        "local_action_support": local_action_support,
         "long_reclaim_trigger": long_reclaim_trigger,
         "long_reclaim_stop": long_reclaim_stop,
         **{f"long_reclaim_tp{i}": (long_reclaim_targets[i - 1] if i <= len(long_reclaim_targets) else None) for i in range(1, 6)},
