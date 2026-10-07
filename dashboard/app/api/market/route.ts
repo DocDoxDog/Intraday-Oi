@@ -48,7 +48,7 @@ export async function GET() {
     auth: { persistSession: false, autoRefreshToken: false },
   });
 
-  const { data: rows, error } = await supabase
+  const query = await supabase
     .from("options_flow_snapshots")
     .select([
       "id",
@@ -67,6 +67,9 @@ export async function GET() {
     ].join(","))
     .order("captured_at", { ascending: false })
     .limit(1);
+
+  const rows = query.data as Array<Record<string, any>> | null;
+  const error = query.error as { message: string } | null;
 
   if (error) {
     return NextResponse.json({ status: "ERROR", error: error.message }, { status: 500 });
