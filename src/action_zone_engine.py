@@ -34,9 +34,9 @@ def build_action_zones(market_state:dict[str,Any])->dict[str,Any]:
     regime=market_state.get("regime") or {}
     auction=market_state.get("auction") or {}
     flow=market_state.get("order_flow") or {}
-    long_trigger=_n(market_state.get("market_map",{}).get("long_trigger") or levels.get("resistance_current"))
-    short_trigger=_n(market_state.get("market_map",{}).get("short_trigger") or levels.get("support_current"))
-    support=_n(market_state.get("market_map",{}).get("long_support_trigger"))
+    long_trigger=_n(market_state.get("market_map",{}).get("long_trigger")) or _n(levels.get("resistance_main")) or _n(levels.get("resistance_current"))
+    short_trigger=_n(market_state.get("market_map",{}).get("short_trigger")) or _n(levels.get("support_main")) or _n(levels.get("support_current"))
+    support=_n(market_state.get("market_map",{}).get("long_support_trigger")) or _n(levels.get("support_main"))
     tol=_n((market_state.get("technical") or {}).get("m5",{}).get("atr14")) or _n(auction.get("bin_size")) or 1.0
     tol=max(tol*0.25,0.5)
     m15,m5=_trend(market_state,"m15"),_trend(market_state,"m5")
