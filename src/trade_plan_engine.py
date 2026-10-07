@@ -87,19 +87,19 @@ def build_trade_execution_plan(state: dict[str, Any]) -> dict[str, Any]:
     can promote a conditional setup to CONFIRMED.
     """
     levels = state.get("levels") or {}
+    market_map = state.get("market_map") or {}
     current = _n((state.get("price") or {}).get("cfd"))
-    long_trigger = _n(levels.get("resistance_current"))
-    short_trigger = _n(levels.get("support_current"))
+    long_trigger = _n(market_map.get("long_trigger")) or _n(levels.get("resistance_current"))
+    short_trigger = _n(market_map.get("short_trigger")) or _n(levels.get("support_current"))
 
     market = state.get("decision_framework") or {}
     htf = (((market.get("steps") or {}).get("1_market_state") or {}).get("htf_structure") or "mixed").lower()
 
-    long_stop = _n(levels.get("support_main"))
-    short_stop = _n(levels.get("resistance_main"))
+    long_stop = _n(market_map.get("long_invalidation")) or _n(levels.get("support_main"))
+    short_stop = _n(market_map.get("short_invalidation")) or _n(levels.get("resistance_main"))
 
     # R/S are structural key levels. Execution targets are a separate,
     # risk-qualified layer and must never be inferred from R/S automatically.
-    market_map = state.get("market_map") or {}
     long_targets = [_n(x) for x in (market_map.get("long_trade_targets") or [])]
     short_targets = [_n(x) for x in (market_map.get("short_trade_targets") or [])]
 
