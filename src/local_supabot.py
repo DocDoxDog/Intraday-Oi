@@ -47,7 +47,7 @@ def generate_market_narrative(
     if not isinstance(claims, (dict, list)):
         raise LocalSupaBOTError("GATEWAY_CLAIMS_INVALID")
 
-    schema = _schema_for_task(envelope["task"])
+    schema = _schema_for_task(str(envelope.get("task") or "market.narrative"))
     try:
         verification = verify_output(
             envelope=envelope,
