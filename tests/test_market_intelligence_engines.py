@@ -123,7 +123,7 @@ def test_market_map_can_generate_five_source_qualified_targets_for_both_sides():
                 "rows": [
                     {"strike": x, "net_gex": 1.0}
                     for x in (
-                        4170, 4175, 4180, 4185, 4190, 4195,
+                        4165, 4170, 4175, 4180, 4185, 4190, 4195,
                         4200, 4205, 4210, 4215, 4220, 4225,
                         4230, 4235, 4240, 4245,
                     )
