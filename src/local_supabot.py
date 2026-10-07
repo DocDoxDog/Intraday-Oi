@@ -66,6 +66,9 @@ def generate_market_narrative(
             + "\nRemove or replace every unsupported numeric price with an exact value from "
               "input_payload.deterministic_levels/current/history/news evidence."
             + "\nDo not calculate new prices. Do not round into new values; the renderer handles display formatting."
+            + "\nAlso remove every unsupported derived numeric claim such as RR/R-multiple, percentage, ratio, probability, distance, expected move, or heuristic number. Replace it with qualitative wording."
+            + "\nDo not calculate RR yourself; deterministic execution owns RR."
+            + "\nUnsupported values reported by verifier MUST disappear from the repaired JSON unless they are exact evidence values."
             + "\nKeep all analysis sections and make trade_plan CONDITIONAL when a trigger has not occurred."
             + "\nPrevious JSON:\n"
             + __import__("json").dumps(claims, ensure_ascii=False, default=str)
