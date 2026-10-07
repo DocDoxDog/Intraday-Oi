@@ -877,23 +877,26 @@ def _deterministic_trade_levels(
             for i in range(1, 6)
         }
 
+    legacy_long_targets = trade_targets(
+        "LONG", long_trigger, long_stop, [item["level"] for item in long_candidates]
+    )
+    legacy_short_targets = trade_targets(
+        "SHORT", short_trigger, short_stop, [item["level"] for item in short_candidates]
+    )
+
     return {
         # Legacy primary aliases remain so existing consumers do not break.
         "long_trigger": long_trigger,
         "long_stop": long_stop,
         "long_key_levels": long_key_levels,
-        **{f"long_tp{i}": v for i, v in enumerate(long_targets := trade_targets(
-            "LONG", long_trigger, long_stop, [item["level"] for item in long_candidates]
-        ), start=1)},
+        **{f"long_tp{i}": v for i, v in enumerate(legacy_long_targets, start=1)},
         "long_support_trigger": long_support_trigger,
         "long_support_stop": long_support_stop,
         **{f"long_support_tp{i}": v for i, v in enumerate(long_support_targets, start=1)},
         "short_trigger": short_trigger,
         "short_stop": short_stop,
         "short_key_levels": short_key_levels,
-        **{f"short_tp{i}": v for i, v in enumerate(short_targets := trade_targets(
-            "SHORT", short_trigger, short_stop, [item["level"] for item in short_candidates]
-        ), start=1)},
+        **{f"short_tp{i}": v for i, v in enumerate(legacy_short_targets, start=1)},
 
         # Explicit four-route trade map used by the new Telegram/Dashboard UI.
         "call_wall": call_wall,
