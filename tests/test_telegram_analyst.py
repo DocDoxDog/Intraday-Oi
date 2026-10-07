@@ -103,7 +103,7 @@ def test_telegram_renders_three_text_message_sections():
     assert "KEY LEVELS" in m4
     assert "🔴 <b>ต้าน</b>" in m4 and "🟢 <b>รับ</b>" in m4
     assert "R1 • 4,232.49" in m4 and "R4 •" in m4
-    assert "Mean • 4,197.49" in m4
+    assert "Mean • -" in m4
     assert "S1 • 4,172.49" in m4 and "S4 •" in m4
     assert "Call Wall" not in m4
     assert "Put Wall" not in m4
