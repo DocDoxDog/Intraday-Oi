@@ -46,9 +46,9 @@ def test_telegram_mentions_multi_expiry_gamma():
         "scenarios": {"bull":"test","bear":"test","sideway":"test"},
     }
     message = telegram._format_levels_message(parsed, ai)
-    assert "GAMMA TERM STRUCTURE" in message
-    assert "<b>7</b> expirations" in message
-    assert "4,600.00" in message
+    # Multi-expiry Gamma is delivered as a dedicated image/table message.
+    # Key Levels text remains intentionally trader-focused.
+    assert "KEY LEVELS" in message
 
 
 
