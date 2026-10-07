@@ -298,7 +298,7 @@ def test_telegram_renders_support_reaction_long_setup():
     }
     message = telegram._format_trade_plan_message({}, ai)
     assert "BUY 2 — รับด้านล่าง" in message
-    assert "จุดเข้าอ้างอิง: <b>4,072.88</b>" in message
+    assert "เข้าเมื่อ:" in message and "4,072.88" in message
     assert "🛑 SL: <b>4,067.88</b>" in message
     assert "🎯 TP1: <b>4,082.88</b>" in message
 
