@@ -35,6 +35,69 @@ function StatePill({ value }: { value: unknown }) {
   return <span className={"pill " + s.toLowerCase()}>{stateLabel(value)}</span>;
 }
 
+function ActionStateCard({ label, setup, tone }: { label: string; setup: any; tone: "long" | "short" }) {
+  if (!setup) return null;
+  return (
+    <article className={"action-state-card " + tone}>
+      <div><span className="eyebrow">{label}</span><StatePill value={setup.state}/></div>
+      <strong>{price(setup.zone_price)}</strong>
+      <small>{setup.action ?? setup.event_required ?? "รอ Action"}</small>
+    </article>
+  );
+}
+
+function AuctionPanel({ auction }: { auction: any }) {
+  return (
+    <section className="panel">
+      <div className="panel-head"><div><span className="eyebrow">AUCTION / PROFILE</span><h2>Auction</h2></div><span className="source-tag">{auction?.mode ?? "UNKNOWN"}</span></div>
+      <div className="metric-list">
+        <div><span>POC</span><strong>{price(auction?.poc)}</strong></div>
+        <div><span>VAH</span><strong>{price(auction?.vah)}</strong></div>
+        <div><span>VAL</span><strong>{price(auction?.val)}</strong></div>
+        <div><span>Session High</span><strong>{price(auction?.session_high)}</strong></div>
+        <div><span>Session Low</span><strong>{price(auction?.session_low)}</strong></div>
+        <div><span>HVN</span><strong>{(auction?.hvn ?? []).map((x: any) => price(x)).join(" • ") || "—"}</strong></div>
+        <div><span>LVN</span><strong>{(auction?.lvn ?? []).map((x: any) => price(x)).join(" • ") || "—"}</strong></div>
+      </div>
+      {auction?.approximation && <div className="context-line">โปรไฟล์เป็น BAR PROXY: ใช้ OHLCV ไม่ใช่ tick-by-tick volume profile</div>}
+    </section>
+  );
+}
+
+function MacroPanel({ macro }: { macro: any }) {
+  const series = macro?.series ?? {};
+  const item = (key: string) => series[key] ?? {};
+  return (
+    <section className="panel">
+      <div className="panel-head"><div><span className="eyebrow">GOLD MACRO STATE</span><h2>{macro?.macro_bias ?? "UNKNOWN"}</h2></div><span className="source-tag">FRED</span></div>
+      <div className="metric-list">
+        <div><span>Real 10Y</span><strong>{price(item("real_10y").value)} · {item("real_10y").direction ?? "—"}</strong></div>
+        <div><span>Nominal 10Y</span><strong>{price(item("nominal_10y").value)} · {item("nominal_10y").direction ?? "—"}</strong></div>
+        <div><span>Fed Funds</span><strong>{price(item("policy_rate").value)} · {item("policy_rate").direction ?? "—"}</strong></div>
+        <div><span>Broad USD</span><strong>{price(item("broad_usd").value)} · {item("broad_usd").direction ?? "—"}</strong></div>
+      </div>
+      <div className="context-line">Macro = context/regime ไม่ใช่ intraday entry signal</div>
+    </section>
+  );
+}
+
+function DataClockPanel({ clock }: { clock: any }) {
+  const entries = Array.isArray(clock?.entries) ? clock.entries : [];
+  return (
+    <section className="panel">
+      <div className="panel-head"><div><span className="eyebrow">DATA CLOCK</span><h2>Source Freshness</h2></div></div>
+      <div className="clock-list">
+        {entries.map((x: any) => (
+          <div className="clock-row" key={x.name}>
+            <div><strong>{x.name}</strong><small>{x.source} · {x.clock}</small></div>
+            <StatePill value={x.status}/>
+          </div>
+        ))}
+      </div>
+    </section>
+  );
+}
+
 function SetupCard({ title, tone, setup }: { title: string; tone: "long" | "short"; setup: any }) {
   if (!setup) return null;
   const state = setup.state ?? "UNKNOWN";
@@ -213,7 +276,15 @@ export default function Dashboard() {
           <div className="action-zone long"><span>🟢 LONG</span><strong>{price(levels.longTrigger)}</strong><small>Break/Hold → Confirm</small></div>
           {levels.longSupportTrigger != null && <div className="action-zone support"><span>🟢 LONG รับด้านล่าง</span><strong>{price(levels.longSupportTrigger)}</strong><small>Support → Reaction → Confirm</small></div>}
         </div>
-        <div className="action-note">สิ่งที่ระบบรู้แน่คือ “โซนที่ควรรอ” ส่วน Direction ต้องให้ Price Action + Technical + Flow ยืนยัน</div>
+        <div className="action-note">ระดับราคาเป็นแค่ “โซน” — สถานะจะเปลี่ยนเมื่อมี Action ที่ตรวจพบได้จริง ไม่ใช่แค่ราคาแตะ</div>
+        <div className="action-state-grid">
+          <ActionStateCard label="PULLBACK LONG" setup={data.actionZones?.setups?.pullback_long} tone="long"/>
+          <ActionStateCard label="PULLBACK SHORT" setup={data.actionZones?.setups?.pullback_short} tone="short"/>
+          <ActionStateCard label="BREAKOUT + RETEST LONG" setup={data.actionZones?.setups?.breakout_retest_long} tone="long"/>
+          <ActionStateCard label="BREAKOUT + RETEST SHORT" setup={data.actionZones?.setups?.breakout_retest_short} tone="short"/>
+          <ActionStateCard label="REVERSAL LONG" setup={data.actionZones?.setups?.reversal_long} tone="long"/>
+          <ActionStateCard label="REVERSAL SHORT" setup={data.actionZones?.setups?.reversal_short} tone="short"/>
+        </div>
       </section>
 
       <GammaTable gamma={gamma}/>
@@ -246,6 +317,24 @@ export default function Dashboard() {
           <div className="context-line">{regime.macro || "ไม่มี Macro/News evidence ที่เพียงพอ"}</div>
           <div className="context-line">{regime.financialEngineering || "ไม่มี Financial Engineering context เพิ่มเติม"}</div>
         </section>
+      </section>
+
+      <section className="two-col">
+        <AuctionPanel auction={data.auction}/>
+        <MacroPanel macro={data.macro}/>
+      </section>
+      <section className="two-col">
+        <section className="panel">
+          <div className="panel-head"><div><span className="eyebrow">ORDER FLOW</span><h2>Flow State</h2></div><span className="source-tag">{data.flow?.status ?? "UNKNOWN"}</span></div>
+          <div className="metric-list">
+            <div><span>Buy Aggression</span><strong>{compact(data.flow?.aggression?.buy)}</strong></div>
+            <div><span>Sell Aggression</span><strong>{compact(data.flow?.aggression?.sell)}</strong></div>
+            <div><span>Delta</span><strong>{compact(data.flow?.aggression?.delta)}</strong></div>
+            <div><span>Book Imbalance</span><strong>{data.flow?.book?.imbalance != null ? Number(data.flow.book.imbalance).toFixed(2) : "—"}</strong></div>
+          </div>
+          <div className="context-line">{data.flow?.availability === "NOT_PROVIDED" ? "ยังไม่มี tick/order-book source จึงไม่สรุป aggressor flow" : "Flow ใช้เป็น evidence ไม่ใช่ direction oracle"}</div>
+        </section>
+        <DataClockPanel clock={data.dataClock}/>
       </section>
 
       <footer><span>Evidence &gt; Story</span><span>Updated {updated} ICT</span><span>Analysis only • No order execution</span></footer>
