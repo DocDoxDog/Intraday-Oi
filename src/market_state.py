@@ -1077,7 +1077,9 @@ def normalize_analyst_output(
             )
         state_name = str(payload.get("state") or "ARMED")
         trigger = _fmt(payload.get("trigger"))
-        target_values = list(payload.get("targets") or [])[:3]\n        target_values.extend([None] * (3 - len(target_values)))\n        targets = target_values
+        target_values = list(payload.get("targets") or [])[:3]
+        target_values.extend([None] * (3 - len(target_values)))
+        targets = target_values
         target_text = " → ".join(_fmt(v) for v in targets if v is not None)
         if side == "LONG":
             return (
