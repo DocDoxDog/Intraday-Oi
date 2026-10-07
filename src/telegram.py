@@ -199,12 +199,18 @@ def _format_trade_plan_message(parsed: dict, ai_result: dict) -> str:
             f"🎯 TP  {' → '.join(fmt(x) for x in targets[:3]) if targets else 'ยังไม่มีระดับที่คุ้มความเสี่ยง'}",
         ]
 
-        if state in {"TRIGGERED_WAIT_CONFIRMATION", "TRIGGERED_WAIT_RISK_REWARD"}:
+        if state in {"TRIGGERED_WAIT_CONFIRMATION", "TRIGGERED_WAIT_RISK_REWARD", "TRIGGERED"}:
             lines.append("⏳ สถานะ: เข้าโซนแล้ว • รอยืนยัน")
         elif state == "CONFIRMED":
             lines.append("✅ สถานะ: เงื่อนไขครบ")
-        elif state == "ARMED":
-            lines.append("👀 สถานะ: รอจังหวะ")
+        elif state == "IN_ZONE":
+            lines.append("📍 สถานะ: อยู่ในโซน • รอ Action")
+        elif state == "APPROACHING" or state == "ARMED":
+            lines.append("👀 สถานะ: กำลังเข้าโซน • รอจังหวะ")
+        elif state == "NO_TRADE":
+            lines.append("🚫 สถานะ: NO TRADE")
+        elif state == "INVALIDATED":
+            lines.append("❌ สถานะ: หลุดเงื่อนไข")
         return lines
 
     overall = str(execution.get("state") or trade.get("status") or "UNKNOWN").upper()
@@ -213,6 +219,10 @@ def _format_trade_plan_message(parsed: dict, ai_result: dict) -> str:
         "CONFIRMED": "ยืนยันแล้ว",
         "TRIGGERED": "เข้าโซนแล้ว • รอยืนยัน",
         "ARMED": "รอจังหวะ",
+        "APPROACHING": "กำลังเข้าโซน",
+        "IN_ZONE": "อยู่ในโซน • รอ Action",
+        "NO_TRADE": "NO TRADE",
+        "INVALIDATED": "หลุดเงื่อนไข",
         "DATA_INSUFFICIENT": "ข้อมูลไม่พอ",
     }.get(overall, overall)
 
