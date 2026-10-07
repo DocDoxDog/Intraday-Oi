@@ -300,15 +300,18 @@ def build_trade_execution_plan(state: dict[str, Any]) -> dict[str, Any]:
     else:
         priority = [long_reclaim, long_support, short_rejection, short_breakdown]
 
-    preferred = next((x for x in priority if x.get("state") not in {"WAIT", "NO_TRADE", "INVALIDATED", "DATA_INSUFFICIENT"}), priority[0])
+    preferred = next(
+        (x for x in priority if x.get("state") not in {"WAIT", "NO_TRADE", "INVALIDATED", "DATA_INSUFFICIENT"}),
+        None,
+    )
 
     return {
         "version": "trade-plan-v3-four-routes",
         "state": overall,
         "htf_context": htf,
         "current_price": current,
-        "preferred_setup": preferred.get("route"),
-        "preferred_action": preferred.get("action"),
+        "preferred_setup": preferred.get("route") if preferred else None,
+        "preferred_action": preferred.get("action") if preferred else "รอให้เกิด Action ที่โซน",
         "long": primary_long,
         "long_support": long_support,
         "short": primary_short,
