@@ -8,6 +8,8 @@ from typing import Any
 
 import requests
 
+from .price_memory import build_price_memory
+
 API_URL = "https://api.twelvedata.com/time_series"
 DEFAULT_SYMBOL = "XAU/USD"
 DEFAULT_MAX_AGE_SECONDS = 600
