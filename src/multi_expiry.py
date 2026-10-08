@@ -139,8 +139,67 @@ def build_gamma_matrix(
     }
 
 
+def _median_spacing(values: list[float]) -> float:
+    gaps = [
+        round(values[i] - values[i - 1], 8)
+        for i in range(1, len(values))
+        if values[i] > values[i - 1]
+    ]
+    if not gaps:
+        return 5.0
+    gaps.sort()
+    mid = len(gaps) // 2
+    return gaps[mid] if len(gaps) % 2 else (gaps[mid - 1] + gaps[mid]) / 2.0
+
+
+def _select_structural_nodes(
+    concentrations: list[tuple[float, float]],
+    *,
+    current: float | None,
+    side: str,
+    limit: int = 5,
+) -> list[float]:
+    """Select significant real strikes; never manufacture +5/+10 ladders.
+
+    Selection is based on observed concentration magnitude and real strike
+    spacing. A non-maximum-suppression gap prevents adjacent strikes from being
+    promoted as separate 'important zones' when they belong to the same local
+    concentration area.
+    """
+    if not concentrations:
+        return []
+
+    strike_values = sorted(strike for strike, _ in concentrations)
+    min_gap = max(10.0, 2.0 * _median_spacing(strike_values))
+    peak = max(abs(value) for _, value in concentrations)
+    threshold = peak * 0.20
+
+    if current is None:
+        candidates = [item for item in concentrations if abs(item[1]) >= threshold]
+    elif side == "UP":
+        candidates = [
+            item for item in concentrations
+            if item[0] > current and abs(item[1]) >= threshold
+        ]
+    else:
+        candidates = [
+            item for item in concentrations
+            if item[0] < current and abs(item[1]) >= threshold
+        ]
+
+    candidates.sort(key=lambda item: abs(item[1]), reverse=True)
+    selected: list[float] = []
+    for strike, _ in candidates:
+        if all(abs(strike - picked) >= min_gap for picked in selected):
+            selected.append(strike)
+        if len(selected) >= limit:
+            break
+
+    return sorted(selected)
+
+
 def summarize_gamma_zones(gamma_matrix: dict[str, Any]) -> dict[str, Any]:
-    """Extract deterministic concentration zones without inventing levels."""
+    """Extract deterministic structural concentration nodes from real strikes."""
 
     matrix = gamma_matrix.get("matrix") or []
     columns = gamma_matrix.get("columns") or []
@@ -167,16 +226,26 @@ def summarize_gamma_zones(gamma_matrix: dict[str, Any]) -> dict[str, Any]:
         reverse=True,
     )
 
+    resistance_nodes = _select_structural_nodes(
+        positive, current=current, side="UP"
+    )
+    support_nodes = _select_structural_nodes(
+        negative, current=current, side="DOWN"
+    )
+
     return {
         "current_price": current,
         "highest_positive_gamma": positive[0][0] if positive else None,
         "highest_negative_gamma": negative[0][0] if negative else None,
+        "resistance_nodes": resistance_nodes,
+        "support_nodes": support_nodes,
         "positive_concentrations": [
             {"strike": strike, "aggregate_gex": value} for strike, value in positive[:10]
         ],
         "negative_concentrations": [
             {"strike": strike, "aggregate_gex": value} for strike, value in negative[:10]
         ],
+        "selection_method": "magnitude_threshold_20pct_plus_strike_spacing_non_max_suppression",
         "status": "VALID" if aggregate else "UNKNOWN",
     }
 
