@@ -370,10 +370,6 @@ def _decision_framework(
             else "ABOVE_OR_EQUAL" if current is not None and short_trigger is not None else "UNKNOWN"
         ),
         "long_trigger": long_trigger,
-        "price_memory_levels": {
-            "above": above_levels[:8],
-            "below": below_levels[:8],
-        },
         "short_trigger": short_trigger,
     }
 
