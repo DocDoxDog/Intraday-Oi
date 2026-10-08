@@ -33,6 +33,7 @@
       "max_output_tokens":5200,
       "output_schema":"schemas/llm/flow_market_analyst_v1.json",
       "output_schema_version":"flow-market-analyst.v1",
+      "skill_file":"skills/gold-market-intelligence/LLM_ANALYST_SKILL.md",
       "enabled":true
     }
   },
