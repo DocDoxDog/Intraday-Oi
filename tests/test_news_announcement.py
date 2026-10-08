@@ -136,3 +136,91 @@ def test_forex_factory_provider_keeps_actual_forecast_previous(monkeypatch):
     assert rows[0]["calendar"]["actual"] == "4.00%"
     assert rows[0]["calendar"]["forecast"] == "4.25%"
     assert rows[0]["calendar"]["previous"] == "4.50%"
+
+
+def test_forex_factory_html_enriches_released_actual_without_api_key(monkeypatch):
+    from intelligence.news import providers
+
+    class JsonResponse:
+        def raise_for_status(self):
+            return None
+        def json(self):
+            return [{
+                "title": "Crude Oil Inventories",
+                "country": "USD",
+                "date": "2026-10-07T18:00:00+00:00",
+                "impact": "High",
+                "actual": "",
+                "forecast": "1.9M",
+                "previous": "0.9M",
+            }]
+
+    html = """
+    <table class="calendar__table">
+      <tr class="calendar__row calendar_row">
+        <td class="calendar__cell calendar__date date">Wed Oct 7</td>
+        <td class="calendar__cell calendar__time time">7:00pm</td>
+        <td class="calendar__cell calendar__currency currency">USD</td>
+        <td class="calendar__cell calendar__impact impact"><span title="High Impact Expected"></span></td>
+        <td class="calendar__cell calendar__event event">Crude Oil Inventories</td>
+        <td class="calendar__cell calendar__actual actual"><span>-3.2M</span></td>
+        <td class="calendar__cell calendar__forecast forecast"><span class="calendar-forecast">1.9M</span></td>
+        <td class="calendar__cell calendar__previous previous"><span class="calendar-previous">0.9M</span></td>
+      </tr>
+    </table>
+    """
+
+    class Response:
+        def __init__(self, payload=None, body=""):
+            self._payload = payload
+            self.text = body
+        def raise_for_status(self):
+            return None
+        def json(self):
+            return self._payload
+
+    def fake_get(url, **kwargs):
+        if url.endswith("ff_calendar_thisweek.json"):
+            return Response(JsonResponse().json())
+        return Response(body=html)
+
+    monkeypatch.setattr(providers, "_get", fake_get)
+    rows = providers.fetch_forex_factory_calendar()
+    assert rows[0]["calendar"]["actual"] == "-3.2M"
+    assert rows[0]["calendar"]["actual_source"] == "forexfactory_html"
+    assert rows[0]["calendar"]["data_status"] == "HTML_ENRICHED"
+
+
+def test_missing_calendar_placeholders_are_unknown_not_literal_dash():
+    from intelligence.news.normalization import normalize_news
+
+    detected = datetime(2026, 10, 8, 4, 0, tzinfo=timezone.utc)
+    event_time = datetime(2026, 10, 8, 5, 0, tzinfo=timezone.utc)
+    item = normalize_news(
+        {
+            "headline": "USD — FOMC Meeting Minutes",
+            "source": "Forex Factory",
+            "url": "https://www.forexfactory.com/calendar/",
+            "published_at": event_time,
+            "event_time": event_time,
+            "category": "MACRO",
+            "severity": "HIGH",
+            "calendar": {
+                "actual": "",
+                "forecast": "-",
+                "previous": "4.50%",
+                "data_status": "HTML_ENRICHED",
+                "actual_source": None,
+                "forecast_source": "forexfactory_json",
+                "previous_source": "forexfactory_html",
+            },
+        },
+        detected_at=detected,
+    )
+    row = item.as_legacy_dict()
+    assert row["actual"] is None
+    assert row["forecast"] is None
+    assert row["previous"] == "4.50%"
+    assert row["event_status"] == "UPCOMING"
+    assert row["calendar_data_status"] == "HTML_ENRICHED"
+    assert row["previous_source"] == "forexfactory_html"
