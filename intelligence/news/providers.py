@@ -31,7 +31,7 @@ def _clean_calendar_text(value: object) -> str:
     if value is None:
         return ""
     text = html_lib.unescape(str(value))
-    return re.sub(r"\\s+", " ", text).strip()
+    return re.sub(r"\s+", " ", text).strip()
 
 
 def _canonical_title(value: object) -> str:
