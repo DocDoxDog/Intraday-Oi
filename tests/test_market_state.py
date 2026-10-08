@@ -237,4 +237,3 @@ def test_trade_plan_uses_nearest_structural_invalidation_not_distant_opposite_wa
     assert trade["long_support_trigger"] is None
     assert trade["market_map"]["put_wall"] == 4197
     assert "long_support" in trade["execution_plan"]
-    assert "long_support" in trade["execution_plan"]
