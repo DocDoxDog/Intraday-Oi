@@ -64,14 +64,31 @@ def rank_structural_nodes(price: float, options_nodes=None, technical_nodes=None
                            "tier":int(tier),"direction":"UP" if level>price else "DOWN",
                            "distance_from_price":round(abs(level-price),5),
                            "local_prominence":prominence,"evidence_refs":x.get("evidence_refs") or []})
-    # Prefer the closest meaningful node on each side before distant magnitude.
-    candidates.sort(key=lambda x:(x["tier"], x["distance_from_price"], -abs(float(x["local_prominence"]))))
+    # Market path must have a real nearest node on BOTH sides before adding
+    # additional continuation nodes. Tier is a ranking aid, not a reason to
+    # discard the nearest node on the opposite side.
+    up = sorted([x for x in candidates if x["direction"] == "UP"],
+                key=lambda x: (x["distance_from_price"], x["tier"], -abs(float(x["local_prominence"]))))
+    down = sorted([x for x in candidates if x["direction"] == "DOWN"],
+                  key=lambda x: (x["distance_from_price"], x["tier"], -abs(float(x["local_prominence"]))))
+
     selected=[]
-    for c in candidates:
-        if any(abs(c["level"]-s["level"])<0.01 for s in selected): continue
+    for side_nodes in (up, down):
+        if side_nodes:
+            selected.append(side_nodes[0])
+
+    remaining = sorted(
+        [x for x in candidates if x not in selected],
+        key=lambda x: (x["tier"], x["distance_from_price"], -abs(float(x["local_prominence"])))
+    )
+    for c in remaining:
+        if any(abs(c["level"]-s["level"])<0.01 for s in selected):
+            continue
         selected.append(c)
-        if len(selected)>=max_nodes: break
-    return selected
+        if len(selected) >= max_nodes:
+            break
+
+    return selected[:max_nodes]
 
 def _bar_event(bar: dict[str,Any] | None, level: float, side: str,
                previous: dict[str,Any] | None = None) -> str:
