@@ -64,7 +64,8 @@ def rank_structural_nodes(price: float, options_nodes=None, technical_nodes=None
                            "tier":int(tier),"direction":"UP" if level>price else "DOWN",
                            "distance_from_price":round(abs(level-price),5),
                            "local_prominence":prominence,"evidence_refs":x.get("evidence_refs") or []})
-    candidates.sort(key=lambda x:(x["tier"],-abs(float(x["local_prominence"])),x["distance_from_price"]))
+    # Prefer the closest meaningful node on each side before distant magnitude.
+    candidates.sort(key=lambda x:(x["tier"], x["distance_from_price"], -abs(float(x["local_prominence"]))))
     selected=[]
     for c in candidates:
         if any(abs(c["level"]-s["level"])<0.01 for s in selected): continue
