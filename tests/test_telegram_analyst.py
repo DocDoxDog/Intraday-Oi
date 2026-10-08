@@ -198,6 +198,8 @@ def test_trade_plan_ladders_are_directionally_monotonic():
             "multi_expiry_gamma_zones": {
                 "highest_positive_gamma": 4175,
                 "highest_negative_gamma": 4150,
+                "resistance_nodes": [4170, 4180, 4200],
+                "support_nodes": [4150, 4125, 4100],
             },
         },
     }
