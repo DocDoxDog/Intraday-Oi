@@ -112,7 +112,7 @@ def test_telegram_renders_three_text_message_sections():
     assert "Put Wall" not in m4
     assert "<b>TRADE PLAN</b>" in m5
     assert "🛑 SL" in m5
-    assert "BUY — แผนหลัก" in m5 or "SELL — แผนหลัก" in m5
+    assert "BUY 1 — เบรกแนวต้าน" in m5 or "SELL 1 — ต้านไม่ผ่าน" in m5
     assert "แผนสำรอง" in m5
     assert "Entry:" in m5
     assert "โซน/Trigger:" in m5
