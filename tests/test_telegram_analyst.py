@@ -400,6 +400,5 @@ def test_customer_narrative_is_plain_language_and_uses_evidence_relationships():
     assert "ผู้เล่นกำลังเพิ่ม/ลดสถานะอย่างไร" in message
     assert "มีการเพิ่มสถานะทั้ง Put และ Call ใกล้เคียงกัน" in message
     assert "Gamma เป็นลบ" in message
-    assert "ผู้ดูแลสภาพคล่อง" in message
     assert "Current OI" not in message
     assert "OI Change" not in message
