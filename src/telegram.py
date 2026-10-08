@@ -65,41 +65,70 @@ def _chunk(text: str, limit: int = MAX_MESSAGE_LEN) -> list[str]:
 
 
 def _format_analysis_message(parsed: dict, ai_result: dict) -> str:
-    """Compact flow-first customer message; details remain in evidence/DB."""
-    raw=parsed.get("raw_series") or {}
-    state=raw.get("market_state") or {}
-    decision=state.get("decision") or {}
-    bias=str(decision.get("structural_bias") or ai_result.get("bias") or "WAIT").upper()
-    confirmation=str(decision.get("confirmation_state") or "NOT_CONFIRMED").upper()
-    narrative=build_customer_narrative(parsed,ai_result)
-    path=ai_result.get("structural_path") or state.get("path") or {}
-    current=path.get("current_price") or parsed.get("cfd_price")
-    upper=path.get("upper_node") or {}
-    lower=path.get("lower_node") or {}
-    flow=ai_result.get("market_flow") or narrative.get("market_flow") or {}
-    direction="🟢 ขึ้น" if bias=="BULLISH" else "🔴 ลง" if bias=="BEARISH" else "🟡 รอยืนยัน"
-    confirm="ยืนยันแล้ว" if confirmation=="CONFIRMED" else "ยังไม่ยืนยัน"
-    lines=[
-        "<b>🟡 GOLD MARKET</b>", _thai_datetime_str(),
-        f"ราคา <b>{_show(current)}</b> | มุมมอง <b>{direction}</b> | {confirm}",
+    """Customer-facing Gold Market message: tell the price story, not the data dump."""
+    raw = parsed.get("raw_series") or {}
+    state = raw.get("market_state") or {}
+    flow = raw.get("market_flow") or {}
+    path = ai_result.get("structural_path") or flow.get("path") or state.get("path") or {}
+    narrative = build_customer_narrative(parsed, ai_result)
+    current = path.get("current_price") or parsed.get("cfd_price")
+    bias = str((state.get("decision") or {}).get("structural_bias") or ai_result.get("bias") or "WAIT").upper()
+    confirmation = str((state.get("decision") or {}).get("confirmation_state") or "NOT_CONFIRMED").upper()
+
+    def node(level_key: str, fallback_key: str):
+        x = path.get(level_key) or path.get(fallback_key) or {}
+        return x if isinstance(x, dict) else {}
+
+    upper = node("upper_node", "next_up")
+    lower = node("lower_node", "next_down")
+    next_up = path.get("next_up") or {}
+    next_down = path.get("next_down") or {}
+
+    direction = "ขาลง" if bias in {"BEARISH", "SELL"} else "ขาขึ้น" if bias in {"BULLISH", "BUY"} else "ยังรอยืนยัน"
+    confirm = "ยืนยันแล้ว" if confirmation == "CONFIRMED" else "ยังไม่ยืนยัน"
+
+    read = flow.get("read") or narrative.get("market_read") or "ยังไม่มีภาพตลาดที่ยืนยันได้"
+    why = narrative.get("why_now") or "ยังไม่มีเหตุผลเพิ่มเติมที่ผ่านการตรวจสอบ"
+    macro = narrative.get("macro_news") or "ยังไม่มีข่าวที่มี Actual ยืนยัน"
+
+    lines = [
+        "<b>🟡 GOLD MARKET</b>",
+        _thai_datetime_str(),
+        f"ราคา <b>{_show(current)}</b> | ภาพหลัก: <b>{direction}</b> | {confirm}",
         "",
-        "<b>MARKET READ</b>",
-        _escape(flow.get("read") or narrative.get("market_read") or "ยังไม่มี market read ที่ยืนยันได้"),
+        "<b>ตอนนี้เกิดอะไรขึ้น</b>",
+        _escape(read),
+    ]
+
+    if upper.get("level") is not None or lower.get("level") is not None:
+        lines += ["", "<b>🧭 ตอนนี้ราคากำลังเดินทางไหน</b>"]
+        if upper.get("level") is not None:
+            target = next_up.get("level")
+            lines.append(
+                f"↑ ราคาเจอ <b>{_show(upper.get('level'))}</b>"
+                + (f" → ถ้าผ่านและยืนได้ มีทางไป <b>{_show(target)}</b>" if target is not None else " → รอดูว่าจะผ่านได้หรือไม่")
+            )
+        if lower.get("level") is not None:
+            target = next_down.get("level")
+            lines.append(
+                f"↓ ด้านล่างมี <b>{_show(lower.get('level'))}</b>"
+                + (f" → ถ้าหลุดและยืนต่ำกว่า มีทางไป <b>{_show(target)}</b>" if target is not None else " → ถ้าหลุด ต้องจับตา node ถัดไป")
+            )
+        if upper.get("level") is not None:
+            lines.append(f"↩️ ถ้า {_show(upper.get('level'))} ไม่ผ่าน ราคามีโอกาสกลับเข้าโซนเดิม")
+        if lower.get("level") is not None:
+            lines.append(f"↩️ ถ้า {_show(lower.get('level'))} หลุดแล้ว reclaim กลับได้ ราคากลับเข้าโซนเดิม")
+
+    lines += [
         "",
-        "<b>🧭 FLOW</b>",
-        _escape(flow.get("flow") or "ยังไม่มี conditional path ที่ยืนยันได้"),
+        "<b>ทำไมระดับนี้ถึงสำคัญ</b>",
+        _escape(why),
         "",
-        "<b>WHY</b>",
-        _escape(narrative.get("why_now") or "ยังไม่มีเหตุผลเพิ่มเติมที่ผ่านการตรวจสอบ"),
-        "",
-        "<b>MACRO / NEWS</b>",
-        _escape(narrative.get("macro_news") or "ยังไม่มี release ที่ผ่าน validation"),
-        "",
-        "<b>TECHNICAL</b>",
-        _escape(narrative.get("technical") or "UNKNOWN"),
+        "<b>ข่าว / เศรษฐกิจ</b>",
+        _escape(macro),
         "",
         f"Options: IV {_show(parsed.get('iv'))} | GEX {_show(parsed.get('net_gex'))} | DTE {_show(parsed.get('dte'))}",
-        "ตัวเลขเป็น evidence; direction ต้องยืนยันด้วย price response",
+        "ตัวเลข Options เป็นหลักฐานประกอบ ส่วนทิศทางต้องดูพฤติกรรมราคาจริง",
         "────────────────────────",
     ]
     return "\n".join(lines)
@@ -336,7 +365,7 @@ def _format_trade_plan_message(parsed: dict, ai_result: dict) -> str:
 
     lines += [
         "",
-        "R/S + Mean = Market Map • Entry/SL/TP = Local Trade Setup เท่านั้น",
+        "Structural Nodes = Market Map • Entry/SL/TP = Local Trade Setup เท่านั้น",
         "ระบบไม่ส่งคำสั่งซื้อขาย",
     ]
     return "\n".join(lines)
