@@ -132,61 +132,60 @@ def _friendly_bias(value: object) -> str:
 
 
 def _format_levels_message(parsed: dict, ai_result: dict) -> str:
-    """Render structural nodes plus the conditional path map."""
+    """Render observed structural nodes in price order; no synthetic R/S ladder."""
     market_map = ai_result.get("market_map") or {}
-    trade = ai_result.get("trade_plan") or {}
-    if not market_map:
-        market_map = {
-            "R1": trade.get("long_tp1"), "R2": trade.get("long_tp2"),
-            "R3": trade.get("long_tp3"), "R4": trade.get("long_tp4"),
-            "S1": trade.get("short_tp1"), "S2": trade.get("short_tp2"),
-            "S3": trade.get("short_tp3"), "S4": trade.get("short_tp4"),
-            "pivot": trade.get("gamma_mean"),
-        }
-    def show(value):
-        return _escape(_show(value))
-    resistance = list(market_map.get("structural_resistance_nodes") or [])
-    support = list(market_map.get("structural_support_nodes") or [])
-    if not resistance:
-        resistance = [market_map.get(f'R{i}') for i in range(1, 5)]
-    if not support:
-        support = [market_map.get(f'S{i}') for i in range(1, 5)]
-    pivot = market_map.get('pivot', market_map.get('gamma_mean'))
-    lines = ["<b>📍 STRUCTURAL ZONES</b>", "", "🔴 <b>ต้าน</b>"]
-    for i, value in enumerate(resistance, 1):
-        if value is not None:
-            lines.append(f"R{i} • {show(value)}")
-    lines += ["", f"Mean • {show(pivot)}", "", "🟢 <b>รับ</b>"]
-    for i, value in enumerate(support, 1):
-        if value is not None:
-            lines.append(f"S{i} • {show(value)}")
+    path = ai_result.get("structural_path") or ((parsed.get("raw_series") or {}).get("market_state") or {}).get("path") or {}
+    nodes = list(path.get("nodes") or market_map.get("structural_nodes") or [])
+    def val(x):
+        if isinstance(x,dict): return _show(x.get("level"))
+        return _show(x)
+    priced=[]
+    for n in nodes:
+        try: priced.append((float(n.get("level",n) if isinstance(n,dict) else n),n))
+        except (TypeError,ValueError): pass
+    if not priced:
+        # Compatibility: show only real structural nodes, never generated 5-point ladders.
+        for key in ("structural_resistance_nodes","structural_support_nodes"):
+            for x in market_map.get(key) or []:
+                try: priced.append((float(x),x))
+                except (TypeError,ValueError): pass
+    priced=sorted({p:n for p,n in priced}.items(), reverse=True)
+    current=path.get("current_price") or parsed.get("cfd_price")
+    lines=["<b>📍 KEY LEVELS — STRUCTURAL MAP</b>",""]
+    if current is not None: lines.append(f"CURRENT • <b>{_show(current)}</b>")
+    if not priced:
+        lines.append("ยังไม่มี structural node ที่ยืนยันได้")
+        return "\n".join(lines)
+    for level,node in priced:
+        if isinstance(node,dict):
+            role=node.get("role") or node.get("node_type") or "STRUCTURAL NODE"
+            direction="↑" if current is not None and level>float(current) else "↓"
+            lines.append(f"{direction} <b>{_show(level)}</b> • {_escape(role)}")
+        else:
+            lines.append(f"{'↑' if current is not None and level>float(current) else '↓'} <b>{_show(level)}</b> • STRUCTURAL NODE")
     return "\n".join(lines)
-
 
 def _format_path_message(parsed: dict, ai_result: dict) -> str:
-    """Render OI/structure as conditional transitions, never as a naked price ladder."""
-    path = ai_result.get("structural_path") or ((parsed.get("raw_series") or {}).get("market_state") or {}).get("path") or {}
-    if not isinstance(path, dict):
-        return ""
-    current = path.get("current_node")
-    hold = path.get("hold_path") or []
-    brk = path.get("break_path") or []
-    reclaim = path.get("reclaim_path") or []
-    invalidation = path.get("invalidation") or []
-    if not any((current, hold, brk, reclaim, invalidation)):
-        return ""
-    lines = ["<b>🧭 CONDITIONAL MARKET PATH</b>"]
-    if current:
-        lines.append(f"CURRENT • {_escape(str(current))}")
-    if hold:
-        lines.append("HOLD / REJECT → " + " → ".join(_escape(str(x)) for x in hold))
-    if brk:
-        lines.append("BREAK + ACCEPT → " + " → ".join(_escape(str(x)) for x in brk))
-    if reclaim:
-        lines.append("FAILED BREAK / RECLAIM → " + " → ".join(_escape(str(x)) for x in reclaim))
-    if invalidation:
-        lines.append("INVALIDATION → " + " | ".join(_escape(str(x)) for x in invalidation))
+    """Render the actual conditional path graph in compact customer language."""
+    path=ai_result.get("structural_path") or ((parsed.get("raw_series") or {}).get("market_state") or {}).get("path") or {}
+    if not isinstance(path,dict) or path.get("status")=="UNKNOWN": return ""
+    current=path.get("current_price") or parsed.get("cfd_price")
+    up=path.get("upper_node") or {}; down=path.get("lower_node") or {}
+    nu=path.get("next_up") or {}; nd=path.get("next_down") or {}
+    lines=["<b>🧭 MARKET FLOW</b>"]
+    if current is not None: lines.append(f"ตอนนี้ • <b>{_show(current)}</b>")
+    if down.get("level") is not None:
+        text=f"↓ ถ้าหลุด <b>{_show(down['level'])}</b> และยืนต่ำกว่า → {_show(nd.get('level')) if nd.get('level') is not None else 'node ถัดไป'}"
+        lines.append(text)
+    if up.get("level") is not None:
+        text=f"↑ ถ้าผ่าน <b>{_show(up['level'])}</b> และยืนได้ → {_show(nu.get('level')) if nu.get('level') is not None else 'node ถัดไป'}"
+        lines.append(text)
+    if down.get("level") is not None:
+        lines.append(f"↩️ หลุด {_show(down['level'])} แล้ว reclaim → กลับเข้าสู่โซนเดิม")
+    if up.get("level") is not None:
+        lines.append(f"↩️ ผ่าน {_show(up['level'])} แล้ว reclaim ไม่ได้ → กลับเข้าสู่โซนเดิม")
     return "\n".join(lines)
+
 
 def _format_trade_plan_message(parsed: dict, ai_result: dict) -> str:
     """Render all four trade routes with entry reference, SL and TP1-TP5."""
