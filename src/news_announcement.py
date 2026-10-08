@@ -329,7 +329,7 @@ def format_news_announcement(items: list[NewsItem | dict], *, limit: int = 3) ->
             published = row.published_at or "UNKNOWN"
             url = row.url
 
-        status = "RELEASED" if actual not in (None, "") else "UPCOMING" if event_time else "SCHEDULED"
+        status = _event_status(actual, event_time, row.get("detected_at") if isinstance(row, dict) else None)
         lines.extend([
             f"<b>{html.escape(str(category))}</b>",
             html.escape(str(headline)),
