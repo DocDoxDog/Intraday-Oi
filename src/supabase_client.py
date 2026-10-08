@@ -192,6 +192,49 @@ def insert_news_announcements(items: list[dict]) -> list[dict]:
             for row in (result.data or [])
         )
 
+    # Calendar values arrive after the initial announcement. Update existing
+    # records in place so RELEASED events acquire verified Actual/Forecast/
+    # Previous instead of remaining permanently as "—".
+    from datetime import datetime, timezone
+    now_iso = datetime.now(timezone.utc).isoformat()
+    for item in items:
+        key = (str(item.get("source") or "").strip(), str(item.get("external_id") or "").strip())
+        if key not in existing_by_key:
+            continue
+        calendar_update = {
+            key_name: item.get(key_name)
+            for key_name in ("event_time", "actual", "forecast", "previous",
+                             "actual_source", "forecast_source", "previous_source",
+                             "calendar_retrieved_at")
+            if item.get(key_name) is not None
+        }
+        if calendar_update:
+            actual = item.get("actual")
+            event_time = item.get("event_time")
+            if actual not in (None, ""):
+                calendar_update["event_status"] = "RELEASED"
+                calendar_update["calendar_data_status"] = (
+                    "COMPLETE" if item.get("forecast") not in (None, "") else "ACTUAL_ONLY"
+                )
+            elif event_time:
+                try:
+                    event_dt = datetime.fromisoformat(str(event_time).replace("Z", "+00:00"))
+                    calendar_update["event_status"] = (
+                        "UPCOMING" if event_dt.astimezone(timezone.utc) > datetime.now(timezone.utc)
+                        else "RELEASED"
+                    )
+                except (TypeError, ValueError):
+                    calendar_update["event_status"] = "UNKNOWN"
+            calendar_update.setdefault("calendar_data_status", "UNKNOWN")
+            calendar_update["calendar_retrieved_at"] = item.get("calendar_retrieved_at") or now_iso
+            (
+                client.table("news_announcements")
+                .update(calendar_update)
+                .eq("source", key[0])
+                .eq("external_id", key[1])
+                .execute()
+            )
+
     new_items = [
         item for item in items
         if (str(item.get("source") or "").strip(), str(item.get("external_id") or "").strip())
@@ -214,6 +257,16 @@ def insert_news_announcements(items: list[dict]) -> list[dict]:
         "category",
         "relevance",
         "rights_status",
+        "event_time",
+        "actual",
+        "forecast",
+        "previous",
+        "event_status",
+        "calendar_data_status",
+        "actual_source",
+        "forecast_source",
+        "previous_source",
+        "calendar_retrieved_at",
     }
     payload = [
         {key: value for key, value in item.items() if key in persistable_keys}
