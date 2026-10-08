@@ -101,6 +101,7 @@ def test_news_announcement_renders_actual_forecast_previous_without_invention():
         "source": "Forex Factory",
         "published_at": "2026-10-08T05:00:00+00:00",
         "event_time": "2026-10-08T05:00:00+00:00",
+        "detected_at": "2026-10-08T04:00:00+00:00",
         "actual": None,
         "forecast": "-",
         "previous": "4.50%",
