@@ -451,6 +451,10 @@ def _summarize_input(parsed: dict[str, Any], history: dict[str, Any] | None) -> 
             "summary": item.get("summary"),
             "url": item.get("url"),
             "published_at": item.get("published_at"),
+            "event_time": item.get("event_time"),
+            "actual": item.get("actual"),
+            "forecast": item.get("forecast"),
+            "previous": item.get("previous"),
             "category": item.get("category"),
             "relevance": item.get("relevance"),
             "market_channels": item.get("market_channels") or [],
@@ -734,6 +738,8 @@ RULES
 - ห้ามคำนวณและใส่ตัวเลขอนุพันธ์ใหม่ เช่น RR/R-multiple, percentage, ratio, probability, distance หรือ expected move หากตัวเลขนั้นไม่ได้อยู่ใน evidence โดยตรง
 - Trade plan ของ LLM ให้ระบุเฉพาะเงื่อนไข/ระดับที่ source-derived; ห้ามคำนวณ RR เอง เพราะ deterministic execution engine เป็นผู้คำนวณ
 - ห้ามใช้ตัวเลขเช่น 1.5, 2.0 หรือ 0.75 เป็นตัวเลขประกอบ narrative เพียงเพราะเป็น heuristic; เปลี่ยนเป็นคำอธิบายเชิงคุณภาพแทน
+- สำหรับข่าวจาก economic calendar ให้แยก Actual / Forecast / Previous อย่างชัดเจน; เปรียบเทียบ Actual กับ Forecast ได้เฉพาะเมื่อทั้งคู่มีข้อมูลและเป็นตัวเลข/หน่วยที่เทียบกันได้
+- ถ้า Actual หรือ Forecast ไม่มีข้อมูล ให้เขียน "ยังไม่มีข้อมูล" และห้ามเดาค่าที่หายไปจากบริบทของข่าว
 - ภาษาไทยธรรมชาติแบบ institutional trader อธิบายให้คนทั่วไปเข้าใจ
 - เขียนแบบ "เกิดอะไรขึ้น → เพราะอะไร → อะไรต้องจับตา" ไม่ใช่การเทตัวเลขให้คนอ่านตีความเอง
 - ใช้ศัพท์เทคนิคเท่าที่จำเป็น และแปลความหมายในประโยคแรก เช่น "Gamma เป็นลบ" แล้วอธิบายว่า "ราคามีโอกาสแกว่งแรงขึ้น"
