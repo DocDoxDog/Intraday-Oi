@@ -802,18 +802,31 @@ def _deterministic_trade_levels(
         (level for level in short_key_levels if current is not None and current - level <= local_max_distance),
         None,
     )
+    # Prefer real nodes already selected by the conditional path. This
+    # avoids the old failure mode where a trigger consumed the only gamma
+    # node and TP1-TP5 became empty even though continuation nodes existed.
+    path = (raw.get("market_flow") or {}).get("path") or {}
+    path_nodes = [n for n in (path.get("nodes") or []) if isinstance(n, dict) and _num(n.get("level")) is not None]
     def structural_targets(side: str, anchor: float | None) -> list[float]:
         if anchor is None:
             return []
+        path_levels = []
+        for node in path_nodes:
+            value = _num(node.get("level"))
+            if value is None:
+                continue
+            if side == "LONG" and value > anchor:
+                path_levels.append(value)
+            elif side == "SHORT" and value < anchor:
+                path_levels.append(value)
+        path_levels = _unique_sorted(path_levels, reverse=side == "SHORT")
+        if path_levels:
+            return path_levels[:5]
         nodes = long_key_levels if side == "LONG" else short_key_levels
-        if nodes:
-            return [
-                value for value in nodes
-                if (value > anchor if side == "LONG" else value < anchor)
-            ]
-        # No concentration node means no structural target. Never fabricate
-        # a sequential $5 target ladder from neighbouring option strikes.
-        return []
+        return [
+            value for value in nodes
+            if (value > anchor if side == "LONG" else value < anchor)
+        ][:5]
 
     long_reclaim_trigger = local_action_resistance
     long_reclaim_stop = (
