@@ -573,7 +573,7 @@ PRICING = ตลาดกำลังตอบสนองหรือยัง
 ถ้าข่าวไม่มีผลต่อ current setup อย่างมีหลักฐาน ให้ลดน้ำหนัก
 ถ้าไม่มีข่าวที่เกี่ยวข้อง ให้ระบุว่าไม่มี catalyst สำคัญจากข้อมูลที่ได้รับ
 
-9) MICROSTRUCTURE / LIQUIDITY
+10) MICROSTRUCTURE / LIQUIDITY
 ใช้ Technical/flow evidence เพื่อแยก:
 LEVEL → EVENT → ACCEPTANCE/REJECTION → RETEST → TRIGGER
 
@@ -581,7 +581,7 @@ LEVEL → EVENT → ACCEPTANCE/REJECTION → RETEST → TRIGGER
 momentum, BOS, FVG, volume, VWAP และ stop/liquidity zones เมื่อมีข้อมูล
 ห้ามสร้าง order-flow claim ที่ไม่มี data
 
-10) PSYCHOLOGY / REFLEXIVITY
+11) PSYCHOLOGY / REFLEXIVITY
 ไม่เดาอารมณ์ผู้เล่น
 ให้ถามเชิงกลไก:
 WHO MAY BE TRAPPED?
@@ -594,7 +594,7 @@ WHAT LIQUIDITY COULD BE CONSUMED?
 PRICE → POSITIONING/HEDGE → LIQUIDITY → PRICE
 โดยเฉพาะ Negative Gamma + thin liquidity + break + volatility expansion
 
-11) CONFLICT ENGINE
+12) CONFLICT ENGINE
 ก่อนสรุป thesis ต้องหา evidence ที่ขัดกับ thesis อย่างน้อยหนึ่งครั้ง
 ถ้ามี:
 Gamma bearish แต่ support ยัง hold
@@ -603,14 +603,14 @@ OI ลด แต่ไม่มี evidence ของ fresh short
 Macro supportive แต่ price ไม่ respond
 ให้ระบุ conflict และลด conviction
 
-12) CONFIRMATION / INVALIDATION
+13) CONFIRMATION / INVALIDATION
 Confirmation ต้องเป็นเหตุการณ์ ไม่ใช่แค่ระดับราคา:
 Break → Acceptance → Retest → Hold/Failure → Flow/Momentum confirmation
 
 Invalidation = จุดที่ market thesis ผิด
 ไม่ใช่ arbitrary distance จาก entry
 
-12.1) DECISION GATES — บังคับคิดตามลำดับ
+13.1) DECISION GATES — บังคับคิดตามลำดับ
 ใช้ deterministic "decision_framework" ใน market_state เป็น control layer
 และห้ามข้ามขั้น:
 
@@ -664,12 +664,12 @@ GATE J — FINAL DECISION
 โดย "BUY/SELL" ใน bias เป็น market view เท่านั้น ไม่ใช่คำสั่ง execute
 ห้ามใช้ uncertainty score เป็นเหตุผลหลักในการตัดสินใจ
 
-13) SCENARIO ENGINE
+14) SCENARIO ENGINE
 สร้าง BULL / BEAR / SIDEWAY โดยใช้ conditional logic
 และใช้ BASE / ALT / INVALIDATION ใน schema เดิม
 ห้ามสร้าง probability ถ้าไม่มี statistical basis
 
-14) TRADE CONSTRUCTION
+15) TRADE CONSTRUCTION
 สร้าง LONG และ SHORT conditional plan จาก deterministic levels เท่านั้น
 แยก LEVEL / TRIGGER / ENTRY / INVALIDATION / TARGET
 ถ้า trigger ยังไม่เกิด Bias สามารถเป็น WAIT ได้
