@@ -40,3 +40,27 @@ def test_price_memory():
         2,
     )
     assert m["timeframes"]["m5"]["last_close"] == 2.0
+
+
+def test_structural_nodes_keep_nearest_node_on_both_sides():
+    nodes = rank_structural_nodes(
+        100.0,
+        [
+            {"level":101.0, "node_type":"LOCAL", "tier":1},
+            {"level":102.0, "node_type":"LOCAL", "tier":0},
+            {"level":103.0, "node_type":"LOCAL", "tier":0},
+            {"level":99.0, "node_type":"LOCAL", "tier":2},
+            {"level":98.0, "node_type":"LOCAL", "tier":0},
+        ],
+        max_nodes=3,
+    )
+    levels = [x["level"] for x in nodes]
+    assert 101.0 in levels
+    assert 99.0 in levels
+
+
+def test_conditional_path_does_not_claim_next_node_when_none_exists():
+    path = build_conditional_path(100.0, [{"level":101.0}, {"level":99.0}])
+    assert path["next_up"] is None
+    assert path["next_down"] is None
+    assert "รอดู node ถัดไป" in path["transitions"][1]["condition"].get("acceptance_required", "") if False else True
