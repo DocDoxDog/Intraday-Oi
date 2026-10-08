@@ -305,6 +305,19 @@ def build_decision_context(state: dict[str, Any]) -> dict[str, Any]:
         confirmation_state = "NOT_CONFIRMED"
         analysis_status = "DEVELOPING"
 
+    # A level trigger is intentionally separate from confirmation. It tells
+    # legacy consumers that price has crossed the relevant structural level;
+    # the decision_state remains WAIT until price-structure confirmation passes.
+    price_current = _n((state.get("price") or {}).get("cfd"))
+    levels = state.get("levels") or {}
+    structural_resistance = _n(levels.get("resistance_current"))
+    structural_support = _n(levels.get("support_current"))
+    level_trigger = "NO_TRIGGER"
+    if structural_bias == "BEARISH" and price_current is not None and structural_resistance is not None and price_current < structural_resistance:
+        level_trigger = "SHORT_LEVEL_REACHED"
+    elif structural_bias == "BULLISH" and price_current is not None and structural_support is not None and price_current > structural_support:
+        level_trigger = "LONG_LEVEL_REACHED"
+
     # Options never override the decision. They enrich the explanation layer.
     summary = (
         f"Structural bias={structural_bias}; tactical={tactical_direction}; "
@@ -358,11 +371,7 @@ def build_decision_context(state: dict[str, Any]) -> dict[str, Any]:
                     "positioning": options["oi"]["activity"],
                     "gamma": options["gamma"],
                     "catalyst": catalyst,
-                    "trigger": (
-                        "LONG_LEVEL_REACHED" if long_conf["price_event"]
-                        else "SHORT_LEVEL_REACHED" if short_conf["price_event"]
-                        else "NO_TRIGGER"
-                    ),
+                    "trigger": level_trigger,
                 },
                 "8_decision": decision_state,
             },
