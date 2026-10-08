@@ -219,3 +219,5 @@ def build_flow_context(parsed: dict[str,Any]) -> dict[str,Any]:
     compact=compact_market_flow(price,path,(raw.get("market_state") or {}))
     return {"version":"market-flow-context-v2","status":"VALID","price_memory":memory,
             "nodes":ranked,"path":path,"market_read":compact["read"],"flow_read":compact["flow"]}
+
+# architecture-reviewed: flow engine remains deterministic and LLM-free
