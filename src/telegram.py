@@ -10,6 +10,8 @@ from datetime import datetime, timedelta, timezone
 
 import requests
 
+from src.customer_narrative import build_customer_narrative
+
 
 TELEGRAM_API = "https://api.telegram.org/bot{token}/sendMessage"
 TELEGRAM_PHOTO_API = "https://api.telegram.org/bot{token}/sendPhoto"
@@ -63,11 +65,13 @@ def _chunk(text: str, limit: int = MAX_MESSAGE_LEN) -> list[str]:
 
 
 def _format_analysis_message(parsed: dict, ai_result: dict) -> str:
+    """Render analysis first; raw OI/vol numbers stay as supporting evidence."""
     status = str(ai_result.get("analysis_status") or "CONFIRMED").upper()
     bias = str(ai_result.get("bias") or "WAIT").upper()
     raw = parsed.get("raw_series") or {}
-    market_state = raw.get("market_state") or {}
-    flow = market_state.get("flow") or {}
+    state = raw.get("market_state") or {}
+    narrative = build_customer_narrative(parsed, ai_result)
+
     return "\n".join([
         "<b>GOLD MARKET</b>",
         _thai_datetime_str(),
@@ -75,40 +79,43 @@ def _format_analysis_message(parsed: dict, ai_result: dict) -> str:
         "<b>PRICE / REGIME</b>",
         f"Futures {_show(parsed.get('future_price'))} | CFD {_show(parsed.get('cfd_price'))}",
         f"Basis {_show(parsed.get('basis_diff'))} | DTE {_show(parsed.get('dte'))} | "
-        f"<b>{_escape(ai_result.get('market_regime') or 'UNKNOWN')}</b> | "
-        f"IV {_show(parsed.get('vol'))}%",
-        "",
-        "<b>OI POSITIONING</b>",
-        f"Current OI   Put {_show(flow.get('oi_put'), 0)} | Call {_show(flow.get('oi_call'), 0)} | Total {_show(flow.get('oi_total'), 0)}",
-        f"EOD OI       Put {_show(flow.get('eod_oi_put'), 0)} | Call {_show(flow.get('eod_oi_call'), 0)} | Total {_show(flow.get('eod_oi_total'), 0)}",
-        f"OI CHANGE    Put {_show(flow.get('oi_change_put'), 0)} | Call {_show(flow.get('oi_change_call'), 0)} | Total {_show(flow.get('oi_change_total'), 0)}",
-        f"ΔOI vs EOD   Put {_show(flow.get('delta_oi_put'), 0)} | Call {_show(flow.get('delta_oi_call'), 0)} | Total {_show(flow.get('delta_oi_total'), 0)}",
-        f"CHURN        Put {_show(flow.get('source_churn_put'), 2)} | Call {_show(flow.get('source_churn_call'), 2)} | Total {_show(flow.get('source_churn_total'), 2)}",
-        "",
-        "────────────────────────",
+        f"<b>{_escape(_friendly_regime(state, ai_result))}</b>",
         "",
         "<b>MARKET READ</b>",
-        f"Status: <b>{_escape(status)}</b> | Bias: <b>{_escape(bias)}</b>",
-        _escape(ai_result.get("what") or ai_result.get("market_overview") or "-"),
-        _escape(ai_result.get("why") or "-"),
-        _escape(ai_result.get("positioning") or "-"),
+        f"สถานะ: <b>{_escape(status)}</b> | มุมมอง: <b>{_escape(_friendly_bias(bias))}</b>",
+        _escape(narrative["market_read"]),
         "",
-        f"→ {_escape(ai_result.get('final_trade_idea') if isinstance(ai_result.get('final_trade_idea'), str) and ai_result.get('final_trade_idea').strip() else ('Bias: ' + bias))}",
+        "<b>VOLATILITY — ตลาดกำลังผันผวนแค่ไหน</b>",
+        _escape(narrative["volatility"]),
         "",
-        "────────────────────────",
+        "<b>OI POSITIONING — ผู้เล่นกำลังเพิ่ม/ลดสถานะอย่างไร</b>",
+        _escape(narrative["oi_positioning"]),
         "",
-        "<b>WHY NOW</b>",
-        _escape(ai_result.get("financial_engineering") or "-"),
-        _escape(ai_result.get("positioning") or "-"),
+        "<b>FLOW STATEMENT — ภาพรวมแรงที่กำลังเกิดขึ้น</b>",
+        _escape(narrative["flow_statement"]),
+        "",
+        "<b>WHY NOW — ทำไมต้องจับตาตอนนี้</b>",
+        _escape(narrative["why_now"]),
         "",
         "<b>TECHNICAL</b>",
-        _escape(ai_result.get("market_microstructure") or "-"),
+        _escape(narrative["technical"]),
         "",
         "<b>MACROECONOMIC / NEWS</b>",
-        _escape(ai_result.get("macro") or "ไม่มี Macro/News evidence ที่เพียงพอ"),
+        _escape(narrative["macro_news"]),
         "",
+        "หมายเหตุ: ตัวเลข OI / IV / Gamma เป็นหลักฐานประกอบการวิเคราะห์ ไม่ใช่สัญญาณซื้อขายโดยตรง",
         "────────────────────────",
     ])
+
+
+def _friendly_regime(state: dict, ai_result: dict) -> str:
+    from src.customer_narrative import _friendly_regime as _map_regime
+    return _map_regime(ai_result.get("market_regime") or (state.get("regime") or {}).get("regime") or "UNKNOWN")
+
+
+def _friendly_bias(value: object) -> str:
+    from src.customer_narrative import _friendly_bias as _map_bias
+    return _map_bias(value)
 
 
 def _format_levels_message(parsed: dict, ai_result: dict) -> str:

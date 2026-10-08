@@ -66,3 +66,73 @@ def test_collect_news_keeps_valid_feeds_when_one_source_is_broken(monkeypatch):
     )
     assert items
     assert any(item.source != "FED_MONETARY" for item in items)
+
+
+def test_free_calendar_values_survive_normalization():
+    from datetime import datetime, timezone
+    from intelligence.news.normalization import normalize_news
+
+    detected = datetime(2026, 10, 8, 4, 0, tzinfo=timezone.utc)
+    event_time = datetime(2026, 10, 8, 5, 0, tzinfo=timezone.utc)
+    item = normalize_news(
+        {
+            "headline": "USD — FOMC Meeting Minutes",
+            "source": "Forex Factory",
+            "url": "https://www.forexfactory.com/calendar/",
+            "published_at": event_time,
+            "event_time": event_time,
+            "category": "MACRO",
+            "severity": "HIGH",
+            "calendar": {"actual": "", "forecast": "-", "previous": "4.50%"},
+        },
+        detected_at=detected,
+    )
+    row = item.as_legacy_dict()
+    assert row["actual"] is None
+    assert row["forecast"] == "-"
+    assert row["previous"] == "4.50%"
+    assert row["event_time"] == event_time.isoformat()
+
+
+def test_news_announcement_renders_actual_forecast_previous_without_invention():
+    item = {
+        "category": "MACRO",
+        "headline": "USD — FOMC Meeting Minutes",
+        "source": "Forex Factory",
+        "published_at": "2026-10-08T05:00:00+00:00",
+        "event_time": "2026-10-08T05:00:00+00:00",
+        "detected_at": "2026-10-08T04:00:00+00:00",
+        "actual": None,
+        "forecast": "-",
+        "previous": "4.50%",
+        "url": "https://www.forexfactory.com/calendar/",
+    }
+    text = format_news_announcement([item])
+    assert "สถานะ: UPCOMING" in text
+    assert "Actual: —" in text
+    assert "Forecast: -" in text
+    assert "Previous: 4.50%" in text
+
+
+def test_forex_factory_provider_keeps_actual_forecast_previous(monkeypatch):
+    from intelligence.news import providers
+
+    class Response:
+        def raise_for_status(self):
+            return None
+        def json(self):
+            return [{
+                "title": "FOMC Meeting Minutes",
+                "country": "USD",
+                "date": "2026-10-08T05:00:00+00:00",
+                "impact": "High",
+                "actual": "4.00%",
+                "forecast": "4.25%",
+                "previous": "4.50%",
+            }]
+
+    monkeypatch.setattr(providers, "_get", lambda *args, **kwargs: Response())
+    rows = providers.fetch_forex_factory_calendar()
+    assert rows[0]["calendar"]["actual"] == "4.00%"
+    assert rows[0]["calendar"]["forecast"] == "4.25%"
+    assert rows[0]["calendar"]["previous"] == "4.50%"

@@ -104,14 +104,55 @@ def build_action_zones(market_state: dict[str, Any]) -> dict[str, Any]:
     )
     # Action-state display follows the local execution map. Global Call/Put
     # Walls remain market-map context and are never immediate entries.
-    local_resistance = _n(market_map.get("local_action_resistance"))
-    local_support = _n(market_map.get("local_action_support"))
+    atr = _n((_tf(market_state, "m5")).get("atr14"))
+
+    # Prefer the canonical local action map. For legacy/incomplete callers,
+    # derive a nearby level from the already-supplied structural levels only
+    # when it is genuinely close to price. Never use Gamma Mean as an action
+    # trigger and never turn a distant wall into a local setup.
+    try:
+        local_window = max(
+            float(atr) * float(market_state.get("local_max_atr") or 1.5)
+            if atr and atr > 0
+            else 15.0,
+            5.0,
+        )
+    except (TypeError, ValueError):
+        local_window = 15.0
+
+    def _nearby_structural(key_names: tuple[str, ...], *, above: bool) -> float | None:
+        direct = next(
+            (_n(market_map.get(name)) for name in key_names if _n(market_map.get(name)) is not None),
+            None,
+        )
+        if direct is not None and current is not None and abs(direct - current) <= local_window:
+            return direct
+        candidates = []
+        for name in (("resistance_current", "resistance_main") if above else ("support_current", "support_main")):
+            value = _n(levels.get(name))
+            if value is None or current is None:
+                continue
+            if above and value > current and value - current <= local_window:
+                candidates.append(value)
+            if not above and value < current and current - value <= local_window:
+                candidates.append(value)
+        if not candidates:
+            return None
+        return min(candidates) if above else max(candidates)
+
+    local_resistance = _nearby_structural(
+        ("local_action_resistance", "long_reclaim_trigger", "long_trigger"),
+        above=True,
+    )
+    local_support = _nearby_structural(
+        ("local_action_support", "long_support_trigger", "short_trigger"),
+        above=False,
+    )
     long_reclaim = local_resistance
     long_support = local_support
     short_rejection = local_resistance
     short_breakdown = local_support
 
-    atr = _n((_tf(market_state, "m5")).get("atr14"))
     bin_size = _n(auction.get("bin_size"))
     tolerance = max((atr * 0.25 if atr else 0.0), (bin_size if bin_size else 0.0), 0.5)
 

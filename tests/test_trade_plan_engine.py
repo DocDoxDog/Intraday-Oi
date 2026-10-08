@@ -10,6 +10,14 @@ def _state(price=4210.0):
                        "S1": 4160.0, "S2": 4140.0, "S3": 4120.0,
                        "long_trigger": 4200.0, "short_trigger": 4175.0,
                        "long_invalidation": 4175.0, "short_invalidation": 4200.0,
+                       "long_reclaim_trigger": 4200.0, "long_reclaim_stop": 4175.0,
+                       "long_reclaim_tp1": 4230.0,
+                       "long_support_trigger": 4175.0, "long_support_invalidation": 4140.0,
+                       "long_support_tp1": 4230.0,
+                       "short_rejection_trigger": 4200.0, "short_rejection_stop": 4205.0,
+                       "short_rejection_tp1": 4160.0,
+                       "short_breakdown_trigger": 4175.0, "short_breakdown_stop": 4180.0,
+                       "short_breakdown_tp1": 4160.0,
                        "long_trade_targets": [4230.0],
                        "short_trade_targets": [4160.0]},
         "decision_framework": {"steps": {"1_market_state": {"htf_structure": "bullish"}}},
@@ -57,4 +65,5 @@ def test_structural_key_levels_are_not_automatic_trade_targets():
     p = build_trade_execution_plan(state)
     assert p["long"]["targets"] == []
     assert p["long"]["rr"] == []
-    assert p["long"]["state"] in {"ARMED", "TRIGGERED_WAIT_RISK_REWARD", "TRIGGERED_WAIT_CONFIRMATION"}
+    # No route-specific trigger was supplied, so the v3 engine must fail closed.
+    assert p["long"]["state"] == "DATA_INSUFFICIENT"

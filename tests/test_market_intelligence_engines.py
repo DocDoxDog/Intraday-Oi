@@ -145,21 +145,23 @@ def test_market_map_can_generate_five_source_qualified_targets_for_both_sides():
     }
     result = _deterministic_trade_levels(parsed, levels, {})
 
-    assert result["long_reclaim_trigger"] == 4210.0
-    assert result["long_reclaim_tp1"] == 4215.0
-    assert result["long_reclaim_tp5"] == 4235.0
+    # Local execution uses the nearest nearby structural level, while global
+    # walls remain separate market-map context.
+    assert result["long_reclaim_trigger"] == 4205.0
+    assert result["long_reclaim_tp1"] == 4210.0
+    assert result["long_reclaim_tp5"] == 4230.0
 
-    assert result["long_support_trigger"] == 4190.0
-    assert result["long_support_tp1"] == 4195.0
-    assert result["long_support_tp5"] == 4215.0
+    assert result["long_support_trigger"] == 4195.0
+    assert result["long_support_tp1"] == 4200.0
+    assert result["long_support_tp5"] == 4220.0
 
-    assert result["short_rejection_trigger"] == 4210.0
-    assert result["short_rejection_tp1"] == 4205.0
-    assert result["short_rejection_tp5"] == 4185.0
+    assert result["short_rejection_trigger"] == 4205.0
+    assert result["short_rejection_tp1"] == 4200.0
+    assert result["short_rejection_tp5"] == 4180.0
 
-    assert result["short_breakdown_trigger"] == 4190.0
-    assert result["short_breakdown_tp1"] == 4185.0
-    assert result["short_breakdown_tp5"] == 4165.0
+    assert result["short_breakdown_trigger"] == 4195.0
+    assert result["short_breakdown_tp1"] == 4190.0
+    assert result["short_breakdown_tp5"] == 4170.0
 
 
 def test_local_trade_map_uses_atr_normalized_window():
@@ -248,11 +250,12 @@ def test_execution_routes_ignore_distant_levels():
     }
     out = _deterministic_trade_levels(parsed, levels, {"gamma_mean": 4125.0})
 
-    assert out["long_reclaim_trigger"] is None
-    assert out["short_rejection_trigger"] is None
+    # Futures strikes are normalized to the CFD price before local-distance checks.
+    assert out["long_reclaim_trigger"] == 4125.0
+    assert out["short_rejection_trigger"] == 4125.0
     assert out["long_support_trigger"] is None
     assert out["short_breakdown_trigger"] is None
-    assert out["local_action_resistance"] is None
+    assert out["local_action_resistance"] == 4125.0
     assert out["local_action_support"] is None
-    assert out["long_key_levels"][0] == 4145.0
+    assert out["long_key_levels"][0] == 4125.0
     assert out["short_key_levels"][0] == 4080.0
