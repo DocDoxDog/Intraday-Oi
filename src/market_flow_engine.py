@@ -143,12 +143,35 @@ def build_conditional_path(price: float, nodes: list[dict[str,Any]],
         "condition":{"close_above":lower["level"],"reclaim_required":True},"mechanism":"failed downside break","state":"ARMED"})
     if upper: transitions.append({"from":upper["level"],"to":"CURRENT","condition_type":"RECLAIM",
         "condition":{"close_below":upper["level"],"reclaim_required":True},"mechanism":"failed upside break","state":"ARMED"})
+    upper_event = _bar_event(last, upper["level"], "UP", prev) if upper else "NONE"
+    lower_event = _bar_event(last, lower["level"], "DOWN", prev) if lower else "NONE"
+    event_candidates = []
+    if upper_event != "NONE":
+        event_candidates.append((upper_event, upper))
+    if lower_event != "NONE":
+        event_candidates.append((lower_event, lower))
+    # When both sides qualify in the same bar, prefer the node whose level is
+    # closer to the bar close. This keeps the event attached to a real node
+    # rather than arbitrarily preferring the upside node.
+    observed_event, observed_node = ("NONE", None)
+    if event_candidates:
+        last_close = _n(last.get("close")) if last else None
+        observed_event, observed_node = min(
+            event_candidates,
+            key=lambda item: abs(item[1]["level"] - last_close) if last_close is not None else item[1]["distance_from_price"],
+        )
+
     return {"version":"conditional-path-v3","current_price":price,"current_node":"CURRENT",
             "upper_node":upper,"lower_node":lower,"next_up":next_up,"next_down":next_down,
             "transitions":transitions,"state":"DECISION_AREA" if upper and lower else "ONE_SIDED",
             "status":"VALID" if upper or lower else "UNKNOWN",
-            "observed_last_event":(_bar_event(last,upper["level"],"UP",prev) if upper else
-                                  _bar_event(last,lower["level"],"DOWN",prev) if lower else "NONE")}
+            "observed_last_event":observed_event,
+            "observed_event_level":observed_node.get("level") if observed_node else None,
+            "observed_event_node":observed_node,
+            "observed_event_candidates":[
+                {"event": event_name, "level": node["level"]}
+                for event_name, node in event_candidates
+            ]}
 
 def _fmt_node(node):
     return f"node {node.get('level'):,.2f}" if isinstance(node,dict) and _n(node.get("level")) is not None else "node ถัดไปที่มีข้อมูล"
