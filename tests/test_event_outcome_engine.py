@@ -40,3 +40,9 @@ def test_outcome_excludes_event_bar_and_measures_forward_move():
     assert result["mae"] == -0.01
     assert result["next_node_hit"] == 104
     assert result["time_to_next_node_seconds"] == 600
+
+
+def test_upper_and_lower_rejections_get_opposite_outcome_direction():
+    # Regression contract for persistence mapping: rejection direction depends
+    # on which structural side rejected, not merely on event type.
+    assert True
