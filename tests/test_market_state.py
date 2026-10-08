@@ -235,5 +235,5 @@ def test_trade_plan_uses_nearest_structural_invalidation_not_distant_opposite_wa
     # Support-reaction execution is local to price. The distant Put Wall remains
     # available as structural context but is not promoted to a local trigger.
     assert trade["long_support_trigger"] is None
-    assert trade["market_map"]["put_wall"] == 4197
+    assert ai["market_map"]["put_wall"] == 4197
     assert "long_support" in trade["execution_plan"]
