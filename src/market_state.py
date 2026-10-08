@@ -751,28 +751,56 @@ def _deterministic_trade_levels(
     long_key_levels = convert_zone_nodes(zone_source.get("resistance_nodes"))
     short_key_levels = sorted(convert_zone_nodes(zone_source.get("support_nodes")), reverse=True)
 
-    # Legacy/single-expiration callers without the multi-expiry concentration
-    # object keep the old nearby-source behaviour. Production multi-expiry
-    # snapshots never use this fallback for important zones.
-    has_multi_expiry_nodes = bool(long_key_levels or short_key_levels)
-    if has_multi_expiry_nodes:
-        local_action_resistance = next(
-            (level for level in long_key_levels if current is not None and level - current <= local_max_distance),
-            None,
-        )
-        local_action_support = next(
-            (level for level in short_key_levels if current is not None and current - level <= local_max_distance),
-            None,
-        )
-    else:
-        local_action_resistance = next(
-            (level for level in above_levels if current is not None and level - current <= local_max_distance),
-            None,
-        )
-        local_action_support = next(
-            (level for level in below_levels if current is not None and current - level <= local_max_distance),
-            None,
-        )
+    # If multi-expiry concentration data is unavailable, derive the same
+    # significance-aware nodes from the current real option chain. Never fall
+    # back to "nearest five strikes" because that recreates a synthetic ladder.
+    if not long_key_levels or not short_key_levels:
+        try:
+            from src.multi_expiry import select_structural_nodes
+            aggregate = [
+                (float(row["strike"]), float(row["net_gex"]))
+                for row in rows
+                if _num(row.get("strike")) is not None
+                and _num(row.get("net_gex")) is not None
+            ]
+            grid = [
+                float(row["strike"]) for row in rows
+                if _num(row.get("strike")) is not None
+            ]
+            if not long_key_levels:
+                long_key_levels = [
+                    _cfd_level(v, future, cfd)
+                    for v in select_structural_nodes(
+                        [(s, g) for s, g in aggregate if g > 0],
+                        current=future,
+                        side="UP",
+                        grid_strikes=grid,
+                    )
+                    if _cfd_level(v, future, cfd) is not None
+                ]
+            if not short_key_levels:
+                short_key_levels = [
+                    _cfd_level(v, future, cfd)
+                    for v in select_structural_nodes(
+                        [(s, g) for s, g in aggregate if g < 0],
+                        current=future,
+                        side="DOWN",
+                        grid_strikes=grid,
+                    )
+                    if _cfd_level(v, future, cfd) is not None
+                ]
+                short_key_levels = sorted(set(short_key_levels), reverse=True)
+        except Exception:
+            pass
+
+    local_action_resistance = next(
+        (level for level in long_key_levels if current is not None and level - current <= local_max_distance),
+        None,
+    )
+    local_action_support = next(
+        (level for level in short_key_levels if current is not None and current - level <= local_max_distance),
+        None,
+    )
     def structural_targets(side: str, anchor: float | None) -> list[float]:
         if anchor is None:
             return []
@@ -782,10 +810,9 @@ def _deterministic_trade_levels(
                 value for value in nodes
                 if (value > anchor if side == "LONG" else value < anchor)
             ]
-        # Legacy/single-expiration path: preserve source-derived targets when
-        # no multi-expiry structural concentration nodes are available.
-        candidates = source_candidates(side, anchor)
-        return [item["level"] for item in candidates]
+        # No concentration node means no structural target. Never fabricate
+        # a sequential $5 target ladder from neighbouring option strikes.
+        return []
 
     long_reclaim_trigger = local_action_resistance
     long_reclaim_stop = (
