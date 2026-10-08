@@ -178,26 +178,24 @@ def _format_levels_message(parsed: dict, ai_result: dict) -> str:
     return "\n".join(lines)
 
 def _format_path_message(parsed: dict, ai_result: dict) -> str:
-    """Render the actual conditional path graph in compact customer language."""
-    path=ai_result.get("structural_path") or ((parsed.get("raw_series") or {}).get("market_state") or {}).get("path") or {}
-    if not isinstance(path,dict) or path.get("status")=="UNKNOWN": return ""
+    """Compact conditional path used when a separate path block is requested."""
+    raw=parsed.get("raw_series") or {}
+    path=ai_result.get("structural_path") or ((raw.get("market_flow") or {}).get("path")) or ((raw.get("market_state") or {}).get("path")) or {}
+    if not isinstance(path,dict) or path.get("status")=="UNKNOWN":
+        return ""
     current=path.get("current_price") or parsed.get("cfd_price")
-    up=path.get("upper_node") or {}; down=path.get("lower_node") or {}
-    nu=path.get("next_up") or {}; nd=path.get("next_down") or {}
-    lines=["<b>🧭 MARKET FLOW</b>"]
-    if current is not None: lines.append(f"ตอนนี้ • <b>{_show(current)}</b>")
-    if down.get("level") is not None:
-        text=f"↓ ถ้าหลุด <b>{_show(down['level'])}</b> และยืนต่ำกว่า → {_show(nd.get('level')) if nd.get('level') is not None else 'node ถัดไป'}"
-        lines.append(text)
+    up=path.get("upper_node") or {}
+    down=path.get("lower_node") or {}
+    nu=path.get("next_up") or {}
+    nd=path.get("next_down") or {}
+    lines=["<b>🧭 CONDITIONAL MARKET PATH</b>",f"ตอนนี้ • <b>{_show(current)}</b>"]
     if up.get("level") is not None:
-        text=f"↑ ถ้าผ่าน <b>{_show(up['level'])}</b> และยืนได้ → {_show(nu.get('level')) if nu.get('level') is not None else 'node ถัดไป'}"
-        lines.append(text)
+        lines.append(f"ถ้าผ่าน <b>{_show(up['level'])}</b> และยืนได้ → <b>{_show(nu.get('level'))}</b>" if nu.get("level") is not None else f"ถ้าผ่าน <b>{_show(up['level'])}</b> → รอดู node ถัดไป")
+        lines.append(f"ถ้าไม่ผ่าน → กลับเข้าโซนเดิม")
     if down.get("level") is not None:
-        lines.append(f"↩️ หลุด {_show(down['level'])} แล้ว reclaim → กลับเข้าสู่โซนเดิม")
-    if up.get("level") is not None:
-        lines.append(f"↩️ ผ่าน {_show(up['level'])} แล้ว reclaim ไม่ได้ → กลับเข้าสู่โซนเดิม")
+        lines.append(f"ถ้าหลุด <b>{_show(down['level'])}</b> และยืนต่ำกว่า → <b>{_show(nd.get('level'))}</b>" if nd.get("level") is not None else f"ถ้าหลุด <b>{_show(down['level'])}</b> → รอดู node ถัดไป")
+        lines.append(f"ถ้าหลุดแล้ว reclaim → กลับเข้าโซนเดิม")
     return "\n".join(lines)
-
 
 def _format_trade_plan_message(parsed: dict, ai_result: dict) -> str:
     """Render all four trade routes with entry reference, SL and TP1-TP5."""
