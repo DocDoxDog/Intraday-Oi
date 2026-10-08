@@ -153,7 +153,27 @@ def insert_news_announcements(items: list[dict]) -> list[dict]:
         for item in new_items
     ]
     result = client.table("news_announcements").insert(payload).execute()
-    return result.data or []
+    inserted = result.data or []
+
+    # The persistence schema intentionally stays lean. Re-attach calendar
+    # fields to the in-memory rows returned to the delivery formatter so
+    # Actual/Forecast/Previous are not lost just because those fields are not
+    # persisted in the legacy announcement table.
+    by_key = {
+        (str(item.get("source") or ""), str(item.get("external_id") or "")): item
+        for item in new_items
+    }
+    enriched = []
+    for row in inserted:
+        source = str(row.get("source") or "")
+        external_id = str(row.get("external_id") or "")
+        original = by_key.get((source, external_id), {})
+        merged = dict(row)
+        for key in ("event_time", "actual", "forecast", "previous"):
+            if original.get(key) is not None:
+                merged[key] = original.get(key)
+        enriched.append(merged)
+    return enriched
 
 def can_notify(channel: str, cooldown_minutes: int = 30) -> tuple[bool, float | None]:
     """Return whether a channel is outside its notification cooldown."""
