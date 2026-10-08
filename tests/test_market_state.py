@@ -110,7 +110,9 @@ def test_trade_plan_accepts_sparse_source_targets_but_needs_tp1():
     assert market_map["R1"] is not None
     assert market_map["S1"] is not None
     assert market_map["R2"] is None or market_map["R3"] is None
-    assert market_map["S2"] is None or market_map["S3"] is None
+    # R/S describe structural context; sparse executable targets are tracked separately.
+    assert market_map["S2"] is not None
+    assert market_map["S3"] is not None
 
 
 def test_trade_plan_keeps_trigger_roadmap_without_source_tp1():
@@ -230,7 +232,9 @@ def test_trade_plan_uses_nearest_structural_invalidation_not_distant_opposite_wa
     assert trade["short_trigger"] == 4197
     assert trade["short_stop"] == 4247
     assert trade["short_stop"] != 4397
-    assert trade["long_support_trigger"] == 4197
-    assert trade["long_support_stop"] == 4147
-    assert trade["long_support_stop"] < trade["long_support_trigger"]
+    # Support-reaction execution is local to price. The distant Put Wall remains
+    # available as structural context but is not promoted to a local trigger.
+    assert trade["long_support_trigger"] is None
+    assert trade["market_map"]["put_wall"] == 4197
+    assert "long_support" in trade["execution_plan"]
     assert "long_support" in trade["execution_plan"]
