@@ -41,6 +41,7 @@ from src.news_announcement import collect_news, format_news_announcement
 from src.market_state import enrich_market_state, normalize_analyst_output
 from src.macro_state import build_macro_state
 from src.quant_metrics import enrich_quant_metrics
+from src.market_flow_engine import build_flow_context
 from intelligence.news.free_feed import collect_free_news
 
 
@@ -350,6 +351,15 @@ def run():
     # reaches both the analyst and the Telegram/LINE renderers.
     parsed = enrich_market_state(parsed, hist_context)
     parsed = enrich_quant_metrics(parsed, hist_context)
+    try:
+        flow_context = build_flow_context(parsed)
+        parsed.setdefault("raw_series", {})["market_flow"] = flow_context
+        parsed["raw_series"]["market_state"]["path"] = flow_context.get("path") or {}
+        parsed["raw_series"]["market_state"]["price_memory"] = flow_context.get("price_memory") or {}
+        print("    market flow: status={} nodes={}".format(flow_context.get("status"), len(flow_context.get("nodes") or [])))
+    except Exception as e:
+        parsed.setdefault("raw_series", {})["market_flow"] = {"status": "UNKNOWN", "error": type(e).__name__}
+        print(f"⚠️  Market flow engine failed (continuing with canonical state): {e}", file=sys.stderr)
     market_state = (parsed.get("raw_series") or {}).get("market_state") or {}
     print(
         f"    market state: CFD={'OK' if market_state.get('cfd_complete') else 'UNKNOWN'} | "
