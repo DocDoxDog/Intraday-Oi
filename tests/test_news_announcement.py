@@ -89,7 +89,7 @@ def test_free_calendar_values_survive_normalization():
     )
     row = item.as_legacy_dict()
     assert row["actual"] is None
-    assert row["forecast"] == "-"
+    assert row["forecast"] is None
     assert row["previous"] == "4.50%"
     assert row["event_time"] == event_time.isoformat()
 
