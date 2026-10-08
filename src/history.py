@@ -212,9 +212,10 @@ def get_oi_baseline(contract: str | None = None) -> dict | None:
     return result.data[0] if result.data else None
 
 
-def get_price_memory(instrument: str = "XAU/USD") -> dict:
+def get_price_memory(instrument: str | None = None) -> dict:
     """Read persisted Twelve Data OHLC bars for cross-run price memory."""
     client = get_client()
+    instrument = instrument or os.environ.get("TWELVEDATA_SYMBOL", "XAU/USD")
     output = {}
     for timeframe in ("h4", "h1", "m15", "m5", "m1"):
         try:
