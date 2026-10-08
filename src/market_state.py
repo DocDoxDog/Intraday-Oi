@@ -826,48 +826,60 @@ def _deterministic_trade_levels(
         (level for level in short_key_levels if current is not None and current - level <= local_max_distance),
         None,
     )
-    if local_action_resistance is None:
-        local_action_resistance = next(
-            (level for level in above_levels if current is not None and level - current <= local_max_distance),
-            None,
-        )
-    if local_action_support is None:
-        local_action_support = next(
-            (level for level in below_levels if current is not None and current - level <= local_max_distance),
-            None,
-        )
+    def structural_targets(side: str, anchor: float | None) -> list[float]:
+        if anchor is None:
+            return []
+        source = levels.get("resistance_nodes") if side == "LONG" else levels.get("support_nodes")
+        values = []
+        for value in source or []:
+            num = _num(value)
+            if num is None:
+                continue
+            if side == "LONG" and num > anchor:
+                values.append(num)
+            elif side == "SHORT" and num < anchor:
+                values.append(num)
+        return sorted(dict.fromkeys(values), reverse=side == "SHORT")
 
     long_reclaim_trigger = local_action_resistance
     long_reclaim_stop = (
         nearest_source_level(long_reclaim_trigger, above=False)
         if long_reclaim_trigger is not None else None
     ) or nearest_canonical_level(long_reclaim_trigger, above=False)
-    long_reclaim_candidates = source_candidates("LONG", long_reclaim_trigger)
-    long_reclaim_targets = trade_targets("LONG", long_reclaim_trigger, long_reclaim_stop, [item["level"] for item in long_reclaim_candidates])
+    long_reclaim_targets = trade_targets(
+        "LONG", long_reclaim_trigger, long_reclaim_stop,
+        structural_targets("LONG", long_reclaim_trigger)
+    )
 
     long_support_trigger = local_action_support
     long_support_stop = (
         nearest_source_level(long_support_trigger, above=False)
         if long_support_trigger is not None else None
     ) or nearest_canonical_level(long_support_trigger, above=False)
-    long_support_candidates = source_candidates("LONG", long_support_trigger)
-    long_support_targets = trade_targets("LONG", long_support_trigger, long_support_stop, [item["level"] for item in long_support_candidates])
+    long_support_targets = trade_targets(
+        "LONG", long_support_trigger, long_support_stop,
+        structural_targets("LONG", long_support_trigger)
+    )
 
     short_rejection_trigger = local_action_resistance
     short_rejection_stop = (
         nearest_source_level(short_rejection_trigger, above=True)
         if short_rejection_trigger is not None else None
     ) or nearest_canonical_level(short_rejection_trigger, above=True)
-    short_rejection_candidates = source_candidates("SHORT", short_rejection_trigger)
-    short_rejection_targets = trade_targets("SHORT", short_rejection_trigger, short_rejection_stop, [item["level"] for item in short_rejection_candidates])
+    short_rejection_targets = trade_targets(
+        "SHORT", short_rejection_trigger, short_rejection_stop,
+        structural_targets("SHORT", short_rejection_trigger)
+    )
 
     short_breakdown_trigger = local_action_support
     short_breakdown_stop = (
         nearest_source_level(short_breakdown_trigger, above=True)
         if short_breakdown_trigger is not None else None
     ) or nearest_canonical_level(short_breakdown_trigger, above=True)
-    short_breakdown_candidates = source_candidates("SHORT", short_breakdown_trigger)
-    short_breakdown_targets = trade_targets("SHORT", short_breakdown_trigger, short_breakdown_stop, [item["level"] for item in short_breakdown_candidates])
+    short_breakdown_targets = trade_targets(
+        "SHORT", short_breakdown_trigger, short_breakdown_stop,
+        structural_targets("SHORT", short_breakdown_trigger)
+    )
 
     def tp_fields(values: list[float]) -> dict[str, float | None]:
         return {
@@ -876,10 +888,10 @@ def _deterministic_trade_levels(
         }
 
     legacy_long_targets = trade_targets(
-        "LONG", long_trigger, long_stop, [item["level"] for item in long_candidates]
+        "LONG", long_trigger, long_stop, structural_targets("LONG", long_trigger)
     )
     legacy_short_targets = trade_targets(
-        "SHORT", short_trigger, short_stop, [item["level"] for item in short_candidates]
+        "SHORT", short_trigger, short_stop, structural_targets("SHORT", short_trigger)
     )
 
     return {
