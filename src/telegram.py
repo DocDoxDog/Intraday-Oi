@@ -65,61 +65,44 @@ def _chunk(text: str, limit: int = MAX_MESSAGE_LEN) -> list[str]:
 
 
 def _format_analysis_message(parsed: dict, ai_result: dict) -> str:
-    """Render analysis first; raw OI/vol numbers stay as supporting evidence."""
-    raw = parsed.get("raw_series") or {}
-    state = raw.get("market_state") or {}
-    decision = state.get("decision") or {}
-    status = str(decision.get("analysis_status") or state.get("analysis_status") or "DEVELOPING").upper()
-    bias = str(decision.get("structural_bias") or ai_result.get("bias") or "WAIT").upper()
-    narrative = build_customer_narrative(parsed, ai_result)
-
-    decision = state.get("decision") or {}
-    summary_bias = str(decision.get("structural_bias") or bias).upper()
-    summary_confirmation = str(decision.get("confirmation_state") or "NOT_CONFIRMED").upper()
-    summary_direction = "🟢 ขึ้น" if summary_bias == "BULLISH" else "🔴 ลง" if summary_bias == "BEARISH" else "🟡 รอยืนยัน"
-    summary_state = "ยืนยันแล้ว" if summary_confirmation == "CONFIRMED" else "ยังไม่ยืนยัน"
-
-    return "\n".join([
-        "<b>⚡ MARKET SUMMARY</b>",
-        f"<b>{summary_direction}</b> | สถานะ: <b>{summary_state}</b>",
-        f"โครงสร้าง: {_escape(summary_bias)} | ระยะสั้น: {_escape(decision.get('tactical_direction') or 'NEUTRAL')}",
-        "<b>GOLD MARKET</b>",
-        _thai_datetime_str(),
-        "",
-        "<b>PRICE / REGIME</b>",
-        f"Futures {_show(parsed.get('future_price'))} | CFD {_show(parsed.get('cfd_price'))}",
-        f"Basis {_show(parsed.get('basis_diff'))} | DTE {_show(parsed.get('dte'))} | "
-        f"<b>{_escape(_friendly_regime(state, ai_result))}</b>",
+    """Compact flow-first customer message; details remain in evidence/DB."""
+    raw=parsed.get("raw_series") or {}
+    state=raw.get("market_state") or {}
+    decision=state.get("decision") or {}
+    bias=str(decision.get("structural_bias") or ai_result.get("bias") or "WAIT").upper()
+    confirmation=str(decision.get("confirmation_state") or "NOT_CONFIRMED").upper()
+    narrative=build_customer_narrative(parsed,ai_result)
+    path=ai_result.get("structural_path") or state.get("path") or {}
+    current=path.get("current_price") or parsed.get("cfd_price")
+    upper=path.get("upper_node") or {}
+    lower=path.get("lower_node") or {}
+    flow=ai_result.get("market_flow") or narrative.get("market_flow") or {}
+    direction="🟢 ขึ้น" if bias=="BULLISH" else "🔴 ลง" if bias=="BEARISH" else "🟡 รอยืนยัน"
+    confirm="ยืนยันแล้ว" if confirmation=="CONFIRMED" else "ยังไม่ยืนยัน"
+    lines=[
+        "<b>🟡 GOLD MARKET</b>", _thai_datetime_str(),
+        f"ราคา <b>{_show(current)}</b> | มุมมอง <b>{direction}</b> | {confirm}",
         "",
         "<b>MARKET READ</b>",
-        f"สถานะ: <b>{_escape(status)}</b> | มุมมอง: <b>{_escape(_friendly_bias(bias))}</b>",
-        _escape(narrative["market_read"]),
+        _escape(flow.get("read") or narrative.get("market_read") or "ยังไม่มี market read ที่ยืนยันได้"),
         "",
-        "<b>VOLATILITY — ตลาดกำลังผันผวนแค่ไหน</b>",
-        _escape(narrative["volatility"]),
+        "<b>🧭 FLOW</b>",
+        _escape(flow.get("flow") or "ยังไม่มี conditional path ที่ยืนยันได้"),
         "",
-        "<b>OI POSITIONING — ผู้เล่นกำลังเพิ่ม/ลดสถานะอย่างไร</b>",
-        _escape(narrative["oi_positioning"]),
+        "<b>WHY</b>",
+        _escape(narrative.get("why_now") or "ยังไม่มีเหตุผลเพิ่มเติมที่ผ่านการตรวจสอบ"),
         "",
-        "<b>FLOW STATEMENT — ภาพรวมแรงที่กำลังเกิดขึ้น</b>",
-        _escape(narrative["flow_statement"]),
-        "",
-        "<b>CONFIRMATION — ตอนนี้ยืนยันทางไหนแล้ว</b>",
-        _escape(narrative["confirmation"]),
-        "",
-        "<b>WHY NOW — ทำไมต้องจับตาตอนนี้</b>",
-        _escape(narrative["why_now"]),
+        "<b>MACRO / NEWS</b>",
+        _escape(narrative.get("macro_news") or "ยังไม่มี release ที่ผ่าน validation"),
         "",
         "<b>TECHNICAL</b>",
-        _escape(narrative["technical"]),
+        _escape(narrative.get("technical") or "UNKNOWN"),
         "",
-        "<b>MACROECONOMIC / NEWS</b>",
-        _escape(narrative["macro_news"]),
-        "",
-        "หมายเหตุ: ตัวเลข OI / IV / Gamma เป็นหลักฐานประกอบการวิเคราะห์ ไม่ใช่สัญญาณซื้อขายโดยตรง",
+        f"Options: IV {_show(parsed.get('iv'))} | GEX {_show(parsed.get('net_gex'))} | DTE {_show(parsed.get('dte'))}",
+        "ตัวเลขเป็น evidence; direction ต้องยืนยันด้วย price response",
         "────────────────────────",
-    ])
-
+    ]
+    return "\n".join(lines)
 
 def _friendly_regime(state: dict, ai_result: dict) -> str:
     from src.customer_narrative import _friendly_regime as _map_regime
