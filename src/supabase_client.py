@@ -102,40 +102,48 @@ def insert_snapshot(
 
 
 def insert_news_announcements(items: list[dict]) -> list[dict]:
-    """Insert unseen governed news items and return only newly created rows."""
+    """Upsert news/calendar facts and return only new or materially changed events.
+
+    Economic-calendar rows are mutable: an event is often stored before release
+    with no Actual, then the same source row gains Actual after release. Treat
+    that transition as an update to the same event instead of creating a
+    duplicate announcement.
+    """
     if not items:
         return []
+
     client = get_client()
-    keys = [(str(item.get("source") or "").strip(), str(item.get("external_id") or "").strip()) for item in items]
-    keys = [(source, external) for source, external in keys if source and external]
-    if not keys:
+    normalized_items: list[dict] = []
+    for item in items:
+        source = str(item.get("source") or "").strip()
+        external_id = str(item.get("external_id") or "").strip()
+        if source and external_id:
+            normalized_items.append(dict(item))
+    if not normalized_items:
         return []
 
-    existing_by_key: set[tuple[str, str]] = set()
+    keys = [
+        (str(item.get("source") or "").strip(), str(item.get("external_id") or "").strip())
+        for item in normalized_items
+    ]
+
+    existing_by_key: dict[tuple[str, str], dict] = {}
     for source, external_id in keys:
         result = (
             client.table("news_announcements")
-            .select("source,external_id")
+            .select(
+                "source,external_id,event_time,actual,forecast,previous,event_status,"
+                "calendar_data_status,actual_source,forecast_source,previous_source"
+            )
             .eq("source", source)
             .eq("external_id", external_id)
+            .limit(1)
             .execute()
         )
-        existing_by_key.update(
-            (str(row.get("source")), str(row.get("external_id")))
-            for row in (result.data or [])
-        )
+        if result.data:
+            row = result.data[0]
+            existing_by_key[(source, external_id)] = dict(row)
 
-    new_items = [
-        item for item in items
-        if (str(item.get("source") or "").strip(), str(item.get("external_id") or "").strip())
-        not in existing_by_key
-    ]
-    if not new_items:
-        return []
-
-    # Keep persistence compatible with the deployed news_announcements schema.
-    # freshness/market_channels are derived analyst metadata and remain in the
-    # in-memory news_context; older deployments do not have those columns.
     persistable_keys = {
         "source",
         "external_id",
@@ -144,36 +152,64 @@ def insert_news_announcements(items: list[dict]) -> list[dict]:
         "url",
         "published_at",
         "detected_at",
+        "event_time",
+        "actual",
+        "forecast",
+        "previous",
+        "event_status",
+        "calendar_data_status",
+        "actual_source",
+        "forecast_source",
+        "previous_source",
+        "calendar_retrieved_at",
         "category",
         "relevance",
         "rights_status",
     }
+
     payload = [
         {key: value for key, value in item.items() if key in persistable_keys}
-        for item in new_items
+        for item in normalized_items
     ]
-    result = client.table("news_announcements").insert(payload).execute()
-    inserted = result.data or []
 
-    # The persistence schema intentionally stays lean. Re-attach calendar
-    # fields to the in-memory rows returned to the delivery formatter so
-    # Actual/Forecast/Previous are not lost just because those fields are not
-    # persisted in the legacy announcement table.
-    by_key = {
-        (str(item.get("source") or ""), str(item.get("external_id") or "")): item
-        for item in new_items
-    }
-    enriched = []
-    for row in inserted:
-        source = str(row.get("source") or "")
-        external_id = str(row.get("external_id") or "")
-        original = by_key.get((source, external_id), {})
-        merged = dict(row)
-        for key in ("event_time", "actual", "forecast", "previous"):
-            if original.get(key) is not None:
-                merged[key] = original.get(key)
-        enriched.append(merged)
-    return enriched
+    # One database write for the batch. The unique(source, external_id)
+    # constraint makes this an idempotent event ledger.
+    client.table("news_announcements").upsert(
+        payload,
+        on_conflict="source,external_id",
+    ).execute()
+
+    changed: list[dict] = []
+    compare_fields = (
+        "event_time",
+        "actual",
+        "forecast",
+        "previous",
+        "event_status",
+        "calendar_data_status",
+        "actual_source",
+        "forecast_source",
+        "previous_source",
+    )
+
+    seen_keys: set[tuple[str, str]] = set()
+    for item in normalized_items:
+        key = (
+            str(item.get("source") or "").strip(),
+            str(item.get("external_id") or "").strip(),
+        )
+        if key in seen_keys:
+            continue
+        seen_keys.add(key)
+        previous = existing_by_key.get(key)
+        if previous is None or any(
+            previous.get(field) != item.get(field)
+            for field in compare_fields
+        ):
+            changed.append(dict(item))
+
+    return changed
+
 
 def can_notify(channel: str, cooldown_minutes: int = 30) -> tuple[bool, float | None]:
     """Return whether a channel is outside its notification cooldown."""
