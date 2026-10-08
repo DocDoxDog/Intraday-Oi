@@ -110,7 +110,7 @@ def _format_analysis_message(parsed: dict, ai_result: dict) -> str:
         "<b>ข่าว / เศรษฐกิจ</b>",
         _escape(macro),
         "",
-        f"Options: IV {_show(parsed.get('iv'))} | GEX {_show(parsed.get('net_gex'))} | DTE {_show(parsed.get('dte'))}",
+        f"Options: IV {_show(parsed.get('iv') if parsed.get('iv') is not None else parsed.get('vol'))} | GEX {_show(parsed.get('net_gex') if parsed.get('net_gex') is not None else (state.get('gamma') or {}).get('net_gex'))} | DTE {_show(parsed.get('dte'))}",
         "ตัวเลข Options เป็นหลักฐานประกอบ ส่วนทิศทางต้องดูพฤติกรรมราคาจริง",
         "────────────────────────",
     ]
