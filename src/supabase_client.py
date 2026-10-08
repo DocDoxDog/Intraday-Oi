@@ -75,6 +75,73 @@ def get_signed_url(path: str, expiry_seconds: int = SIGNED_URL_EXPIRY_SECONDS) -
     return signed.get("signedURL") or signed.get("signedUrl")
 
 
+def persist_market_bars(
+    bars_by_timeframe: dict[str, list[dict]],
+    *,
+    instrument: str = "XAU/USD",
+    source: str = "twelve_data",
+) -> int:
+    """Persist canonical OHLC bars idempotently into public.market_bars."""
+    import hashlib
+    from datetime import datetime, timezone
+
+    if not bars_by_timeframe:
+        return 0
+
+    client = get_client()
+    rows = []
+    for timeframe, bars in bars_by_timeframe.items():
+        for bar in bars or []:
+            if not isinstance(bar, dict):
+                continue
+            raw_time = bar.get("datetime")
+            if not raw_time:
+                continue
+            try:
+                dt = datetime.fromisoformat(str(raw_time).replace("Z", "+00:00"))
+                if dt.tzinfo is None:
+                    dt = dt.replace(tzinfo=timezone.utc)
+                dt = dt.astimezone(timezone.utc)
+            except (TypeError, ValueError):
+                continue
+
+            identity = f"{source}|{instrument}|{timeframe}|{dt.isoformat()}"
+            # market_bars.id has no database default in the deployed schema.
+            digest = hashlib.sha256(identity.encode("utf-8")).hexdigest()
+            row_id = int(digest[:15], 16)
+
+            rows.append({
+                "id": row_id,
+                "source": source,
+                "instrument": instrument,
+                "timeframe": timeframe,
+                "bar_time": dt.isoformat(),
+                "open": bar.get("open"),
+                "high": bar.get("high"),
+                "low": bar.get("low"),
+                "close": bar.get("close"),
+                "volume": bar.get("volume"),
+                "session": None,
+                "timezone": "UTC",
+                "is_final": True,
+                "provenance": {
+                    "provider": "twelve_data",
+                    "symbol": instrument,
+                    "interval": timeframe,
+                },
+            })
+
+    if not rows:
+        return 0
+
+    # The unique constraint is installed by the matching migration.
+    client.table("market_bars").upsert(
+        rows,
+        on_conflict="source,instrument,timeframe,bar_time",
+    ).execute()
+    return len(rows)
+
+
 def insert_snapshot(
     parsed: dict,
     ai_summary: str | None = None,
