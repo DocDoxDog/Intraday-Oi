@@ -258,8 +258,23 @@ def _format_trade_plan_message(parsed: dict, ai_result: dict) -> str:
         }
         return reason_map.get(reason, f"🚫 Risk: {html.escape(reason.lower().replace('_', ' '))}")
 
-    def render_route(payload: dict, title: str, emoji: str, default_action: str) -> list[str]:
-        p = payload or {}
+    def render_route(payload: dict, title: str, emoji: str, default_action: str, route_key: str) -> list[str]:
+        p = dict(payload or {})
+        # Preserve canonical route values when cached/legacy payloads omit them.
+        prefix = {
+            "long_reclaim": "long_reclaim",
+            "long_support": "long_support",
+            "short_rejection": "short_rejection",
+            "short_breakdown": "short_breakdown",
+        }.get(route_key)
+        if prefix:
+            if p.get("trigger") is None:
+                p["trigger"] = trade.get(f"{prefix}_trigger")
+            if p.get("stop") is None:
+                p["stop"] = trade.get(f"{prefix}_stop")
+            if not p.get("targets"):
+                p["targets"] = [trade.get(f"{prefix}_tp{i}") for i in range(1, 6)]
+        p = p or {}
         trigger = p.get("trigger")
         if trigger is None:
             trigger = p.get("entry_reference", p.get("entry", p.get("zone_price")))
@@ -333,7 +348,7 @@ def _format_trade_plan_message(parsed: dict, ai_result: dict) -> str:
     for i, (key, emoji, title, action) in enumerate(routes):
         if i:
             lines.append("")
-        lines.extend(render_route(execution.get(key) or {}, title, emoji, action))
+        lines.extend(render_route(execution.get(key) or {}, title, emoji, action, key))
 
     lines += [
         "",
