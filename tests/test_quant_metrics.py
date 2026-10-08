@@ -55,3 +55,30 @@ def test_quant_metrics_fail_closed_on_missing_data():
     assert q["returns"]["1h"] is None
     assert q["open_interest"]["call_put_ratio"] is None
     assert q["gamma"]["interpretation"] == "UNKNOWN"
+
+
+def test_expected_range_is_magnitude_only():
+    parsed = {
+        "future_price": 4000.0,
+        "cfd_price": 3975.0,
+        "basis_diff": 25.0,
+        "vol": 36.5,
+        "dte": 1.0,
+        "raw_series": {"market_state": {"flow": {}, "gamma": {}, "volatility": {}}},
+    }
+    out = enrich_quant_metrics(parsed, {})
+    er = out["raw_series"]["market_state"]["quant_metrics"]["volatility"]["expected_range"]
+    assert er["one_sigma"] > 0
+    assert er["two_sigma"] == er["one_sigma"] * 2
+    assert er["direction"] == "UNKNOWN"
+
+
+def test_expected_range_unknown_without_iv():
+    parsed = {
+        "future_price": 4000.0,
+        "cfd_price": 3975.0,
+        "dte": 1.0,
+        "raw_series": {"market_state": {"flow": {}, "gamma": {}, "volatility": {}}},
+    }
+    out = enrich_quant_metrics(parsed, {})
+    assert out["raw_series"]["market_state"]["quant_metrics"]["volatility"]["expected_range"] is None
