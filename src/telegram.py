@@ -91,10 +91,16 @@ def _format_analysis_message(parsed: dict, ai_result: dict) -> str:
     why = narrative.get("why_now") or "ยังไม่มีเหตุผลเพิ่มเติมที่ผ่านการตรวจสอบ"
     macro = narrative.get("macro_news") or "ยังไม่มีข่าวที่มี Actual ยืนยัน"
 
+    futures = parsed.get("future_price")
+    cfd = parsed.get("cfd_price")
+    basis = parsed.get("basis_diff")
+    iv = parsed.get("vol")
+    dte = parsed.get("dte")
     lines = [
         "<b>🟡 GOLD MARKET</b>",
         _thai_datetime_str(),
-        f"ราคา <b>{_show(current)}</b> | ภาพหลัก: <b>{direction}</b> | {confirm}",
+        f"CFD <b>{_show(cfd)}</b> | FUTURES <b>{_show(futures)}</b>",
+        f"BASIS <b>{_show(basis)}</b> | IV <b>{_show(iv)}</b> | DTE <b>{_show(dte)}</b>",
         "",
         "<b>ตอนนี้เกิดอะไรขึ้น</b>",
         _escape(read),
@@ -110,7 +116,7 @@ def _format_analysis_message(parsed: dict, ai_result: dict) -> str:
         "<b>ข่าว / เศรษฐกิจ</b>",
         _escape(macro),
         "",
-        f"Options: IV {_show(parsed.get('iv') if parsed.get('iv') is not None else parsed.get('vol'))} | GEX {_show(parsed.get('net_gex') if parsed.get('net_gex') is not None else (state.get('gamma') or {}).get('net_gex'))} | DTE {_show(parsed.get('dte'))}",
+        f"Options: IV {_show(parsed.get('vol'))} | GEX {_show((raw.get('gex') or {}).get('net_gex'))} | DTE {_show(parsed.get('dte'))}",
         "ตัวเลข Options เป็นหลักฐานประกอบ ส่วนทิศทางต้องดูพฤติกรรมราคาจริง",
         "────────────────────────",
     ]
@@ -179,13 +185,16 @@ def _format_trade_plan_message(parsed: dict, ai_result: dict) -> str:
     trade = ai_result.get("trade_plan") or {}
     execution = trade.get("execution_plan") or {}
 
-    # Backward-compatible fallback for snapshots created before four-route mode.
-    if execution and not any(key in execution for key in ("long_reclaim", "long_support", "short_rejection", "short_breakdown")):
-        # Compatibility bridge for the previous 3-route execution payload.
-        execution["long_reclaim"] = execution.get("long") or {}
-        execution["long_support"] = execution.get("long_support") or {}
-        execution["short_rejection"] = execution.get("short") or {}
-        execution["short_breakdown"] = execution.get("short_breakdown") or {}
+    # Backward-compatible bridge: normalize each legacy route independently.
+    if execution:
+        if "long_reclaim" not in execution:
+            execution["long_reclaim"] = execution.get("long") or {}
+        if "long_support" not in execution:
+            execution["long_support"] = execution.get("long_support") or {}
+        if "short_rejection" not in execution:
+            execution["short_rejection"] = execution.get("short") or {}
+        if "short_breakdown" not in execution:
+            execution["short_breakdown"] = execution.get("short") or {}
 
     if not execution:
         def legacy_payload(prefix: str, side: str, title: str, strategy: str, action: str):
@@ -252,8 +261,14 @@ def _format_trade_plan_message(parsed: dict, ai_result: dict) -> str:
     def render_route(payload: dict, title: str, emoji: str, default_action: str) -> list[str]:
         p = payload or {}
         trigger = p.get("trigger")
+        if trigger is None:
+            trigger = p.get("entry_reference", p.get("entry", p.get("zone_price")))
         stop = p.get("stop")
+        if stop is None:
+            stop = p.get("invalidation", p.get("stop_loss"))
         targets = list(p.get("targets") or [])
+        if not targets:
+            targets = [p.get(f"tp{i}") for i in range(1, 6)]
         targets.extend([None] * (5 - len(targets)))
         action = _text(p.get("action")) if p.get("action") else default_action
 
@@ -279,33 +294,15 @@ def _format_trade_plan_message(parsed: dict, ai_result: dict) -> str:
             lines.append(warning)
         return lines
 
-    primary = execution.get("primary_setup") if isinstance(execution.get("primary_setup"), dict) else None
-    alternative = execution.get("alternative_setup") if isinstance(execution.get("alternative_setup"), dict) else None
-
-    if primary is not None:
-        primary_side = str(primary.get("side") or "").upper()
-        alternative_side = str(alternative.get("side") or "").upper() if alternative else ""
-        routes = [
-            (
-                "primary_setup",
-                "🔴" if primary_side.startswith("SHORT") else "🟢",
-                "SELL — แผนหลัก" if primary_side.startswith("SHORT") else "BUY — แผนหลัก",
-                str(primary.get("action") or ""),
-            ),
-            (
-                "alternative_setup",
-                "🟢" if alternative_side.startswith("LONG") else "🔴",
-                "BUY — แผนสำรอง" if alternative_side.startswith("LONG") else "SELL — แผนสำรอง",
-                str(alternative.get("action") or ""),
-            ),
-        ]
-    else:
-        routes = [
-            ("long_reclaim", "🟢", "BUY 1 — เบรกแนวต้าน", "เบรกและยืนเหนือโซน → รีเทสต์ไม่หลุด → BUY"),
-            ("long_support", "🟢", "BUY 2 — รับด้านล่าง", "แตะโซนรับ → reaction → M5 BOS ขึ้น → BUY"),
-            ("short_rejection", "🔴", "SELL 1 — ต้านไม่ผ่าน", "เด้งกลับต้าน → rejection → M5 BOS ลง → SELL"),
-            ("short_breakdown", "🔴", "SELL 2 — หลุดแนวรับ", "หลุดแนวรับ → รีเทสต์ไม่ผ่าน → SELL"),
-        ]
+    # Customer Telegram keeps the four conditional routes explicit.
+    # Primary/alternative remain metadata for preference, not a reason to hide
+    # the other conditional paths.
+    routes = [
+        ("long_reclaim", "🟢", "BUY 1 — เบรกแนวต้าน", "เบรกและยืนเหนือโซน → รีเทสต์ไม่หลุด → BUY"),
+        ("long_support", "🟢", "BUY 2 — รับด้านล่าง", "แตะโซนรับ → มีแรงตอบสนองราคา → M5 BOS ขึ้น → BUY"),
+        ("short_rejection", "🔴", "SELL 1 — ต้านไม่ผ่าน", "เด้งกลับต้าน → rejection → M5 BOS ลง → SELL"),
+        ("short_breakdown", "🔴", "SELL 2 — หลุดแนวรับ", "หลุดแนวรับ → รีเทสต์ไม่ผ่าน → SELL"),
+    ]
 
     bias = str((state := (parsed.get("raw_series") or {}).get("market_state") or {}).get("decision", {}).get("structural_bias") or ai_result.get("bias") or trade.get("direction") or "WAIT").upper()
     preferred_key = execution.get("preferred_setup")
