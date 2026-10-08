@@ -237,8 +237,12 @@ export async function GET() {
     },
     technical: {
       htf: confirmation.bias ?? confirmation.htf_aligned ?? "UNKNOWN",
+      h4: technical.h4 ?? {},
+      h1: technical.h1 ?? {},
       m15: technical.m15 ?? {},
       m5: technical.m5 ?? {},
+      m1: technical.m1 ?? {},
+      priceMemory: technical.price_memory ?? technical.priceMemory ?? {},
       confirmation,
     },
     levels: {
@@ -252,6 +256,7 @@ export async function GET() {
       s3: num(marketMap.S3),
       s4: num(marketMap.S4),
       s5: num(marketMap.S5),
+      keyLevels: Array.isArray(marketMap.key_levels) ? marketMap.key_levels : [],
       pivot: num(marketMap.pivot),
       callWall: num(marketMap.call_wall),
       putWall: num(marketMap.put_wall),
