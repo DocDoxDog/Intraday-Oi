@@ -285,8 +285,24 @@ def build_trade_execution_plan(state: dict[str, Any]) -> dict[str, Any]:
     routes = [long_reclaim, long_support, short_rejection, short_breakdown]
     states = [str(x.get("state") or "WAIT").upper() for x in routes]
 
-    if "CONFIRMED" in states:
+    aligned_confirmed = []
+    if htf == "bullish":
+        aligned_confirmed = [
+            route for route in (long_reclaim, long_support)
+            if str(route.get("state") or "").upper() == "CONFIRMED"
+        ]
+    elif htf == "bearish":
+        aligned_confirmed = [
+            route for route in (short_rejection, short_breakdown)
+            if str(route.get("state") or "").upper() == "CONFIRMED"
+        ]
+
+    if aligned_confirmed:
         overall = "CONFIRMED"
+    elif any(str(x.get("state") or "").upper() == "CONFIRMED" for x in routes):
+        # A counter-trend route can be confirmed locally, but it must not
+        # promote the global decision state against the H4/H1 context.
+        overall = "COUNTERTREND_ROUTE_CONFIRMED"
     elif any(x in states for x in {"TRIGGERED_WAIT_CONFIRMATION", "TRIGGERED", "TRIGGERED_WAIT_RISK_REWARD"}):
         overall = "TRIGGERED"
     elif any(x in states for x in {"IN_ZONE", "APPROACHING", "ARMED"}):
@@ -332,6 +348,7 @@ def build_trade_execution_plan(state: dict[str, Any]) -> dict[str, Any]:
             "TP1-TP5 are source-derived structural levels; missing levels stay UNKNOWN.",
             "Risk failure blocks confirmation and must render NO TRADE.",
             "Directional bias changes priority, not the availability of the opposite setup.",
+            "Counter-trend route confirmation cannot promote the global decision state.",
             "No order is placed by this module.",
         ],
     }
