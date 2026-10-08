@@ -149,8 +149,8 @@ def _history_for(parsed: dict[str, Any], history: dict[str, Any]) -> dict[str, A
     }
 
 
-def _levels(parsed: dict[str, Any]) -> dict[str, float | None]:
-    """Expose structural trigger levels only; execution targets are built separately."""
+def _levels(parsed: dict[str, Any]) -> dict[str, Any]:
+    """Expose structural trigger anchors without manufacturing a price ladder."""
     raw = parsed.get("raw_series") or {}
     gex = raw.get("gex") or {}
     future = _num(parsed.get("future_price"))
@@ -165,9 +165,6 @@ def _levels(parsed: dict[str, Any]) -> dict[str, float | None]:
             "support_deep": None,
         }
 
-    # The primary trigger is the structural wall, not the nearest $5 strike.
-    # Nearest strikes are useful for local context but are too noisy to define
-    # the breakout trigger.
     call_wall = _num(gex.get("call_wall"))
     put_wall = _num(gex.get("put_wall"))
     return {
@@ -178,6 +175,7 @@ def _levels(parsed: dict[str, Any]) -> dict[str, float | None]:
         "support_main": _cfd_level(put_wall, future, cfd),
         "support_deep": None,
     }
+
 
 
 def _gamma_state(parsed: dict[str, Any], history: dict[str, Any]) -> dict[str, Any]:
@@ -276,171 +274,30 @@ def _decision_framework(
     levels: dict[str, float | None],
     history_state: dict[str, Any],
 ) -> dict[str, Any]:
-    """Deterministic decision gates; descriptive only, never a trade score."""
-    technical = parsed.get("technical_context") or {}
-    timeframes = technical.get("timeframes") or {}
-    trends = {
-        tf: (ctx or {}).get("trend")
-        for tf, ctx in timeframes.items()
-        if isinstance(ctx, dict)
-    }
-    bullish = [tf for tf, trend in trends.items() if trend == "bullish"]
-    bearish = [tf for tf, trend in trends.items() if trend == "bearish"]
-    h4 = trends.get("h4")
-    h1 = trends.get("h1")
-    htf = "bullish" if h4 == "bullish" and h1 == "bullish" else (
-        "bearish" if h4 == "bearish" and h1 == "bearish" else "mixed"
-    )
+    """Backward-compatible adapter to the canonical decision engine."""
+    from src.decision_engine import build_decision_context
 
-    def sign_state(value: Any) -> str:
-        number = _num(value)
-        if number is None:
-            return "UNKNOWN"
-        if number > 0:
-            return "UP"
-        if number < 0:
-            return "DOWN"
-        return "FLAT"
-
-    oi_change_put = flow.get("oi_change_put")
-    oi_change_call = flow.get("oi_change_call")
-    eod_put = flow.get("delta_oi_put")
-    eod_call = flow.get("delta_oi_call")
-    source_churn = flow.get("source_churn_total")
-    net_gex = gamma.get("net_gex")
-
-    positioning = {
-        "source_oi_change": {
-            "put": oi_change_put,
-            "call": oi_change_call,
-            "total": flow.get("oi_change_total"),
-            "put_state": sign_state(oi_change_put),
-            "call_state": sign_state(oi_change_call),
+    state = {
+        "flow": flow,
+        "gamma": gamma,
+        "levels": levels,
+        "history": history_state,
+        "price": {
+            "futures": _num(parsed.get("future_price")),
+            "cfd": _num(parsed.get("cfd_price")),
+            "basis": _num(parsed.get("basis_diff")),
+            "dte": _num(parsed.get("dte")),
         },
-        "vs_eod": {
-            "put": eod_put,
-            "call": eod_call,
-            "total": flow.get("delta_oi_total"),
-            "put_state": sign_state(eod_put),
-            "call_state": sign_state(eod_call),
+        "technical": {
+            tf: technical
+            for tf, technical in (
+                (tf, ((parsed.get("technical_context") or {}).get("timeframes") or {}).get(tf) or {})
+                for tf in ("h4", "h1", "m15", "m5", "m1")
+            )
         },
-        "churn": source_churn,
-        "interpretation": (
-            "EXPANDING"
-            if (sign_state(oi_change_put) == "UP" and sign_state(oi_change_call) == "UP")
-            else "REDUCING"
-            if (sign_state(oi_change_put) == "DOWN" and sign_state(oi_change_call) == "DOWN")
-            else "MIXED"
-            if oi_change_put is not None or oi_change_call is not None
-            else "UNKNOWN"
-        ),
-        "warning": "OI change/churn describe positioning activity; they do not identify aggressor direction by themselves.",
+        "news": parsed.get("news_context") or [],
     }
-
-    gamma_regime = (
-        "NEGATIVE_GAMMA_AMPLIFICATION_CONTEXT"
-        if _num(net_gex) is not None and _num(net_gex) < 0
-        else "POSITIVE_GAMMA_DAMPENING_CONTEXT"
-        if _num(net_gex) is not None and _num(net_gex) > 0
-        else "UNKNOWN"
-    )
-
-    current = _num(parsed.get("cfd_price"))
-    long_trigger = _num(levels.get("resistance_current"))
-    short_trigger = _num(levels.get("support_current"))
-
-    # Keep the decision framework aligned with the canonical failed-retest
-    # semantics used by the trade-plan builder. In bearish structure, once
-    # price is already below the call wall, the actionable short trigger is
-    # the call-wall retest rather than the distant put wall. The bullish mirror
-    # uses the put-wall retest.
-    if htf == "bearish" and current is not None and long_trigger is not None and current <= long_trigger:
-        short_trigger = long_trigger
-    elif htf == "bullish" and current is not None and short_trigger is not None and current >= short_trigger:
-        long_trigger = short_trigger
-
-    location = {
-        "current_cfd": current,
-        "relative_to_long_trigger": (
-            "ABOVE" if current is not None and long_trigger is not None and current > long_trigger
-            else "BELOW_OR_EQUAL" if current is not None and long_trigger is not None else "UNKNOWN"
-        ),
-        "relative_to_short_trigger": (
-            "BELOW" if current is not None and short_trigger is not None and current < short_trigger
-            else "ABOVE_OR_EQUAL" if current is not None and short_trigger is not None else "UNKNOWN"
-        ),
-        "long_trigger": long_trigger,
-        "short_trigger": short_trigger,
-    }
-
-    fresh_news = [
-        item for item in (parsed.get("news_context") or [])
-        if isinstance(item, dict) and str(item.get("freshness") or "").upper() in {"FRESH", "RECENT"}
-    ]
-    high_news = [
-        item for item in fresh_news
-        if str(item.get("relevance") or "").upper() in {"HIGH", "CRITICAL"}
-    ]
-
-    gates = {
-        "data": "PASS" if (
-            _num(parsed.get("future_price")) is not None
-            and _num(parsed.get("cfd_price")) is not None
-            and flow.get("oi_total") is not None
-        ) else "FAIL",
-        "htf_structure": (
-            "BULLISH" if htf == "bullish"
-            else "BEARISH" if htf == "bearish"
-            else "MIXED"
-        ),
-        "positioning": (
-            "OBSERVED" if (oi_change_put is not None or oi_change_call is not None or eod_put is not None or eod_call is not None)
-            else "UNKNOWN"
-        ),
-        "gamma": gamma_regime,
-        "catalyst": "ACTIVE" if high_news else "QUIET_OR_UNKNOWN",
-        "trigger": (
-            "LONG_LEVEL_REACHED" if current is not None and long_trigger is not None and current > long_trigger
-            else "SHORT_LEVEL_REACHED" if current is not None and short_trigger is not None and current < short_trigger
-            else "NO_BREAKOUT_CONFIRMED"
-        ),
-        "risk_structure": (
-            "AVAILABLE"
-            if all(_num(levels.get(k)) is not None for k in ("resistance_current", "resistance_main", "support_current", "support_main"))
-            else "INCOMPLETE"
-        ),
-    }
-
-    if htf == "mixed":
-        decision = "WAIT_MIXED_STRUCTURE"
-    elif gates["trigger"] == "NO_BREAKOUT_CONFIRMED":
-        decision = "WAIT_FOR_TRIGGER"
-    elif htf == "bullish" and gates["trigger"] == "LONG_LEVEL_REACHED":
-        decision = "LONG_CONDITIONAL"
-    elif htf == "bearish" and gates["trigger"] == "SHORT_LEVEL_REACHED":
-        decision = "SHORT_CONDITIONAL"
-    else:
-        decision = "WAIT_CONFLICT"
-
-    return {
-        "steps": {
-            "1_market_state": {"htf_structure": htf, "bullish_timeframes": bullish, "bearish_timeframes": bearish},
-            "2_positioning": positioning,
-            "3_gamma": {"regime": gamma_regime, "net_gex": net_gex, "dte": _num(parsed.get("dte"))},
-            "4_history": history_state,
-            "5_catalyst": {"fresh_count": len(fresh_news), "high_relevance_count": len(high_news)},
-            "6_location": location,
-            "7_gates": gates,
-            "8_decision": decision,
-        },
-        "rules": [
-            "Trend defines directional context; OI/GEX/news cannot override price structure alone.",
-            "A trigger being crossed is not proof of a successful hold/retest.",
-            "Trade plan remains conditional until confirmation is observable in supplied data.",
-            "Conflicting or missing evidence resolves to WAIT, not a stronger directional claim.",
-        ],
-    }
-
+    return build_decision_context(state)["legacy_framework"]
 
 def enrich_market_state(parsed: dict[str, Any], history: dict[str, Any] | None = None) -> dict[str, Any]:
     history = history or {}
@@ -584,7 +441,6 @@ def enrich_market_state(parsed: dict[str, Any], history: dict[str, Any] | None =
         },
         "gamma": _gamma_state(parsed, history),
         "history": _history_for(parsed, history),
-        "price_memory": history.get("price_memory") or {},
         "technical": technical_summary,
         "news": [
             {
@@ -617,14 +473,6 @@ def enrich_market_state(parsed: dict[str, Any], history: dict[str, Any] | None =
             and _num(parsed.get("basis_diff")) is not None
         ),
     }
-    raw["market_state"]["decision_framework"] = _decision_framework(
-        parsed,
-        raw["market_state"]["flow"],
-        raw["market_state"]["gamma"],
-        raw["market_state"]["levels"],
-        raw["market_state"]["history"],
-    )
-
     # Compose the next-generation deterministic engines without changing the
     # existing canonical OI/GEX calculations.
     from src.action_zone_engine import build_action_zones
@@ -642,6 +490,14 @@ def enrich_market_state(parsed: dict[str, Any], history: dict[str, Any] | None =
     )
     state["regime"] = build_market_regime(state)
     state["action_zones"] = build_action_zones(state)
+
+    from src.decision_engine import build_decision_context
+
+    decision = build_decision_context(state)
+    state["decision"] = decision
+    # Keep legacy consumers working while making decision the canonical source.
+    state["decision_framework"] = decision["legacy_framework"]
+
     apply_data_clock(parsed)
     return parsed
 
@@ -816,10 +672,9 @@ def _deterministic_trade_levels(
     # be far away and remain valid context; only source-derived levels within
     # the configured ATR window can become executable action zones.
     technical_context = parsed.get("technical_context") or {}
-    technical_timeframes = technical_context.get("timeframes") or {}
-    atr14 = _num((technical_timeframes.get("m5") or {}).get("atr14"))
+    atr14 = _num(technical_context.get("atr14"))
     if atr14 is None:
-        atr14 = _num((technical_timeframes.get("m15") or {}).get("atr14"))
+        atr14 = _num((technical_context.get("m5") or {}).get("atr14"))
     try:
         local_max_atr = float(os.environ.get("LOCAL_ZONE_MAX_ATR", "1.5"))
     except (TypeError, ValueError):
@@ -832,26 +687,12 @@ def _deterministic_trade_levels(
         local_fallback_distance = 15.0
     local_fallback_distance = max(5.0, local_fallback_distance)
 
-    # Price-memory levels come from observed Twelve Data OHLC structure.
-    # They are real market observations, not synthetic $5/$10 ladders.
-    price_memory = technical_context.get("price_memory") or {}
-    observed_levels: list[float] = []
-    for context in (price_memory.get("timeframes") or {}).values():
-        if not isinstance(context, dict):
-            continue
-        for key in ("swing_high", "swing_low", "last_close"):
-            value = _num(context.get(key))
-            if value is not None:
-                observed_levels.append(value)
-
     above_now = source_candidates("LONG", current)
     below_now = source_candidates("SHORT", current)
     above_levels = [item["level"] for item in above_now]
     below_levels = [item["level"] for item in below_now]
     above_levels.extend(canonical_candidates("ABOVE", current))
     below_levels.extend(canonical_candidates("BELOW", current))
-    above_levels.extend(value for value in observed_levels if current is None or value > current)
-    below_levels.extend(value for value in observed_levels if current is None or value < current)
     above_levels = _unique_sorted(above_levels)
     below_levels = _unique_sorted(below_levels, reverse=True)
 
@@ -862,29 +703,14 @@ def _deterministic_trade_levels(
     )
     local_distance_mode = "ATR" if atr14 is not None and atr14 > 0 else "FALLBACK_ABSOLUTE"
 
-    local_action_resistance = next(
-        (level for level in above_levels if current is not None and level - current <= local_max_distance),
-        None,
-    )
-    local_action_support = next(
-        (level for level in below_levels if current is not None and current - level <= local_max_distance),
-        None,
-    )
-
-    def structural_candidates(side: str, anchor: float | None) -> list[float]:
-        if anchor is None:
-            return []
-        values = source_candidates(side, anchor)
-        out = [item["level"] for item in values]
-        if side == "LONG":
-            out.extend(level for level in above_levels if level > anchor)
-        else:
-            out.extend(level for level in below_levels if level < anchor)
-        return _unique_sorted(out, reverse=side == "SHORT")
 
     def structural_levels(side: str, anchor: float | None) -> list[float]:
-        # Key levels describe the nearest real option/OHLC structure.
-        return structural_candidates(side, anchor)[:5]
+        candidates = source_candidates(side, anchor)
+        if not candidates:
+            return []
+        # Key levels describe the nearest real source structure. They are not
+        # automatically executable targets.
+        return [item["level"] for item in candidates[:3]]
 
     def trade_targets(
         side: str,
@@ -897,55 +723,150 @@ def _deterministic_trade_levels(
         risk = abs(anchor - stop)
         if risk <= 0:
             return []
-        # A resistance/support becomes a trade target only if it offers >=1R.
-        minimum_distance = risk
+        # Targets must be real structural nodes beyond the trigger.
+        # Risk/reward is evaluated separately by risk_engine; it must not
+        # erase valid structural targets from the customer market map.
         return [
             level for level in structural
             if (
-                level - anchor >= minimum_distance
+                level > anchor
                 if side == "LONG"
-                else anchor - level >= minimum_distance
+                else level < anchor
             )
         ][:5]
 
-    long_candidates = [{"level": x} for x in structural_candidates("LONG", long_trigger)]
-    short_candidates = [{"level": x} for x in structural_candidates("SHORT", short_trigger)]
+    long_candidates = source_candidates("LONG", long_trigger)
+    short_candidates = source_candidates("SHORT", short_trigger)
 
-    # R/S are nearest structural context around current price.
-    long_key_levels = above_levels[:5]
-    short_key_levels = below_levels[:5]
+    # Significant key levels come from the multi-expiry concentration engine.
+    # They are converted to the same CFD coordinate as all execution levels.
+    zone_source = (raw.get("multi_expiry_gamma_zones") or {})
+    def convert_zone_nodes(values: Any) -> list[float]:
+        out = []
+        for value in values or []:
+            converted = _cfd_level(value, future, cfd)
+            if converted is not None:
+                out.append(converted)
+        return sorted(dict.fromkeys(out))
+
+    long_key_levels = convert_zone_nodes(zone_source.get("resistance_nodes"))
+    short_key_levels = sorted(convert_zone_nodes(zone_source.get("support_nodes")), reverse=True)
+
+    # If multi-expiry concentration data is unavailable, derive the same
+    # significance-aware nodes from the current real option chain. Never fall
+    # back to "nearest five strikes" because that recreates a synthetic ladder.
+    if not long_key_levels or not short_key_levels:
+        try:
+            from src.multi_expiry import select_structural_nodes
+            aggregate = [
+                (float(row["strike"]), float(row["net_gex"]))
+                for row in rows
+                if _num(row.get("strike")) is not None
+                and _num(row.get("net_gex")) is not None
+            ]
+            grid = [
+                float(row["strike"]) for row in rows
+                if _num(row.get("strike")) is not None
+            ]
+            if not long_key_levels:
+                long_key_levels = [
+                    _cfd_level(v, future, cfd)
+                    for v in select_structural_nodes(
+                        [(s, g) for s, g in aggregate if g > 0],
+                        current=future,
+                        side="UP",
+                        grid_strikes=grid,
+                    )
+                    if _cfd_level(v, future, cfd) is not None
+                ]
+            if not short_key_levels:
+                short_key_levels = [
+                    _cfd_level(v, future, cfd)
+                    for v in select_structural_nodes(
+                        [(s, g) for s, g in aggregate if g < 0],
+                        current=future,
+                        side="DOWN",
+                        grid_strikes=grid,
+                    )
+                    if _cfd_level(v, future, cfd) is not None
+                ]
+                short_key_levels = sorted(set(short_key_levels), reverse=True)
+        except Exception:
+            pass
+
+    local_action_resistance = next(
+        (level for level in long_key_levels if current is not None and level - current <= local_max_distance),
+        None,
+    )
+    local_action_support = next(
+        (level for level in short_key_levels if current is not None and current - level <= local_max_distance),
+        None,
+    )
+    # Prefer real nodes already selected by the conditional path. This
+    # avoids the old failure mode where a trigger consumed the only gamma
+    # node and TP1-TP5 became empty even though continuation nodes existed.
+    path = (raw.get("market_flow") or {}).get("path") or {}
+    path_nodes = [n for n in (path.get("nodes") or []) if isinstance(n, dict) and _num(n.get("level")) is not None]
+    def structural_targets(side: str, anchor: float | None) -> list[float]:
+        if anchor is None:
+            return []
+        path_levels = []
+        for node in path_nodes:
+            value = _num(node.get("level"))
+            if value is None:
+                continue
+            if side == "LONG" and value > anchor:
+                path_levels.append(value)
+            elif side == "SHORT" and value < anchor:
+                path_levels.append(value)
+        path_levels = _unique_sorted(path_levels, reverse=side == "SHORT")
+        if path_levels:
+            return path_levels[:5]
+        nodes = long_key_levels if side == "LONG" else short_key_levels
+        return [
+            value for value in nodes
+            if (value > anchor if side == "LONG" else value < anchor)
+        ][:5]
 
     long_reclaim_trigger = local_action_resistance
     long_reclaim_stop = (
         nearest_source_level(long_reclaim_trigger, above=False)
         if long_reclaim_trigger is not None else None
     ) or nearest_canonical_level(long_reclaim_trigger, above=False)
-    long_reclaim_candidates = structural_candidates("LONG", long_reclaim_trigger)
-    long_reclaim_targets = trade_targets("LONG", long_reclaim_trigger, long_reclaim_stop, long_reclaim_candidates)
+    long_reclaim_targets = trade_targets(
+        "LONG", long_reclaim_trigger, long_reclaim_stop,
+        structural_targets("LONG", long_reclaim_trigger)
+    )
 
     long_support_trigger = local_action_support
     long_support_stop = (
         nearest_source_level(long_support_trigger, above=False)
         if long_support_trigger is not None else None
     ) or nearest_canonical_level(long_support_trigger, above=False)
-    long_support_candidates = structural_candidates("LONG", long_support_trigger)
-    long_support_targets = trade_targets("LONG", long_support_trigger, long_support_stop, long_support_candidates)
+    long_support_targets = trade_targets(
+        "LONG", long_support_trigger, long_support_stop,
+        structural_targets("LONG", long_support_trigger)
+    )
 
     short_rejection_trigger = local_action_resistance
     short_rejection_stop = (
         nearest_source_level(short_rejection_trigger, above=True)
         if short_rejection_trigger is not None else None
     ) or nearest_canonical_level(short_rejection_trigger, above=True)
-    short_rejection_candidates = structural_candidates("SHORT", short_rejection_trigger)
-    short_rejection_targets = trade_targets("SHORT", short_rejection_trigger, short_rejection_stop, short_rejection_candidates)
+    short_rejection_targets = trade_targets(
+        "SHORT", short_rejection_trigger, short_rejection_stop,
+        structural_targets("SHORT", short_rejection_trigger)
+    )
 
     short_breakdown_trigger = local_action_support
     short_breakdown_stop = (
         nearest_source_level(short_breakdown_trigger, above=True)
         if short_breakdown_trigger is not None else None
     ) or nearest_canonical_level(short_breakdown_trigger, above=True)
-    short_breakdown_candidates = structural_candidates("SHORT", short_breakdown_trigger)
-    short_breakdown_targets = trade_targets("SHORT", short_breakdown_trigger, short_breakdown_stop, short_breakdown_candidates)
+    short_breakdown_targets = trade_targets(
+        "SHORT", short_breakdown_trigger, short_breakdown_stop,
+        structural_targets("SHORT", short_breakdown_trigger)
+    )
 
     def tp_fields(values: list[float]) -> dict[str, float | None]:
         return {
@@ -954,10 +875,10 @@ def _deterministic_trade_levels(
         }
 
     legacy_long_targets = trade_targets(
-        "LONG", long_trigger, long_stop, [item["level"] for item in long_candidates]
+        "LONG", long_trigger, long_stop, structural_targets("LONG", long_trigger)
     )
     legacy_short_targets = trade_targets(
-        "SHORT", short_trigger, short_stop, [item["level"] for item in short_candidates]
+        "SHORT", short_trigger, short_stop, structural_targets("SHORT", short_trigger)
     )
 
     return {
@@ -1119,6 +1040,21 @@ def _rr(side: str, p: dict[str, float | None]) -> tuple[float | None, float | No
 from src.trade_plan_engine import build_trade_execution_plan
 
 
+def _decision_final_idea(decision: dict[str, Any]) -> str:
+    structural = str(decision.get("structural_bias") or "MIXED").upper()
+    tactical = str(decision.get("tactical_direction") or "NEUTRAL").upper()
+    confirmation = str(decision.get("confirmation_state") or "NOT_CONFIRMED").upper()
+    state = str(decision.get("decision_state") or "WAIT").upper()
+
+    if confirmation == "CONFIRMED":
+        side = "ขึ้น" if structural == "BULLISH" else "ลง" if structural == "BEARISH" else "ตาม setup ที่ยืนยัน"
+        return f"โครงสร้าง {structural} และมี price confirmation แล้ว: ฝั่ง{side}อยู่ในสถานะยืนยัน"
+    if structural == "MIXED":
+        return f"โครงสร้างหลักยังขัดกัน ขณะ tactical เป็น {tactical}; ตอนนี้ {state} และยังไม่ยืนยันทาง"
+    side = "ขึ้น" if structural == "BULLISH" else "ลง"
+    return f"โครงสร้างหลักยัง{side} แต่ {confirmation}; รอ price confirmation ก่อน activate ฝั่งดังกล่าว"
+
+
 def normalize_analyst_output(
     parsed: dict[str, Any],
     history: dict[str, Any] | None,
@@ -1138,7 +1074,30 @@ def normalize_analyst_output(
         ai["analysis_status"] = "DEGRADED"
 
     gamma = state.get("gamma") or {}
-    deterministic = _deterministic_trade_levels(parsed, levels, gamma)
+
+    # When the deterministic conditional-path engine is valid, its observed
+    # structural nodes become the execution-map anchors. Legacy wall-derived
+    # levels remain a compatibility fallback only.
+    flow = (parsed.get("raw_series") or {}).get("market_flow") or {}
+    path = flow.get("path") if isinstance(flow, dict) else None
+    execution_levels = dict(levels)
+    if isinstance(path, dict) and path.get("status") == "VALID":
+        upper = path.get("upper_node") or {}
+        lower = path.get("lower_node") or {}
+        next_up = path.get("next_up") or {}
+        next_down = path.get("next_down") or {}
+        if _num(upper.get("level")) is not None:
+            execution_levels["resistance_current"] = _num(upper.get("level"))
+            execution_levels["resistance_main"] = _num(upper.get("level"))
+        if _num(next_up.get("level")) is not None:
+            execution_levels["resistance_far"] = _num(next_up.get("level"))
+        if _num(lower.get("level")) is not None:
+            execution_levels["support_current"] = _num(lower.get("level"))
+            execution_levels["support_main"] = _num(lower.get("level"))
+        if _num(next_down.get("level")) is not None:
+            execution_levels["support_deep"] = _num(next_down.get("level"))
+
+    deterministic = _deterministic_trade_levels(parsed, execution_levels, gamma)
     plan = {
         "long": {
             "entry": deterministic["long_trigger"],
@@ -1161,8 +1120,16 @@ def normalize_analyst_output(
 
     old_trade = ai.get("trade_plan") if isinstance(ai.get("trade_plan"), dict) else {}
     bias = str(ai.get("bias") or old_trade.get("direction") or "WAIT").upper()
-    if bias not in {"BUY", "SELL"}:
+    if bias not in {"BUY", "SELL", "BULLISH", "BEARISH"}:
         bias = "WAIT"
+    # Customer-facing bias is a structural view; executable direction is gated
+    # separately by confirmation below.
+    if bias == "BULLISH":
+        market_view = "BULLISH"
+    elif bias == "BEARISH":
+        market_view = "BEARISH"
+    else:
+        market_view = "WAIT"
 
     def plan_line(side: str, values: dict[str, float | None]) -> str:
         rr = long_rr if side == "LONG" else short_rr
@@ -1175,26 +1142,15 @@ def normalize_analyst_output(
     # The deterministic decision gate controls the actionability language.
     # Keep the LLM's bias as a contextual view, but never let its free-form
     # narrative invent a trigger or override contradictory structure.
-    decision = ((state.get("decision_framework") or {}).get("steps") or {}).get("8_decision")
-    if decision == "LONG_CONDITIONAL":
-        deterministic_idea = (
-            f"โครงสร้าง H4/H1 สนับสนุนฝั่งขึ้นและราคาผ่าน long trigger แล้ว "
-            f"แต่ยังต้องเห็น acceptance/retest ก่อนถือว่า setup ทำงานจริง"
-        )
-    elif decision == "SHORT_CONDITIONAL":
-        deterministic_idea = (
-            f"โครงสร้าง H4/H1 สนับสนุนฝั่งลงและราคาหลุด short trigger แล้ว "
-            f"แต่ยังต้องเห็น failed retest/continuation ก่อนถือว่า setup ทำงานจริง"
-        )
-    elif decision == "WAIT_MIXED_STRUCTURE":
-        deterministic_idea = "โครงสร้างหลักยังขัดกัน จึงรอให้ H4/H1 ให้ทิศทางสอดคล้องก่อน"
-    else:
-        deterministic_idea = "Directional context มีอยู่ แต่ trigger/confirmation ยังไม่ครบ จึงรอ event confirmation"
+    decision_context = state.get("decision") or {}
+    deterministic_idea = _decision_final_idea(decision_context) if decision_context else (
+        "Directional context มีอยู่ แต่ trigger/confirmation ยังไม่ครบ จึงรอ event confirmation"
+    )
 
     deterministic_plan = {
         **deterministic,
         "status": "CONDITIONAL",
-        "direction": bias if bias in {"BUY", "SELL"} and has_any_numeric_plan else "WAIT",
+        "direction": "WAIT",
     }
     validated_plan = _validate_or_clear_trade_plan(deterministic_plan)
     plan_status = str(validated_plan.get("status") or "NO_TRADE").upper()
@@ -1228,6 +1184,8 @@ def normalize_analyst_output(
     short_key_levels = deterministic.get("short_key_levels") or []
     ai["market_map"] = {
         # R/S are structural key levels, not automatic trade targets.
+        "structural_resistance_nodes": list(long_key_levels),
+        "structural_support_nodes": list(short_key_levels),
         "R1": long_key_levels[0] if len(long_key_levels) > 0 else None,
         "R2": long_key_levels[1] if len(long_key_levels) > 1 else None,
         "R3": long_key_levels[2] if len(long_key_levels) > 2 else None,
@@ -1274,6 +1232,10 @@ def normalize_analyst_output(
         "short_invalidation": validated_plan["short_stop"],
         "pivot": pivot,
         "location_state": location_state,
+        "structural_bias": decision_context.get("structural_bias"),
+        "tactical_direction": decision_context.get("tactical_direction"),
+        "confirmation_state": decision_context.get("confirmation_state"),
+        "decision_state": decision_context.get("decision_state"),
         "roles": {
             "call_wall": "RESISTANCE / DECISION_ZONE",
             "put_wall": "SUPPORT / DECISION_ZONE",
@@ -1293,22 +1255,6 @@ def normalize_analyst_output(
         "execution_targets_exclude": ["gamma_mean", "positive_gamma_zone", "negative_gex_zone", "R1", "R2", "R3", "S1", "S2", "S3"],
     }
 
-    # Customer-facing canonical key levels: real option/OHLC structure,
-    # sorted by price. R/S aliases remain below only for backward compatibility.
-    current_level_price = _num((state.get("price") or {}).get("cfd")) if isinstance(state.get("price"), dict) else None
-    if current_level_price is None:
-        current_level_price = _num((state.get("price") or {}).get("futures"))
-    key_level_values = _unique_sorted(
-        [x for x in (long_key_levels + short_key_levels) if _num(x) is not None]
-    )
-    ai["market_map"]["key_levels"] = [
-        {
-            "price": level,
-            "role": "RESISTANCE_CANDIDATE" if current_level_price is not None and level > current_level_price else "SUPPORT_CANDIDATE",
-        }
-        for level in key_level_values
-    ]
-
     # Give the state machine the exact same canonical map used by rendering.
     state["market_map"] = ai["market_map"]
 
@@ -1317,6 +1263,54 @@ def normalize_analyst_output(
     from src.action_zone_engine import build_action_zones
     from src.data_clock import apply_data_clock
     state["action_zones"] = build_action_zones(state)
+
+    # Re-compose the canonical decision after the market map/action zones exist.
+    # This is the final evidence -> interpretation -> confirmation boundary.
+    from src.decision_engine import build_decision_context
+    decision = build_decision_context(state)
+    state["decision"] = decision
+    state["decision_framework"] = decision["legacy_framework"]
+    decision_context = decision
+
+    # Recompute actionability from the FINAL decision object. This prevents the
+    # first pre-market-map decision from leaking into trade direction/status.
+    confirmed_long = bool((decision.get("confirmation") or {}).get("LONG", {}).get("confirmed"))
+    confirmed_short = bool((decision.get("confirmation") or {}).get("SHORT", {}).get("confirmed"))
+    structural_bias_final = str(decision.get("structural_bias") or "MIXED").upper()
+    deterministic_plan["direction"] = (
+        "BUY" if confirmed_long and structural_bias_final == "BULLISH" and has_any_numeric_plan
+        else "SELL" if confirmed_short and structural_bias_final == "BEARISH" and has_any_numeric_plan
+        else "WAIT"
+    )
+    validated_plan = _validate_or_clear_trade_plan(deterministic_plan)
+    plan_status = str(validated_plan.get("status") or "NO_TRADE").upper()
+    requested_direction = str(validated_plan.get("direction") or "WAIT").upper()
+    plan_direction = (
+        "BUY" if requested_direction == "BUY" and validated_plan.get("long_status") == "CONDITIONAL"
+        else "SELL" if requested_direction == "SELL" and validated_plan.get("short_status") == "CONDITIONAL"
+        else "WAIT"
+    )
+
+    deterministic_idea = _decision_final_idea(decision)
+
+    # The deterministic decision engine owns directional state. LLM bias remains
+    # narrative context only and can never promote an unconfirmed setup.
+    ai["structural_bias"] = decision.get("structural_bias")
+    ai["tactical_direction"] = decision.get("tactical_direction")
+    ai["confirmation_state"] = decision.get("confirmation_state")
+    ai["decision_state"] = decision.get("decision_state")
+    ai["decision_conflicts"] = decision.get("conflicts") or []
+    ai["what_would_confirm"] = decision.get("what_would_confirm") or {}
+    ai["decision_summary"] = decision.get("summary")
+
+    deterministic_status = str(decision.get("analysis_status") or "DEVELOPING").upper()
+    if not state.get("cfd_complete"):
+        deterministic_status = "DEGRADED"
+    ai["analysis_status"] = deterministic_status
+
+    structural_bias = str(decision.get("structural_bias") or "MIXED").upper()
+    ai["bias"] = structural_bias if structural_bias in {"BULLISH", "BEARISH"} else "WAIT"
+
     apply_data_clock(parsed)
 
     execution_plan = build_trade_execution_plan(state)
@@ -1417,7 +1411,7 @@ def normalize_analyst_output(
 
     # Replace model-authored execution language with the deterministic gate
     # interpretation. The model still supplies the broader thesis fields.
-    ai["final_trade_idea"] = deterministic_idea
+    ai["final_trade_idea"] = _decision_final_idea(decision)
     ai["trade_plan"]["execution_state"] = execution_plan["state"]
     ai["trade_plan"]["execution_plan"] = execution_plan
     ai["market_state"] = state
