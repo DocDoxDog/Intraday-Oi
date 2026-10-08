@@ -318,6 +318,16 @@ def build_decision_context(state: dict[str, Any]) -> dict[str, Any]:
     elif structural_bias == "BULLISH" and price_current is not None and structural_support is not None and price_current > structural_support:
         level_trigger = "LONG_LEVEL_REACHED"
 
+    legacy_decision = (
+        "WAIT_MIXED_STRUCTURE"
+        if structural_bias == "MIXED"
+        else "SHORT_CONDITIONAL"
+        if structural_bias == "BEARISH" and level_trigger == "SHORT_LEVEL_REACHED"
+        else "LONG_CONDITIONAL"
+        if structural_bias == "BULLISH" and level_trigger == "LONG_LEVEL_REACHED"
+        else "WAIT_FOR_TRIGGER"
+    )
+
     # Options never override the decision. They enrich the explanation layer.
     summary = (
         f"Structural bias={structural_bias}; tactical={tactical_direction}; "
@@ -373,7 +383,7 @@ def build_decision_context(state: dict[str, Any]) -> dict[str, Any]:
                     "catalyst": catalyst,
                     "trigger": level_trigger,
                 },
-                "8_decision": decision_state,
+                "8_decision": legacy_decision,
             },
             "rules": [
                 "Directional context comes from H4/H1 structure.",
