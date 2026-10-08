@@ -100,25 +100,8 @@ def _format_analysis_message(parsed: dict, ai_result: dict) -> str:
         _escape(read),
     ]
 
-    if upper.get("level") is not None or lower.get("level") is not None:
-        lines += ["", "<b>🧭 ตอนนี้ราคากำลังเดินทางไหน</b>"]
-        if upper.get("level") is not None:
-            target = next_up.get("level")
-            lines.append(
-                f"↑ ราคาเจอ <b>{_show(upper.get('level'))}</b>"
-                + (f" → ถ้าผ่านและยืนได้ มีทางไป <b>{_show(target)}</b>" if target is not None else " → รอดูว่าจะผ่านได้หรือไม่")
-            )
-        if lower.get("level") is not None:
-            target = next_down.get("level")
-            lines.append(
-                f"↓ ด้านล่างมี <b>{_show(lower.get('level'))}</b>"
-                + (f" → ถ้าหลุดและยืนต่ำกว่า มีทางไป <b>{_show(target)}</b>" if target is not None else " → ถ้าหลุด ต้องจับตา node ถัดไป")
-            )
-        if upper.get("level") is not None:
-            lines.append(f"↩️ ถ้า {_show(upper.get('level'))} ไม่ผ่าน ราคามีโอกาสกลับเข้าโซนเดิม")
-        if lower.get("level") is not None:
-            lines.append(f"↩️ ถ้า {_show(lower.get('level'))} หลุดแล้ว reclaim กลับได้ ราคากลับเข้าโซนเดิม")
-
+    # Conditional path is rendered in its own message to avoid repeating
+    # the same transition map twice in the customer bundle.
     lines += [
         "",
         "<b>ทำไมระดับนี้ถึงสำคัญ</b>",
