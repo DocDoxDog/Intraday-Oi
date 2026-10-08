@@ -33,6 +33,7 @@ from src.supabase_client import (
     can_notify,
     mark_notified,
     upsert_market_bars,
+    persist_flow_intelligence,
 )
 from src.url_manager import UrlManager, UrlManagerError
 from src import history, telegram, line
@@ -434,6 +435,18 @@ def run():
         gamma_table_full_url=gamma_table_full_url,
     )
     print(f"✅ Done. Row id={row.get('id')}")
+    try:
+        flow_persisted = persist_flow_intelligence(parsed, ai_result, snapshot_id=row.get("id"))
+        print(
+            "    ✅ Flow intelligence persisted: state={} nodes={} transitions={} event={}".format(
+                flow_persisted.get("state_id"),
+                flow_persisted.get("nodes"),
+                flow_persisted.get("transitions"),
+                flow_persisted.get("event"),
+            )
+        )
+    except Exception as e:
+        print(f"⚠️  Flow intelligence persistence failed (snapshot remains saved): {e}", file=sys.stderr)
     try:
         insert_oi_intelligence(parsed, snapshot_id=row.get("id"))
         print("    ✅ Structured OI intelligence persisted")
