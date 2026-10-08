@@ -42,6 +42,7 @@ from src.news_announcement import collect_news, format_news_announcement
 from src.market_state import enrich_market_state, normalize_analyst_output
 from src.macro_state import build_macro_state
 from src.quant_metrics import enrich_quant_metrics
+from src.market_flow_engine import build_flow_context
 from intelligence.news.free_feed import collect_free_news
 
 
@@ -362,6 +363,22 @@ def run():
     # reaches both the analyst and the Telegram/LINE renderers.
     parsed = enrich_market_state(parsed, hist_context)
     parsed = enrich_quant_metrics(parsed, hist_context)
+    # Deterministic flow layer: real OHLC + observed option nodes -> conditional path.
+    try:
+        flow_context = build_flow_context(parsed)
+        parsed.setdefault("raw_series", {})["market_flow"] = flow_context
+        parsed["raw_series"]["market_state"]["path"] = flow_context.get("path") or {}
+        parsed["raw_series"]["market_state"]["price_memory"] = flow_context.get("price_memory") or {}
+        print(
+            "    market flow: status={} nodes={}".format(
+                flow_context.get("status"), len(flow_context.get("nodes") or [])
+            )
+        )
+    except Exception as e:
+        parsed.setdefault("raw_series", {})["market_flow"] = {
+            "status": "UNKNOWN", "error": type(e).__name__
+        }
+        print(f"⚠️  Market flow engine failed (analysis continues): {e}", file=sys.stderr)
     market_state = (parsed.get("raw_series") or {}).get("market_state") or {}
     print(
         f"    market state: CFD={'OK' if market_state.get('cfd_complete') else 'UNKNOWN'} | "
@@ -397,6 +414,17 @@ def run():
     # replace deterministic CFD levels, history coverage, or the requirement
     # to emit a conditional trade roadmap.
     ai_result = normalize_analyst_output(parsed, hist_context, ai_result)
+    # Deterministic path is authoritative; LLM cannot replace observed nodes.
+    flow_context = (parsed.get("raw_series") or {}).get("market_flow") or {}
+    if flow_context.get("status") == "VALID":
+        ai_result["market_flow"] = {
+            "version": flow_context.get("version"),
+            "read": flow_context.get("market_read"),
+            "flow": flow_context.get("flow_read"),
+        }
+        ai_result["structural_path"] = flow_context.get("path") or {}
+        ai_result["price_memory"] = flow_context.get("price_memory") or {}
+        ai_result["structural_nodes"] = flow_context.get("nodes") or []
     print(
         f"    analyst guardrails: status={ai_result.get('analysis_status')} "
         f"trade_plan={((ai_result.get('trade_plan') or {}).get('status') or 'UNKNOWN')} "
