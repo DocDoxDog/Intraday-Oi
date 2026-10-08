@@ -749,6 +749,11 @@ RULES
 - financial_engineering ต้องอธิบายผลของ Gamma/IV/DTE ต่อพฤติกรรมราคา ไม่ใช่แค่เรียงตัวเลข
 - history_comparison ต้องเล่า "อะไรเปลี่ยนจากช่วงก่อน" และใช้สัปดาห์/เซสชันปัจจุบันเป็นบริบทหลัก; อย่าใช้ข้อมูลเก่าเป็น baseline ของ intraday โดยไม่มีหลักฐานรองรับ
 - ห้ามสร้างบทสรุปว่าแรงใดเป็นผู้ชนะเพียงเพราะ Call/Put OI เพิ่มขึ้น
+- ห้ามใช้คำว่า IV "สูง" หรือ "ต่ำ" เว้นแต่ input มี baseline/percentile ที่ยืนยันได้; หากไม่มีให้รายงานเพียงระดับปัจจุบันและการเปลี่ยนแปลง
+- analysis_status ต้องไม่เป็น CONFIRMED จากการคาดการณ์ของโมเดล; ให้ถือว่า CONFIRMED ได้ต่อเมื่อ deterministic decision context ระบุว่ามี price confirmation แล้ว
+- แยก structural bias (H4/H1) ออกจาก tactical direction (M5/M15); tactical ที่สวนโครงสร้างให้รายงานเป็น transition/recovery ไม่ใช่ reversal ที่ยืนยันแล้ว
+- Positive GEX เป็นเพียงบริบทที่อาจช่วย dampen การแกว่ง; ห้ามสรุปว่า "ราคาจะติดกรอบ" จาก GEX เพียงอย่างเดียว
+- Flow Statement ต้องตอบ 3 เรื่อง: เกิดอะไรขึ้น → evidence หลายชั้นสอดคล้องกันหรือไม่ → อะไรจะยืนยันต่อ โดยไม่ทำซ้ำ raw OI/IV/GEX ทั้งหมด
 """
 
 
