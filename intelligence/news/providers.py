@@ -296,7 +296,8 @@ def fetch_forex_factory_calendar(
 
     calendar_retrieved_at = datetime.now(timezone.utc).isoformat()
     severity = {"High": "HIGH", "Medium": "MEDIUM", "Low": "LOW", "Holiday": "IGNORE"}
-    out = []
+    out: list[dict[str, Any]] = []
+    raw_events: list[dict[str, Any]] = []
 
     for e in payload:
         if not isinstance(e, dict):
@@ -318,6 +319,7 @@ def fetch_forex_factory_calendar(
         actual = _calendar_value(e.get("actual"))
         forecast = _calendar_value(e.get("forecast"))
         previous = _calendar_value(e.get("previous"))
+        raw_events.append(e)
         out.append({
             "headline": f"{country} — {title}",
             "source": "Forex Factory",
@@ -345,56 +347,23 @@ def fetch_forex_factory_calendar(
             },
         })
 
-    if enrich_html and out:
+    if enrich_html and raw_events:
         try:
             html_response = _get(html_url)
             matched, actual_enriched = _enrich_calendar_from_html(
-                payload,
+                raw_events,
                 html_response.text,
-                year=max(event_dt.year for event_dt in (item["published_at"] for item in out)),
+                year=max(item["published_at"].year for item in out),
             )
-            by_key = {
-                (
-                    str(item.get("country") or "").upper(),
-                    _canonical_title(item.get("title")),
-                    str(item.get("date") or ""),
-                ): item
-                for item in payload
-                if isinstance(item, dict)
-            }
-            for row in out:
-                # Find the corresponding raw feed event and copy its enriched
-                # calendar payload. Date/title/currency are the stable source
-                # identity used by the weekly JSON feed.
-                prefix = row["headline"].split(" — ", 1)
-                country = prefix[0] if prefix else ""
-                title = prefix[1] if len(prefix) > 1 else ""
-                raw_match = next(
-                    (
-                        item for item in payload
-                        if str(item.get("country") or "").strip().upper() == country
-                        and _canonical_title(item.get("title")) == _canonical_title(title)
-                        and str(item.get("date") or "") == row["event_time"].isoformat()
-                    ),
-                    None,
-                )
-                if raw_match is None:
-                    raw_match = next(
-                        (
-                            item for item in payload
-                            if str(item.get("country") or "").strip().upper() == country
-                            and _canonical_title(item.get("title")) == _canonical_title(title)
-                            and str(item.get("date") or "").strip() == row["event_time"].isoformat().replace("+00:00", "Z")
-                        ),
-                        None,
-                    )
-                if raw_match is not None:
-                    row["calendar"].update(raw_match.get("calendar") or {})
-                    row["calendar"]["data_status"] = "HTML_ENRICHED" if matched else "JSON_ONLY"
-                    row["calendar"]["matched_rows"] = matched
-                    row["calendar"]["actual_enriched_count"] = actual_enriched
+            for row, event in zip(out, raw_events):
+                row["calendar"].update(event.get("calendar") or {})
+                row["calendar"]["data_status"] = "HTML_ENRICHED" if (
+                    event.get("calendar", {}).get("match") == "EXACT_OR_UNIQUE"
+                ) else "JSON_ONLY"
+                row["calendar"]["matched_rows"] = matched
+                row["calendar"]["actual_enriched_count"] = actual_enriched
             print(
-                f"    Forex Factory calendar: JSON={len(out)} HTML rows={matched} actual_enriched={actual_enriched}"
+                f"    Forex Factory calendar: JSON={len(out)} HTML matches={matched} actual_enriched={actual_enriched}"
             )
         except requests.RequestException as exc:
             for row in out:
