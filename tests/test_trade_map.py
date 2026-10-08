@@ -19,6 +19,10 @@ def test_trade_map_uses_structural_walls_and_non_adjacent_source_strikes():
                     {"strike": 4080, "oiTotal": 800, "net_gex": 8},
                     {"strike": 4060, "oiTotal": 700, "net_gex": 7},
                 ],
+            },
+            "multi_expiry_gamma_zones": {
+                "resistance_nodes": [4180, 4200, 4220],
+                "support_nodes": [4100, 4080, 4060],
             }
         },
     }
