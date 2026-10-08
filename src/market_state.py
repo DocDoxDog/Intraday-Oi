@@ -675,8 +675,6 @@ def _deterministic_trade_levels(
     atr14 = _num(technical_context.get("atr14"))
     if atr14 is None:
         atr14 = _num((technical_context.get("m5") or {}).get("atr14"))
-    if atr14 is None:
-        atr14 = _num((((technical_context.get("timeframes") or {}).get("m5") or {}).get("atr14")))
     try:
         local_max_atr = float(os.environ.get("LOCAL_ZONE_MAX_ATR", "1.5"))
     except (TypeError, ValueError):
@@ -796,18 +794,6 @@ def _deterministic_trade_levels(
         except Exception:
             pass
 
-    # Canonical levels are already source-derived. Use them only as a
-    # compatibility fallback when the live path/zone selector has no nodes.
-    if not long_key_levels:
-        long_key_levels = _unique_sorted(
-            [v for k, v in levels.items() if k.startswith("resistance_") and _num(v) is not None],
-        )
-    if not short_key_levels:
-        short_key_levels = _unique_sorted(
-            [v for k, v in levels.items() if k.startswith("support_") and _num(v) is not None],
-            reverse=True,
-        )
-
     local_action_resistance = next(
         (level for level in long_key_levels if current is not None and level - current <= local_max_distance),
         None,
@@ -819,8 +805,6 @@ def _deterministic_trade_levels(
     # Prefer real nodes already selected by the conditional path. This
     # avoids the old failure mode where a trigger consumed the only gamma
     # node and TP1-TP5 became empty even though continuation nodes existed.
-    path = (raw.get("market_flow") or {}).get("path") or {}
-    path_nodes = [n for n in (path.get("nodes") or []) if isinstance(n, dict) and _num(n.get("level")) is not None]
     path = (raw.get("market_flow") or {}).get("path") or {}
     path_nodes = [n for n in (path.get("nodes") or []) if isinstance(n, dict) and _num(n.get("level")) is not None]
     def structural_targets(side: str, anchor: float | None) -> list[float]:
@@ -838,29 +822,24 @@ def _deterministic_trade_levels(
         path_levels = _unique_sorted(path_levels, reverse=side == "SHORT")
         if path_levels:
             return path_levels[:5]
-
         nodes = long_key_levels if side == "LONG" else short_key_levels
-        key_levels = [
+        filtered = [
             value for value in nodes
             if (value > anchor if side == "LONG" else value < anchor)
         ]
-        if key_levels:
-            return key_levels[:5]
+        if filtered:
+            return filtered[:5]
 
-        # Last resort: observed option-chain strikes only. These are real
-        # source levels; never synthesize an evenly spaced price ladder.
-        source = source_candidates(side, anchor)
-        return [item["level"] for item in source[:5]]
+        # Final evidence-only fallback: use observed option-chain strikes
+        # beyond the trigger. This is deliberately not a fixed-price ladder.
+        observed = source_candidates(side, anchor)
+        return [item["level"] for item in observed[:5]]
 
     long_reclaim_trigger = local_action_resistance
     long_reclaim_stop = (
         nearest_source_level(long_reclaim_trigger, above=False)
         if long_reclaim_trigger is not None else None
-    ) or nearest_canonical_level(long_reclaim_trigger, above=False) or next(
-        (level for level in short_key_levels
-         if long_reclaim_trigger is not None and level < long_reclaim_trigger),
-        None,
-    )
+    ) or nearest_canonical_level(long_reclaim_trigger, above=False)
     long_reclaim_targets = trade_targets(
         "LONG", long_reclaim_trigger, long_reclaim_stop,
         structural_targets("LONG", long_reclaim_trigger)
@@ -870,11 +849,7 @@ def _deterministic_trade_levels(
     long_support_stop = (
         nearest_source_level(long_support_trigger, above=False)
         if long_support_trigger is not None else None
-    ) or nearest_canonical_level(long_support_trigger, above=False) or next(
-        (level for level in short_key_levels
-         if long_support_trigger is not None and level < long_support_trigger),
-        None,
-    )
+    ) or nearest_canonical_level(long_support_trigger, above=False)
     long_support_targets = trade_targets(
         "LONG", long_support_trigger, long_support_stop,
         structural_targets("LONG", long_support_trigger)
@@ -884,11 +859,7 @@ def _deterministic_trade_levels(
     short_rejection_stop = (
         nearest_source_level(short_rejection_trigger, above=True)
         if short_rejection_trigger is not None else None
-    ) or nearest_canonical_level(short_rejection_trigger, above=True) or next(
-        (level for level in long_key_levels
-         if short_rejection_trigger is not None and level > short_rejection_trigger),
-        None,
-    )
+    ) or nearest_canonical_level(short_rejection_trigger, above=True)
     short_rejection_targets = trade_targets(
         "SHORT", short_rejection_trigger, short_rejection_stop,
         structural_targets("SHORT", short_rejection_trigger)
@@ -898,11 +869,7 @@ def _deterministic_trade_levels(
     short_breakdown_stop = (
         nearest_source_level(short_breakdown_trigger, above=True)
         if short_breakdown_trigger is not None else None
-    ) or nearest_canonical_level(short_breakdown_trigger, above=True) or next(
-        (level for level in long_key_levels
-         if short_breakdown_trigger is not None and level > short_breakdown_trigger),
-        None,
-    )
+    ) or nearest_canonical_level(short_breakdown_trigger, above=True)
     short_breakdown_targets = trade_targets(
         "SHORT", short_breakdown_trigger, short_breakdown_stop,
         structural_targets("SHORT", short_breakdown_trigger)
