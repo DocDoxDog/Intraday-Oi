@@ -67,12 +67,18 @@ def test_telegram_renders_three_text_message_sections():
         "dte": 0.34,
         "raw_series": {
             "totals": {"open_interest_view_put": 3996, "open_interest_view_call": 3048},
-            "multi_expiry_gamma": {
-                "columns": [{"code": "OG1V6"}, {"code": "G1M6"}, {"code": "G1T6"}, {"code": "G1W6"}, {"code": "G1R6"}, {"code": "OG2V6"}, {"code": "G2M6"}],
-            },
-            "multi_expiry_gamma_zones": {
-                "highest_positive_gamma": 4215,
-                "highest_negative_gamma": 4200,
+            "market_flow": {
+                "path": {
+                    "current_price": 4186.58736,
+                    "nodes": [
+                        {"level": 4232.48736, "role": "structural resistance"},
+                        {"level": 4222.48736, "role": "structural resistance"},
+                        {"level": 4197.48736, "role": "retest node"},
+                        {"level": 4172.48736, "role": "support"},
+                        {"level": 4152.48736, "role": "structural support"},
+                        {"level": 4122.48736, "role": "deep support"},
+                    ],
+                }
             },
         },
     }
@@ -104,10 +110,15 @@ def test_telegram_renders_three_text_message_sections():
     assert "VOLATILITY" in m3
     assert "Current OI" not in m3
     assert "KEY LEVELS" in m4
-    assert "🔴 <b>ต้าน</b>" in m4 and "🟢 <b>รับ</b>" in m4
-    assert "R1 • 4,232.49" in m4 and "R4 •" in m4
-    assert "Mean • -" in m4
-    assert "S1 • 4,152.49" in m4 and "S4 •" in m4
+    assert "4,232.49" in m4
+    assert "4,222.49" in m4
+    assert "4,197.49" in m4
+    assert "4,172.49" in m4
+    assert "4,152.49" in m4
+    assert "4,122.49" in m4
+    assert m4.index("4,232.49") < m4.index("4,197.49") < m4.index("4,152.49")
+    assert "R1 •" not in m4
+    assert "S1 •" not in m4
     assert "Call Wall" not in m4
     assert "Put Wall" not in m4
     assert "GAMMA TERM STRUCTURE" not in m4
