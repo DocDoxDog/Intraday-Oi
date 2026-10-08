@@ -36,7 +36,12 @@ def _side_confirmation(state: dict[str, Any], side: str, current: float | None, 
     if current is None or trigger is None:
         return {"state": "DATA_INSUFFICIENT", "conditions": []}
 
-    htf = str((((state.get("decision_framework") or {}).get("steps") or {}).get("1_market_state") or {}).get("htf_structure") or "mixed").lower()
+    htf = str(
+        (state.get("decision") or {}).get("structural_bias")
+        or (((state.get("decision_framework") or {}).get("steps") or {})
+            .get("1_market_state") or {}).get("htf_structure")
+        or "mixed"
+    ).lower()
     if side == "LONG":
         aligned = htf == "bullish" and _trend(state, "m15") == "bullish" and _trend(state, "m5") == "bullish"
         bos_ok = _bos(state, "m5") in {"bullish", "bull", "up", "bos_up", "break_up"}
@@ -109,8 +114,10 @@ def build_trade_execution_plan(state: dict[str, Any]) -> dict[str, Any]:
     setups = action_zones.get("setups") or {}
 
     htf = str(
-        (((state.get("decision_framework") or {}).get("steps") or {})
-         .get("1_market_state") or {}).get("htf_structure") or "mixed"
+        (state.get("decision") or {}).get("structural_bias")
+        or (((state.get("decision_framework") or {}).get("steps") or {})
+            .get("1_market_state") or {}).get("htf_structure")
+        or "mixed"
     ).lower()
 
     def fallback_confirmation(side: str, trigger: float | None) -> dict[str, Any]:
