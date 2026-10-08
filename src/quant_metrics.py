@@ -120,6 +120,22 @@ def enrich_quant_metrics(parsed: dict[str, Any], history: dict[str, Any] | None 
     skew = _n(vol.get("skew"))
     term_slope = _iv_slope(term)
 
+    # Options-implied expected move from ATM IV and time-to-expiry.
+    # This is a magnitude/range estimate, not a directional forecast.
+    expected_range = None
+    if futures is not None and iv is not None and dte is not None and futures > 0 and iv >= 0 and dte >= 0:
+        one_sigma = futures * (iv / 100.0) * sqrt(dte / 365.0)
+        expected_range = {
+            "one_sigma": one_sigma,
+            "two_sigma": one_sigma * 2.0,
+            "one_sigma_low": futures - one_sigma,
+            "one_sigma_high": futures + one_sigma,
+            "two_sigma_low": futures - 2.0 * one_sigma,
+            "two_sigma_high": futures + 2.0 * one_sigma,
+            "method": "ATM_IV_BLACK76_MAGNITUDE_APPROX",
+            "direction": "UNKNOWN",
+        }
+
     observed_returns = [x for x in returns.values() if x is not None]
     realized_vol_proxy = None
     if len(observed_returns) >= 2:
@@ -170,6 +186,7 @@ def enrich_quant_metrics(parsed: dict[str, Any], history: dict[str, Any] | None 
         },
         "volatility": {
             "implied_vol": iv,
+            "expected_range": expected_range,
             "realized_vol_proxy": realized_vol_proxy,
             "iv_minus_realized_proxy": iv - realized_vol_proxy if iv is not None and realized_vol_proxy is not None else None,
             "iv_term_slope_per_dte": term_slope,
