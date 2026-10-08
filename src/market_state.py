@@ -723,14 +723,15 @@ def _deterministic_trade_levels(
         risk = abs(anchor - stop)
         if risk <= 0:
             return []
-        # A resistance/support becomes a trade target only if it offers >=1R.
-        minimum_distance = risk
+        # Targets must be real structural nodes beyond the trigger.
+        # Risk/reward is evaluated separately by risk_engine; it must not
+        # erase valid structural targets from the customer market map.
         return [
             level for level in structural
             if (
-                level - anchor >= minimum_distance
+                level > anchor
                 if side == "LONG"
-                else anchor - level >= minimum_distance
+                else level < anchor
             )
         ][:5]
 
