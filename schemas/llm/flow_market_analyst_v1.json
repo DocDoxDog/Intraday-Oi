@@ -1,0 +1,329 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "analysis_id": {
+      "type": "string"
+    },
+    "as_of": {
+      "type": "string"
+    },
+    "product": {
+      "type": "string"
+    },
+    "market_state": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "state": {
+          "type": "string"
+        },
+        "evidence_quality": {
+          "type": "string",
+          "enum": [
+            "HIGH",
+            "MEDIUM",
+            "LOW",
+            "UNKNOWN"
+          ]
+        },
+        "evidence_refs": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "summary": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "state",
+        "evidence_quality",
+        "evidence_refs",
+        "summary"
+      ]
+    },
+    "volatility": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "regime": {
+          "type": "string"
+        },
+        "structure": {
+          "type": "string"
+        },
+        "implication": {
+          "type": "string"
+        },
+        "evidence_refs": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "required": [
+        "regime",
+        "structure",
+        "implication",
+        "evidence_refs"
+      ]
+    },
+    "options_risk": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "gamma_state": {
+          "type": "string"
+        },
+        "delta_state": {
+          "type": "string"
+        },
+        "vanna_state": {
+          "type": "string"
+        },
+        "charm_state": {
+          "type": "string"
+        },
+        "mechanism": {
+          "type": "string"
+        },
+        "evidence_refs": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "required": [
+        "gamma_state",
+        "delta_state",
+        "vanna_state",
+        "charm_state",
+        "mechanism",
+        "evidence_refs"
+      ]
+    },
+    "macro_news": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "regime": {
+          "type": "string"
+        },
+        "events": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "transmission": {
+          "type": "string"
+        },
+        "observed_response": {
+          "type": "string"
+        },
+        "conflict": {
+          "type": "string"
+        },
+        "evidence_refs": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "required": [
+        "regime",
+        "events",
+        "transmission",
+        "observed_response",
+        "conflict",
+        "evidence_refs"
+      ]
+    },
+    "structural_path": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "current_node": {
+          "type": "string"
+        },
+        "hold_path": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "break_path": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "reclaim_path": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "invalidation": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "evidence_refs": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "required": [
+        "current_node",
+        "hold_path",
+        "break_path",
+        "reclaim_path",
+        "invalidation",
+        "evidence_refs"
+      ]
+    },
+    "scenarios": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "priority": {
+            "type": "string",
+            "enum": [
+              "BASE",
+              "ALTERNATIVE",
+              "INVALIDATION"
+            ]
+          },
+          "condition": {
+            "type": "string"
+          },
+          "activation_event": {
+            "type": "string"
+          },
+          "next_node": {
+            "type": "string"
+          },
+          "invalidation": {
+            "type": "string"
+          },
+          "evidence_refs": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "id",
+          "priority",
+          "condition",
+          "activation_event",
+          "next_node",
+          "invalidation",
+          "evidence_refs"
+        ]
+      }
+    },
+    "evidence_ledger": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "claim": {
+            "type": "string"
+          },
+          "epistemic_status": {
+            "type": "string",
+            "enum": [
+              "FACT",
+              "DERIVED",
+              "MODEL_ASSUMPTION",
+              "CONSISTENT_WITH",
+              "HYPOTHESIS",
+              "UNKNOWN"
+            ]
+          },
+          "evidence_refs": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "limitation": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "claim",
+          "epistemic_status",
+          "evidence_refs",
+          "limitation"
+        ]
+      }
+    },
+    "uncertainties": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "narrative": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "current_state": {
+          "type": "string"
+        },
+        "why_now": {
+          "type": "string"
+        },
+        "path": {
+          "type": "string"
+        },
+        "confirmation": {
+          "type": "string"
+        },
+        "invalidation": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "current_state",
+        "why_now",
+        "path",
+        "confirmation",
+        "invalidation"
+      ]
+    }
+  },
+  "required": [
+    "analysis_id",
+    "as_of",
+    "product",
+    "market_state",
+    "volatility",
+    "options_risk",
+    "macro_news",
+    "structural_path",
+    "scenarios",
+    "evidence_ledger",
+    "uncertainties",
+    "narrative"
+  ]
+}
