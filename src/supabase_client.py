@@ -16,6 +16,12 @@ SCREENSHOT_BUCKET = os.environ.get("SUPABASE_STORAGE_BUCKET", "oi-screenshots")
 # เพราะ CME data ต้องใช้ส่วนตัวเท่านั้น ห้ามเปิด public (ดู README หัวข้อ "ข้อควรระวัง")
 SIGNED_URL_EXPIRY_SECONDS = 3600
 
+def _num(value):
+    try:
+        return None if value in (None, "") else float(value)
+    except (TypeError, ValueError):
+        return None
+
 # Keep the insert compatible with deployments that have the original schema.
 # New enrichment fields (spot_price, basis_diff, cfd_price, technical_context)
 # remain available to analysis and inside raw_series JSONB, but are not sent as
