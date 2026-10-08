@@ -63,4 +63,5 @@ def test_conditional_path_does_not_claim_next_node_when_none_exists():
     path = build_conditional_path(100.0, [{"level":101.0}, {"level":99.0}])
     assert path["next_up"] is None
     assert path["next_down"] is None
-    assert "รอดู node ถัดไป" in path["transitions"][1]["condition"].get("acceptance_required", "") if False else True
+    assert path["upper_node"]["level"] == 101.0
+    assert path["lower_node"]["level"] == 99.0
