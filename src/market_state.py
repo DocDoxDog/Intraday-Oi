@@ -584,6 +584,7 @@ def enrich_market_state(parsed: dict[str, Any], history: dict[str, Any] | None =
         },
         "gamma": _gamma_state(parsed, history),
         "history": _history_for(parsed, history),
+        "price_memory": history.get("price_memory") or {},
         "technical": technical_summary,
         "news": [
             {
@@ -815,9 +816,10 @@ def _deterministic_trade_levels(
     # be far away and remain valid context; only source-derived levels within
     # the configured ATR window can become executable action zones.
     technical_context = parsed.get("technical_context") or {}
-    atr14 = _num(technical_context.get("atr14"))
+    technical_timeframes = technical_context.get("timeframes") or {}
+    atr14 = _num((technical_timeframes.get("m5") or {}).get("atr14"))
     if atr14 is None:
-        atr14 = _num((technical_context.get("m5") or {}).get("atr14"))
+        atr14 = _num((technical_timeframes.get("m15") or {}).get("atr14"))
     try:
         local_max_atr = float(os.environ.get("LOCAL_ZONE_MAX_ATR", "1.5"))
     except (TypeError, ValueError):
@@ -830,12 +832,26 @@ def _deterministic_trade_levels(
         local_fallback_distance = 15.0
     local_fallback_distance = max(5.0, local_fallback_distance)
 
+    # Price-memory levels come from observed Twelve Data OHLC structure.
+    # They are real market observations, not synthetic $5/$10 ladders.
+    price_memory = technical_context.get("price_memory") or {}
+    observed_levels: list[float] = []
+    for context in (price_memory.get("timeframes") or {}).values():
+        if not isinstance(context, dict):
+            continue
+        for key in ("swing_high", "swing_low", "last_close"):
+            value = _num(context.get(key))
+            if value is not None:
+                observed_levels.append(value)
+
     above_now = source_candidates("LONG", current)
     below_now = source_candidates("SHORT", current)
     above_levels = [item["level"] for item in above_now]
     below_levels = [item["level"] for item in below_now]
     above_levels.extend(canonical_candidates("ABOVE", current))
     below_levels.extend(canonical_candidates("BELOW", current))
+    above_levels.extend(value for value in observed_levels if current is None or value > current)
+    below_levels.extend(value for value in observed_levels if current is None or value < current)
     above_levels = _unique_sorted(above_levels)
     below_levels = _unique_sorted(below_levels, reverse=True)
 
@@ -855,13 +871,20 @@ def _deterministic_trade_levels(
         None,
     )
 
-    def structural_levels(side: str, anchor: float | None) -> list[float]:
-        candidates = source_candidates(side, anchor)
-        if not candidates:
+    def structural_candidates(side: str, anchor: float | None) -> list[float]:
+        if anchor is None:
             return []
-        # Key levels describe the nearest real source structure. They are not
-        # automatically executable targets.
-        return [item["level"] for item in candidates[:3]]
+        values = source_candidates(side, anchor)
+        out = [item["level"] for item in values]
+        if side == "LONG":
+            out.extend(level for level in above_levels if level > anchor)
+        else:
+            out.extend(level for level in below_levels if level < anchor)
+        return _unique_sorted(out, reverse=side == "SHORT")
+
+    def structural_levels(side: str, anchor: float | None) -> list[float]:
+        # Key levels describe the nearest real option/OHLC structure.
+        return structural_candidates(side, anchor)[:5]
 
     def trade_targets(
         side: str,
@@ -885,8 +908,8 @@ def _deterministic_trade_levels(
             )
         ][:5]
 
-    long_candidates = source_candidates("LONG", long_trigger)
-    short_candidates = source_candidates("SHORT", short_trigger)
+    long_candidates = [{"level": x} for x in structural_candidates("LONG", long_trigger)]
+    short_candidates = [{"level": x} for x in structural_candidates("SHORT", short_trigger)]
 
     # R/S are nearest structural context around current price.
     long_key_levels = above_levels[:5]
@@ -897,32 +920,32 @@ def _deterministic_trade_levels(
         nearest_source_level(long_reclaim_trigger, above=False)
         if long_reclaim_trigger is not None else None
     ) or nearest_canonical_level(long_reclaim_trigger, above=False)
-    long_reclaim_candidates = source_candidates("LONG", long_reclaim_trigger)
-    long_reclaim_targets = trade_targets("LONG", long_reclaim_trigger, long_reclaim_stop, [item["level"] for item in long_reclaim_candidates])
+    long_reclaim_candidates = structural_candidates("LONG", long_reclaim_trigger)
+    long_reclaim_targets = trade_targets("LONG", long_reclaim_trigger, long_reclaim_stop, long_reclaim_candidates)
 
     long_support_trigger = local_action_support
     long_support_stop = (
         nearest_source_level(long_support_trigger, above=False)
         if long_support_trigger is not None else None
     ) or nearest_canonical_level(long_support_trigger, above=False)
-    long_support_candidates = source_candidates("LONG", long_support_trigger)
-    long_support_targets = trade_targets("LONG", long_support_trigger, long_support_stop, [item["level"] for item in long_support_candidates])
+    long_support_candidates = structural_candidates("LONG", long_support_trigger)
+    long_support_targets = trade_targets("LONG", long_support_trigger, long_support_stop, long_support_candidates)
 
     short_rejection_trigger = local_action_resistance
     short_rejection_stop = (
         nearest_source_level(short_rejection_trigger, above=True)
         if short_rejection_trigger is not None else None
     ) or nearest_canonical_level(short_rejection_trigger, above=True)
-    short_rejection_candidates = source_candidates("SHORT", short_rejection_trigger)
-    short_rejection_targets = trade_targets("SHORT", short_rejection_trigger, short_rejection_stop, [item["level"] for item in short_rejection_candidates])
+    short_rejection_candidates = structural_candidates("SHORT", short_rejection_trigger)
+    short_rejection_targets = trade_targets("SHORT", short_rejection_trigger, short_rejection_stop, short_rejection_candidates)
 
     short_breakdown_trigger = local_action_support
     short_breakdown_stop = (
         nearest_source_level(short_breakdown_trigger, above=True)
         if short_breakdown_trigger is not None else None
     ) or nearest_canonical_level(short_breakdown_trigger, above=True)
-    short_breakdown_candidates = source_candidates("SHORT", short_breakdown_trigger)
-    short_breakdown_targets = trade_targets("SHORT", short_breakdown_trigger, short_breakdown_stop, [item["level"] for item in short_breakdown_candidates])
+    short_breakdown_candidates = structural_candidates("SHORT", short_breakdown_trigger)
+    short_breakdown_targets = trade_targets("SHORT", short_breakdown_trigger, short_breakdown_stop, short_breakdown_candidates)
 
     def tp_fields(values: list[float]) -> dict[str, float | None]:
         return {
@@ -1269,6 +1292,22 @@ def normalize_analyst_output(
         "source": "QUIKSTRIKE_GEX_STRIKES_NORMALIZED_TO_CFD",
         "execution_targets_exclude": ["gamma_mean", "positive_gamma_zone", "negative_gex_zone", "R1", "R2", "R3", "S1", "S2", "S3"],
     }
+
+    # Customer-facing canonical key levels: real option/OHLC structure,
+    # sorted by price. R/S aliases remain below only for backward compatibility.
+    current_level_price = _num((state.get("price") or {}).get("cfd")) if isinstance(state.get("price"), dict) else None
+    if current_level_price is None:
+        current_level_price = _num((state.get("price") or {}).get("futures"))
+    key_level_values = _unique_sorted(
+        [x for x in (long_key_levels + short_key_levels) if _num(x) is not None]
+    )
+    ai["market_map"]["key_levels"] = [
+        {
+            "price": level,
+            "role": "RESISTANCE_CANDIDATE" if current_level_price is not None and level > current_level_price else "SUPPORT_CANDIDATE",
+        }
+        for level in key_level_values
+    ]
 
     # Give the state machine the exact same canonical map used by rendering.
     state["market_map"] = ai["market_map"]

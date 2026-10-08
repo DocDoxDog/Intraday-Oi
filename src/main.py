@@ -25,6 +25,7 @@ from src.technical_analysis import build_context
 from src.oi_positioning import enrich as enrich_oi_positioning
 from src.supabase_client import (
     insert_snapshot,
+    persist_market_bars,
     insert_oi_intelligence,
     insert_multi_expiry_options,
     upload_screenshot,
@@ -122,6 +123,16 @@ def run():
     if os.environ.get("TWELVEDATA_API_KEY"):
         try:
             parsed["technical_context"] = build_context()
+            market_bars = parsed["technical_context"].pop("_market_bars", {})
+            try:
+                persisted_bars = persist_market_bars(
+                    market_bars,
+                    instrument=parsed["technical_context"].get("symbol") or "XAU/USD",
+                )
+                print(f"    OHLC persisted to market_bars: {persisted_bars} bars")
+            except Exception as persist_error:
+                # OHLC persistence failure must not fabricate technical evidence.
+                print(f"⚠️  OHLC persistence failed; current technical analysis remains in-memory only: {persist_error}", file=sys.stderr)
             confirmation = parsed["technical_context"].get("confirmation", {})
             print(
                 f"    bias={confirmation.get('bias')} "

@@ -75,6 +75,73 @@ def get_signed_url(path: str, expiry_seconds: int = SIGNED_URL_EXPIRY_SECONDS) -
     return signed.get("signedURL") or signed.get("signedUrl")
 
 
+def persist_market_bars(
+    bars_by_timeframe: dict[str, list[dict]],
+    *,
+    instrument: str = "XAU/USD",
+    source: str = "twelve_data",
+) -> int:
+    """Persist canonical OHLC bars idempotently into public.market_bars."""
+    import hashlib
+    from datetime import datetime, timezone
+
+    if not bars_by_timeframe:
+        return 0
+
+    client = get_client()
+    rows = []
+    for timeframe, bars in bars_by_timeframe.items():
+        for bar in bars or []:
+            if not isinstance(bar, dict):
+                continue
+            raw_time = bar.get("datetime")
+            if not raw_time:
+                continue
+            try:
+                dt = datetime.fromisoformat(str(raw_time).replace("Z", "+00:00"))
+                if dt.tzinfo is None:
+                    dt = dt.replace(tzinfo=timezone.utc)
+                dt = dt.astimezone(timezone.utc)
+            except (TypeError, ValueError):
+                continue
+
+            identity = f"{source}|{instrument}|{timeframe}|{dt.isoformat()}"
+            # market_bars.id has no database default in the deployed schema.
+            digest = hashlib.sha256(identity.encode("utf-8")).hexdigest()
+            row_id = int(digest[:15], 16)
+
+            rows.append({
+                "id": row_id,
+                "source": source,
+                "instrument": instrument,
+                "timeframe": timeframe,
+                "bar_time": dt.isoformat(),
+                "open": bar.get("open"),
+                "high": bar.get("high"),
+                "low": bar.get("low"),
+                "close": bar.get("close"),
+                "volume": bar.get("volume"),
+                "session": None,
+                "timezone": "UTC",
+                "is_final": True,
+                "provenance": {
+                    "provider": "twelve_data",
+                    "symbol": instrument,
+                    "interval": timeframe,
+                },
+            })
+
+    if not rows:
+        return 0
+
+    # The unique constraint is installed by the matching migration.
+    client.table("market_bars").upsert(
+        rows,
+        on_conflict="source,instrument,timeframe,bar_time",
+    ).execute()
+    return len(rows)
+
+
 def insert_snapshot(
     parsed: dict,
     ai_summary: str | None = None,
@@ -125,6 +192,49 @@ def insert_news_announcements(items: list[dict]) -> list[dict]:
             for row in (result.data or [])
         )
 
+    # Calendar values arrive after the initial announcement. Update existing
+    # records in place so RELEASED events acquire verified Actual/Forecast/
+    # Previous instead of remaining permanently as "—".
+    from datetime import datetime, timezone
+    now_iso = datetime.now(timezone.utc).isoformat()
+    for item in items:
+        key = (str(item.get("source") or "").strip(), str(item.get("external_id") or "").strip())
+        if key not in existing_by_key:
+            continue
+        calendar_update = {
+            key_name: item.get(key_name)
+            for key_name in ("event_time", "actual", "forecast", "previous",
+                             "actual_source", "forecast_source", "previous_source",
+                             "calendar_retrieved_at")
+            if item.get(key_name) is not None
+        }
+        if calendar_update:
+            actual = item.get("actual")
+            event_time = item.get("event_time")
+            if actual not in (None, ""):
+                calendar_update["event_status"] = "RELEASED"
+                calendar_update["calendar_data_status"] = (
+                    "COMPLETE" if item.get("forecast") not in (None, "") else "ACTUAL_ONLY"
+                )
+            elif event_time:
+                try:
+                    event_dt = datetime.fromisoformat(str(event_time).replace("Z", "+00:00"))
+                    calendar_update["event_status"] = (
+                        "UPCOMING" if event_dt.astimezone(timezone.utc) > datetime.now(timezone.utc)
+                        else "RELEASED"
+                    )
+                except (TypeError, ValueError):
+                    calendar_update["event_status"] = "UNKNOWN"
+            calendar_update.setdefault("calendar_data_status", "UNKNOWN")
+            calendar_update["calendar_retrieved_at"] = item.get("calendar_retrieved_at") or now_iso
+            (
+                client.table("news_announcements")
+                .update(calendar_update)
+                .eq("source", key[0])
+                .eq("external_id", key[1])
+                .execute()
+            )
+
     new_items = [
         item for item in items
         if (str(item.get("source") or "").strip(), str(item.get("external_id") or "").strip())
@@ -147,6 +257,16 @@ def insert_news_announcements(items: list[dict]) -> list[dict]:
         "category",
         "relevance",
         "rights_status",
+        "event_time",
+        "actual",
+        "forecast",
+        "previous",
+        "event_status",
+        "calendar_data_status",
+        "actual_source",
+        "forecast_source",
+        "previous_source",
+        "calendar_retrieved_at",
     }
     payload = [
         {key: value for key, value in item.items() if key in persistable_keys}
