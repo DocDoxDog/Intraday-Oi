@@ -121,8 +121,7 @@ def run():
     print("[3.7/9] Building hidden multi-timeframe technical confirmation...")
     if os.environ.get("TWELVEDATA_API_KEY"):
         try:
-            parsed["technical_context"] = build_context()
-            confirmation = parsed["technical_context"].get("confirmation", {})
+            parsed["technical_context"] = build_context()\n            try:\n                persisted_bars = upsert_market_bars(parsed["technical_context"])\n                print(f"    persisted Twelve Data OHLC bars: {persisted_bars}")\n            except Exception as e:\n                print(f"⚠️  OHLC persistence failed (analysis continues): {e}", file=sys.stderr)\n            confirmation = parsed["technical_context"].get("confirmation", {})
             print(
                 f"    bias={confirmation.get('bias')} "
                 f"htf_aligned={confirmation.get('htf_aligned')}"
