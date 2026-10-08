@@ -65,48 +65,56 @@ def _chunk(text: str, limit: int = MAX_MESSAGE_LEN) -> list[str]:
 
 
 def _format_analysis_message(parsed: dict, ai_result: dict) -> str:
-    """Render analysis first; raw OI/vol numbers stay as supporting evidence."""
-    status = str(ai_result.get("analysis_status") or "CONFIRMED").upper()
-    bias = str(ai_result.get("bias") or "WAIT").upper()
+    """Customer-facing Gold Market message: tell the price story, not the data dump."""
     raw = parsed.get("raw_series") or {}
     state = raw.get("market_state") or {}
+    flow = raw.get("market_flow") or {}
+    path = ai_result.get("structural_path") or flow.get("path") or state.get("path") or {}
     narrative = build_customer_narrative(parsed, ai_result)
+    current = path.get("current_price") or parsed.get("cfd_price")
+    bias = str((state.get("decision") or {}).get("structural_bias") or ai_result.get("bias") or "WAIT").upper()
+    confirmation = str((state.get("decision") or {}).get("confirmation_state") or "NOT_CONFIRMED").upper()
 
-    return "\n".join([
-        "<b>GOLD MARKET</b>",
+    def node(level_key: str, fallback_key: str):
+        x = path.get(level_key) or path.get(fallback_key) or {}
+        return x if isinstance(x, dict) else {}
+
+    upper = node("upper_node", "next_up")
+    lower = node("lower_node", "next_down")
+    next_up = path.get("next_up") or {}
+    next_down = path.get("next_down") or {}
+
+    direction = "ขาลง" if bias in {"BEARISH", "SELL"} else "ขาขึ้น" if bias in {"BULLISH", "BUY"} else "ยังรอยืนยัน"
+    confirm = "ยืนยันแล้ว" if confirmation == "CONFIRMED" else "ยังไม่ยืนยัน"
+
+    read = flow.get("read") or narrative.get("market_read") or "ยังไม่มีภาพตลาดที่ยืนยันได้"
+    why = narrative.get("why_now") or "ยังไม่มีเหตุผลเพิ่มเติมที่ผ่านการตรวจสอบ"
+    macro = narrative.get("macro_news") or "ยังไม่มีข่าวที่มี Actual ยืนยัน"
+
+    lines = [
+        "<b>🟡 GOLD MARKET</b>",
         _thai_datetime_str(),
+        f"ราคา <b>{_show(current)}</b> | ภาพหลัก: <b>{direction}</b> | {confirm}",
         "",
-        "<b>PRICE / REGIME</b>",
-        f"Futures {_show(parsed.get('future_price'))} | CFD {_show(parsed.get('cfd_price'))}",
-        f"Basis {_show(parsed.get('basis_diff'))} | DTE {_show(parsed.get('dte'))} | "
-        f"<b>{_escape(_friendly_regime(state, ai_result))}</b>",
-        "",
-        "<b>MARKET READ</b>",
-        f"สถานะ: <b>{_escape(status)}</b> | มุมมอง: <b>{_escape(_friendly_bias(bias))}</b>",
-        _escape(narrative["market_read"]),
-        "",
-        "<b>VOLATILITY — ตลาดกำลังผันผวนแค่ไหน</b>",
-        _escape(narrative["volatility"]),
-        "",
-        "<b>OI POSITIONING — ผู้เล่นกำลังเพิ่ม/ลดสถานะอย่างไร</b>",
-        _escape(narrative["oi_positioning"]),
-        "",
-        "<b>FLOW STATEMENT — ภาพรวมแรงที่กำลังเกิดขึ้น</b>",
-        _escape(narrative["flow_statement"]),
-        "",
-        "<b>WHY NOW — ทำไมต้องจับตาตอนนี้</b>",
-        _escape(narrative["why_now"]),
-        "",
-        "<b>TECHNICAL</b>",
-        _escape(narrative["technical"]),
-        "",
-        "<b>MACROECONOMIC / NEWS</b>",
-        _escape(narrative["macro_news"]),
-        "",
-        "หมายเหตุ: ตัวเลข OI / IV / Gamma เป็นหลักฐานประกอบการวิเคราะห์ ไม่ใช่สัญญาณซื้อขายโดยตรง",
-        "────────────────────────",
-    ])
+        "<b>ตอนนี้เกิดอะไรขึ้น</b>",
+        _escape(read),
+    ]
 
+    # Conditional path is rendered in its own message to avoid repeating
+    # the same transition map twice in the customer bundle.
+    lines += [
+        "",
+        "<b>ทำไมระดับนี้ถึงสำคัญ</b>",
+        _escape(why),
+        "",
+        "<b>ข่าว / เศรษฐกิจ</b>",
+        _escape(macro),
+        "",
+        f"Options: IV {_show(parsed.get('iv'))} | GEX {_show(parsed.get('net_gex'))} | DTE {_show(parsed.get('dte'))}",
+        "ตัวเลข Options เป็นหลักฐานประกอบ ส่วนทิศทางต้องดูพฤติกรรมราคาจริง",
+        "────────────────────────",
+    ]
+    return "\n".join(lines)
 
 def _friendly_regime(state: dict, ai_result: dict) -> str:
     from src.customer_narrative import _friendly_regime as _map_regime
@@ -119,28 +127,51 @@ def _friendly_bias(value: object) -> str:
 
 
 def _format_levels_message(parsed: dict, ai_result: dict) -> str:
-    """Render compact resistance / Mean / support map for traders."""
-    market_map = ai_result.get("market_map") or {}
-    trade = ai_result.get("trade_plan") or {}
-    if not market_map:
-        market_map = {
-            "R1": trade.get("long_tp1"), "R2": trade.get("long_tp2"),
-            "R3": trade.get("long_tp3"), "R4": trade.get("long_tp4"),
-            "S1": trade.get("short_tp1"), "S2": trade.get("short_tp2"),
-            "S3": trade.get("short_tp3"), "S4": trade.get("short_tp4"),
-            "pivot": trade.get("gamma_mean"),
-        }
-    def show(value):
-        return _escape(_show(value))
-    resistance = [market_map.get(f'R{i}') for i in range(1, 5)]
-    support = [market_map.get(f'S{i}') for i in range(1, 5)]
-    pivot = market_map.get('pivot', market_map.get('gamma_mean'))
-    lines = ["<b>📍 KEY LEVELS</b>", "", "🔴 <b>ต้าน</b>"]
-    for i, value in enumerate(resistance, 1):
-        lines.append(f"R{i} • {show(value)}")
-    lines += ["", f"Mean • {show(pivot)}", "", "🟢 <b>รับ</b>"]
-    for i, value in enumerate(support, 1):
-        lines.append(f"S{i} • {show(value)}")
+    """Show real structural nodes in descending price order."""
+    raw=parsed.get("raw_series") or {}
+    path=ai_result.get("structural_path") or (raw.get("market_flow") or {}).get("path") or (raw.get("market_state") or {}).get("path") or {}
+    nodes=list(path.get("nodes") or (ai_result.get("market_map") or {}).get("structural_nodes") or [])
+    current=path.get("current_price") or parsed.get("cfd_price")
+    priced=[]
+    for n in nodes:
+        try:
+            level=float(n.get("level",n) if isinstance(n,dict) else n)
+        except (TypeError,ValueError):
+            continue
+        priced.append((level,n))
+    priced=sorted({round(level,5):n for level,n in priced}.items(),reverse=True)
+    lines=["<b>📍 KEY LEVELS — จุดสำคัญของตลาด</b>"]
+    if current is not None: lines.append(f"ราคาปัจจุบัน • <b>{_show(current)}</b>")
+    if not priced:
+        lines.append("ยังไม่มีจุดสำคัญที่ข้อมูลยืนยันได้")
+        return "\n".join(lines)
+    for level,n in priced:
+        if isinstance(n,dict):
+            role=str(n.get("role") or n.get("node_type") or "จุดสำคัญ").replace("_"," ").lower()
+        else:
+            role="จุดสำคัญ"
+        side="เหนือราคา" if current is not None and level>float(current) else "ใต้ราคา"
+        lines.append(f"{'↑' if side=='เหนือราคา' else '↓'} <b>{_show(level)}</b> • {role}")
+    return "\n".join(lines)
+
+def _format_path_message(parsed: dict, ai_result: dict) -> str:
+    """Compact conditional path used when a separate path block is requested."""
+    raw=parsed.get("raw_series") or {}
+    path=ai_result.get("structural_path") or ((raw.get("market_flow") or {}).get("path")) or ((raw.get("market_state") or {}).get("path")) or {}
+    if not isinstance(path,dict) or path.get("status")=="UNKNOWN":
+        return ""
+    current=path.get("current_price") or parsed.get("cfd_price")
+    up=path.get("upper_node") or {}
+    down=path.get("lower_node") or {}
+    nu=path.get("next_up") or {}
+    nd=path.get("next_down") or {}
+    lines=["<b>🧭 CONDITIONAL MARKET PATH</b>",f"ตอนนี้ • <b>{_show(current)}</b>"]
+    if up.get("level") is not None:
+        lines.append(f"ถ้าผ่าน <b>{_show(up['level'])}</b> และยืนได้ → <b>{_show(nu.get('level'))}</b>" if nu.get("level") is not None else f"ถ้าผ่าน <b>{_show(up['level'])}</b> → รอดู node ถัดไป")
+        lines.append(f"ถ้าไม่ผ่าน → กลับเข้าโซนเดิม")
+    if down.get("level") is not None:
+        lines.append(f"ถ้าหลุด <b>{_show(down['level'])}</b> และยืนต่ำกว่า → <b>{_show(nd.get('level'))}</b>" if nd.get("level") is not None else f"ถ้าหลุด <b>{_show(down['level'])}</b> → รอดู node ถัดไป")
+        lines.append(f"ถ้าหลุดแล้ว reclaim → กลับเข้าโซนเดิม")
     return "\n".join(lines)
 
 def _format_trade_plan_message(parsed: dict, ai_result: dict) -> str:
@@ -231,13 +262,14 @@ def _format_trade_plan_message(parsed: dict, ai_result: dict) -> str:
             f"ทำแบบนี้: {_escape(action)}",
         ]
         if trigger is not None:
-            lines.append(f"เข้าเมื่อ: <b>{fmt(trigger)}</b>")
+            lines.append(f"โซน/Trigger: <b>{fmt(trigger)}</b>")
+            lines.append("Entry: <b>หลัง Event + Confirmation เท่านั้น</b>")
         else:
             watch = p.get("watch_level")
             ref = "ยังไม่มีโซนใกล้ราคา"
             if watch is not None:
                 ref += f" • เฝ้า {fmt(watch)}"
-            lines.append(f"เข้าเมื่อ: <b>{ref}</b>")
+            lines.append(f"โซน/Trigger: <b>{ref}</b>")
         lines.append(f"🛑 SL: <b>{fmt(stop)}</b>")
         for i, value in enumerate(targets[:5], 1):
             lines.append(f"🎯 TP{i}: <b>{fmt(value)}</b>")
@@ -247,24 +279,54 @@ def _format_trade_plan_message(parsed: dict, ai_result: dict) -> str:
             lines.append(warning)
         return lines
 
-    routes = [
-        ("long_reclaim", "🟢", "BUY 1 — เบรกแนวต้าน", "เบรกและยืนเหนือโซน → รีเทสต์ไม่หลุด → BUY"),
-        ("long_support", "🟢", "BUY 2 — รับด้านล่าง", "แตะโซนรับ → rejection/absorption → M5 BOS ขึ้น → BUY"),
-        ("short_rejection", "🔴", "SELL 1 — ต้านไม่ผ่าน", "เด้งกลับต้าน → rejection → M5 BOS ลง → SELL"),
-        ("short_breakdown", "🔴", "SELL 2 — หลุดแนวรับ", "หลุดแนวรับ → รีเทสต์ไม่ผ่าน → M5 BOS ลง → SELL"),
-    ]
+    primary = execution.get("primary_setup") if isinstance(execution.get("primary_setup"), dict) else None
+    alternative = execution.get("alternative_setup") if isinstance(execution.get("alternative_setup"), dict) else None
 
-    bias = str(ai_result.get("bias") or trade.get("direction") or "WAIT").upper()
+    if primary is not None:
+        primary_side = str(primary.get("side") or "").upper()
+        alternative_side = str(alternative.get("side") or "").upper() if alternative else ""
+        routes = [
+            (
+                "primary_setup",
+                "🔴" if primary_side.startswith("SHORT") else "🟢",
+                "SELL — แผนหลัก" if primary_side.startswith("SHORT") else "BUY — แผนหลัก",
+                str(primary.get("action") or ""),
+            ),
+            (
+                "alternative_setup",
+                "🟢" if alternative_side.startswith("LONG") else "🔴",
+                "BUY — แผนสำรอง" if alternative_side.startswith("LONG") else "SELL — แผนสำรอง",
+                str(alternative.get("action") or ""),
+            ),
+        ]
+    else:
+        routes = [
+            ("long_reclaim", "🟢", "BUY 1 — เบรกแนวต้าน", "เบรกและยืนเหนือโซน → รีเทสต์ไม่หลุด → BUY"),
+            ("long_support", "🟢", "BUY 2 — รับด้านล่าง", "แตะโซนรับ → reaction → M5 BOS ขึ้น → BUY"),
+            ("short_rejection", "🔴", "SELL 1 — ต้านไม่ผ่าน", "เด้งกลับต้าน → rejection → M5 BOS ลง → SELL"),
+            ("short_breakdown", "🔴", "SELL 2 — หลุดแนวรับ", "หลุดแนวรับ → รีเทสต์ไม่ผ่าน → SELL"),
+        ]
+
+    bias = str((state := (parsed.get("raw_series") or {}).get("market_state") or {}).get("decision", {}).get("structural_bias") or ai_result.get("bias") or trade.get("direction") or "WAIT").upper()
     preferred_key = execution.get("preferred_setup")
-    preferred = execution.get(preferred_key) if preferred_key else None
+    preferred = execution.get(preferred_key) if preferred_key else execution.get("primary_setup")
     if not isinstance(preferred, dict) or preferred.get("state") in {"WAIT", "NO_TRADE", "DATA_INSUFFICIENT", "INVALIDATED"}:
         candidates = [execution.get("short_rejection"), execution.get("short_breakdown")] if bias in {"SELL", "BEARISH"} else [execution.get("long_reclaim"), execution.get("long_support")]
         preferred = next((x for x in candidates if isinstance(x, dict) and x.get("state") not in {"WAIT", "NO_TRADE", "DATA_INSUFFICIENT", "INVALIDATED"}), None)
     pref_title = preferred.get("title") if isinstance(preferred, dict) else None
 
+    permission = str(execution.get("trade_permission") or "WAIT_CONFIRMATION").upper()
+    permission_label = {
+        "ENTER_CONDITION_SATISFIED": "✅ เข้าเงื่อนไขครบ",
+        "WAIT_CONFIRMATION": "⏳ WAIT — ยังไม่ยืนยัน",
+        "WAIT_RISK": "⚠️ WAIT — Risk/Target ไม่ผ่าน",
+        "WAIT_NO_ZONE": "⏳ WAIT — ยังไม่มีโซน",
+    }.get(permission, "⏳ WAIT")
+
     lines = [
         "📋 <b>TRADE PLAN</b>",
-        "ครบ 4 ทาง • ใช้เฉพาะ Local Zone ใกล้ราคาปัจจุบัน",
+        f"สิทธิ์เทรดตอนนี้: <b>{_escape(permission_label)}</b>",
+        "แผนหลัก + แผนสำรอง • Entry หลัง Event + Confirmation",
         f"มุมมอง: <b>{_escape(bias)}</b>",
         f"แผนเด่น: <b>{_escape(pref_title or 'WAIT')}</b>",
         "แตะระดับ ≠ เข้า • ต้อง Action + Confirmation + Risk ผ่าน",
@@ -278,7 +340,7 @@ def _format_trade_plan_message(parsed: dict, ai_result: dict) -> str:
 
     lines += [
         "",
-        "R/S + Mean = Market Map • Entry/SL/TP = Local Trade Setup เท่านั้น",
+        "Structural Nodes = Market Map • Entry/SL/TP = Local Trade Setup เท่านั้น",
         "ระบบไม่ส่งคำสั่งซื้อขาย",
     ]
     return "\n".join(lines)
@@ -402,6 +464,7 @@ def send(
         for message in (
             _format_analysis_message(parsed, ai_result),
             _format_levels_message(parsed, ai_result),
+            _format_path_message(parsed, ai_result),
             _format_trade_plan_message(parsed, ai_result),
         ):
             for chunk in _chunk(message):
