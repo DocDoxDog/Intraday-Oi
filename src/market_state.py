@@ -823,10 +823,17 @@ def _deterministic_trade_levels(
         if path_levels:
             return path_levels[:5]
         nodes = long_key_levels if side == "LONG" else short_key_levels
-        return [
+        filtered = [
             value for value in nodes
             if (value > anchor if side == "LONG" else value < anchor)
-        ][:5]
+        ]
+        if filtered:
+            return filtered[:5]
+
+        # Final evidence-only fallback: use observed option-chain strikes
+        # beyond the trigger. This is deliberately not a fixed-price ladder.
+        observed = source_candidates(side, anchor)
+        return [item["level"] for item in observed[:5]]
 
     long_reclaim_trigger = local_action_resistance
     long_reclaim_stop = (
