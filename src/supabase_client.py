@@ -75,6 +75,30 @@ def get_signed_url(path: str, expiry_seconds: int = SIGNED_URL_EXPIRY_SECONDS) -
     return signed.get("signedURL") or signed.get("signedUrl")
 
 
+def upsert_market_bars(technical_context: dict) -> int:
+    """Persist Twelve Data OHLCV as point-in-time bars for replay and path analysis."""
+    client=get_client()
+    rows=[]
+    for timeframe,bars in (technical_context.get("ohlcv") or {}).items():
+        for bar in bars or []:
+            bar_time=bar.get("datetime") or bar.get("bar_time")
+            if not bar_time: continue
+            rows.append({
+                "source":"twelve_data",
+                "instrument":technical_context.get("symbol") or "XAU/USD",
+                "timeframe":timeframe,
+                "bar_time":bar_time,
+                "open":bar.get("open"),"high":bar.get("high"),
+                "low":bar.get("low"),"close":bar.get("close"),
+                "volume":bar.get("volume"),
+                "is_final":True,
+                "provenance":{"source":"twelve_data","symbol":technical_context.get("symbol") or "XAU/USD"},
+            })
+    if not rows: return 0
+    client.table("market_bars").upsert(rows,on_conflict="source,instrument,timeframe,bar_time").execute()
+    return len(rows)
+
+
 def insert_snapshot(
     parsed: dict,
     ai_summary: str | None = None,
