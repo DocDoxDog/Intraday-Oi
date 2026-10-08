@@ -364,7 +364,31 @@ def build_decision_context(state: dict[str, Any]) -> dict[str, Any]:
                         if _trend(state, tf) == "bearish"
                     ],
                 },
-                "2_positioning": options["oi"],
+                "2_positioning": {
+                    "source_oi_change": {
+                        "put": _n((state.get("flow") or {}).get("oi_change_put")),
+                        "call": _n((state.get("flow") or {}).get("oi_change_call")),
+                        "total": _n((state.get("flow") or {}).get("oi_change_total")),
+                        "put_state": (
+                            "UP" if _n((state.get("flow") or {}).get("oi_change_put")) is not None and _n((state.get("flow") or {}).get("oi_change_put")) > 0
+                            else "DOWN" if _n((state.get("flow") or {}).get("oi_change_put")) is not None and _n((state.get("flow") or {}).get("oi_change_put")) < 0
+                            else "UNKNOWN"
+                        ),
+                        "call_state": (
+                            "UP" if _n((state.get("flow") or {}).get("oi_change_call")) is not None and _n((state.get("flow") or {}).get("oi_change_call")) > 0
+                            else "DOWN" if _n((state.get("flow") or {}).get("oi_change_call")) is not None and _n((state.get("flow") or {}).get("oi_change_call")) < 0
+                            else "UNKNOWN"
+                        ),
+                    },
+                    "vs_eod": {
+                        "put": _n((state.get("flow") or {}).get("delta_oi_put")),
+                        "call": _n((state.get("flow") or {}).get("delta_oi_call")),
+                        "total": _n((state.get("flow") or {}).get("delta_oi_total")),
+                    },
+                    "churn": _n((state.get("flow") or {}).get("source_churn_total")),
+                    "interpretation": options["oi"]["activity"],
+                    "warning": options["oi"]["limitation"],
+                },
                 "3_gamma": {"regime": options["gamma"], "net_gex": _n((state.get("gamma") or {}).get("net_gex")), "dte": _n((state.get("price") or {}).get("dte"))},
                 "4_history": state.get("history") or {},
                 "5_catalyst": {"status": catalyst, "fresh_count": len(fresh_high)},
