@@ -145,15 +145,21 @@ def _format_levels_message(parsed: dict, ai_result: dict) -> str:
         }
     def show(value):
         return _escape(_show(value))
-    resistance = [market_map.get(f'R{i}') for i in range(1, 5)]
-    support = [market_map.get(f'S{i}') for i in range(1, 5)]
+    resistance = list(market_map.get("structural_resistance_nodes") or [])
+    support = list(market_map.get("structural_support_nodes") or [])
+    if not resistance:
+        resistance = [market_map.get(f'R{i}') for i in range(1, 5)]
+    if not support:
+        support = [market_map.get(f'S{i}') for i in range(1, 5)]
     pivot = market_map.get('pivot', market_map.get('gamma_mean'))
-    lines = ["<b>📍 KEY LEVELS</b>", "", "🔴 <b>ต้าน</b>"]
+    lines = ["<b>📍 STRUCTURAL ZONES</b>", "", "🔴 <b>ต้าน</b>"]
     for i, value in enumerate(resistance, 1):
-        lines.append(f"R{i} • {show(value)}")
+        if value is not None:
+            lines.append(f"R{i} • {show(value)}")
     lines += ["", f"Mean • {show(pivot)}", "", "🟢 <b>รับ</b>"]
     for i, value in enumerate(support, 1):
-        lines.append(f"S{i} • {show(value)}")
+        if value is not None:
+            lines.append(f"S{i} • {show(value)}")
     return "\n".join(lines)
 
 def _format_trade_plan_message(parsed: dict, ai_result: dict) -> str:
