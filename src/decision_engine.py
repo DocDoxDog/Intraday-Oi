@@ -225,14 +225,14 @@ def _what_would_confirm(structural_bias: str, state: dict[str, Any]) -> dict[str
     support = _action_trigger(state, "SHORT")
 
     bull = [
-        f"ราคายืนเหนือ {_fmt(resistance)} และผ่านการทดสอบซ้ำ" if resistance is not None else "ราคาทะลุแนวต้านและยืนได้",
-        "M15/M5 เปลี่ยนเป็น bullish สอดคล้องกับโครงสร้าง",
-        "M5 มี bullish BOS ที่สังเกตได้",
+        f"ยืนเหนือ/รีเคลม {_fmt(resistance)} แล้วรีเทสต์ไม่หลุด" if resistance is not None else "ราคาทะลุแนวต้านและรีเทสต์ยืนได้",
+        f"หรือแตะ {_fmt(support)} แล้วเกิดแรงรับและโครงสร้างกลับขึ้น" if support is not None else "หรือเกิด reaction ที่แนวรับแล้วโครงสร้างกลับขึ้น",
+        "M15/M5 เปลี่ยนเป็น bullish และ M5 มี bullish BOS",
     ]
     bear = [
-        f"ราคาหลุด {_fmt(support)} และกลับมาทดสอบแล้วไม่ผ่าน" if support is not None else "ราคาหลุดแนวรับและรีเทสต์ไม่ผ่าน",
-        "M15/M5 เปลี่ยนเป็น bearish สอดคล้องกับโครงสร้าง",
-        "M5 มี bearish BOS ที่สังเกตได้",
+        f"เด้งทดสอบ {_fmt(resistance)} แล้ว rejection ก่อนเกิด bearish BOS" if resistance is not None else "เด้งทดสอบแนวต้านแล้วถูกปฏิเสธ ก่อนเกิด bearish BOS",
+        f"หรือหลุด {_fmt(support)} แล้วรีเทสต์ไม่ผ่าน" if support is not None else "หรือหลุดแนวรับแล้วรีเทสต์ไม่ผ่าน",
+        "M15/M5 เปลี่ยนเป็น bearish และ M5 มี bearish BOS",
     ]
     if structural_bias == "BULLISH":
         bull.insert(0, "โครงสร้าง H4/H1 ยังคง bullish")
