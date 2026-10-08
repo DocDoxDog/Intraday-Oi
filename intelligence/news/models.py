@@ -18,6 +18,11 @@ class NewsItem:
     actual: str | None = None
     forecast: str | None = None
     previous: str | None = None
+    calendar_data_status: str = "UNKNOWN"
+    actual_source: str | None = None
+    forecast_source: str | None = None
+    previous_source: str | None = None
+    calendar_retrieved_at: datetime | None = None
     language: str = "en"
     category: str = "UNKNOWN"
     entities: tuple[str,...] = ()
@@ -60,6 +65,11 @@ class NewsItem:
             "actual": self.actual,
             "forecast": self.forecast,
             "previous": self.previous,
+            "calendar_data_status": self.calendar_data_status,
+            "actual_source": self.actual_source,
+            "forecast_source": self.forecast_source,
+            "previous_source": self.previous_source,
+            "calendar_retrieved_at": self.calendar_retrieved_at.isoformat() if self.calendar_retrieved_at else None,
             "category": self.category,
             "relevance": relevance,
             "rights_status": "SOURCE_POLICY_REVIEW",
