@@ -166,6 +166,13 @@ def build_trade_execution_plan(state: dict[str, Any]) -> dict[str, Any]:
         risk_blocked = risk.get("status") != "PASS"
         if effective_state == "CONFIRMED" and risk_blocked:
             effective_state = "NO_TRADE"
+        elif effective_state == "CONFIRMED":
+            countertrend = (
+                (htf == "bearish" and str(side).upper().startswith("LONG"))
+                or (htf == "bullish" and str(side).upper().startswith("SHORT"))
+            )
+            if countertrend:
+                effective_state = "COUNTERTREND_CONFIRMED"
 
         return {
             "side": side,
@@ -299,7 +306,7 @@ def build_trade_execution_plan(state: dict[str, Any]) -> dict[str, Any]:
 
     if aligned_confirmed:
         overall = "CONFIRMED"
-    elif any(str(x.get("state") or "").upper() == "CONFIRMED" for x in routes):
+    elif any(str(x.get("state") or "").upper() == "COUNTERTREND_CONFIRMED" for x in routes):
         # A counter-trend route can be confirmed locally, but it must not
         # promote the global decision state against the H4/H1 context.
         overall = "COUNTERTREND_ROUTE_CONFIRMED"
@@ -323,7 +330,7 @@ def build_trade_execution_plan(state: dict[str, Any]) -> dict[str, Any]:
         priority = [long_reclaim, long_support, short_rejection, short_breakdown]
 
     preferred = next(
-        (x for x in priority if x.get("state") not in {"WAIT", "NO_TRADE", "INVALIDATED", "DATA_INSUFFICIENT"}),
+        (x for x in priority if x.get("state") not in {"WAIT", "NO_TRADE", "INVALIDATED", "DATA_INSUFFICIENT", "COUNTERTREND_CONFIRMED"}),
         None,
     )
 
