@@ -112,3 +112,27 @@ def test_news_announcement_renders_actual_forecast_previous_without_invention():
     assert "Actual: —" in text
     assert "Forecast: -" in text
     assert "Previous: 4.50%" in text
+
+
+def test_forex_factory_provider_keeps_actual_forecast_previous(monkeypatch):
+    from intelligence.news import providers
+
+    class Response:
+        def raise_for_status(self):
+            return None
+        def json(self):
+            return [{
+                "title": "FOMC Meeting Minutes",
+                "country": "USD",
+                "date": "2026-10-08T05:00:00+00:00",
+                "impact": "High",
+                "actual": "4.00%",
+                "forecast": "4.25%",
+                "previous": "4.50%",
+            }]
+
+    monkeypatch.setattr(providers, "_get", lambda *args, **kwargs: Response())
+    rows = providers.fetch_forex_factory_calendar()
+    assert rows[0]["calendar"]["actual"] == "4.00%"
+    assert rows[0]["calendar"]["forecast"] == "4.25%"
+    assert rows[0]["calendar"]["previous"] == "4.50%"
