@@ -132,7 +132,7 @@ def _friendly_bias(value: object) -> str:
 
 
 def _format_levels_message(parsed: dict, ai_result: dict) -> str:
-    """Render compact resistance / Mean / support map for traders."""
+    """Render structural nodes plus the conditional path map."""
     market_map = ai_result.get("market_map") or {}
     trade = ai_result.get("trade_plan") or {}
     if not market_map:
@@ -160,6 +160,32 @@ def _format_levels_message(parsed: dict, ai_result: dict) -> str:
     for i, value in enumerate(support, 1):
         if value is not None:
             lines.append(f"S{i} • {show(value)}")
+    return "\n".join(lines)
+
+
+def _format_path_message(parsed: dict, ai_result: dict) -> str:
+    """Render OI/structure as conditional transitions, never as a naked price ladder."""
+    path = ai_result.get("structural_path") or ((parsed.get("raw_series") or {}).get("market_state") or {}).get("path") or {}
+    if not isinstance(path, dict):
+        return ""
+    current = path.get("current_node")
+    hold = path.get("hold_path") or []
+    brk = path.get("break_path") or []
+    reclaim = path.get("reclaim_path") or []
+    invalidation = path.get("invalidation") or []
+    if not any((current, hold, brk, reclaim, invalidation)):
+        return ""
+    lines = ["<b>🧭 CONDITIONAL MARKET PATH</b>"]
+    if current:
+        lines.append(f"CURRENT • {_escape(str(current))}")
+    if hold:
+        lines.append("HOLD / REJECT → " + " → ".join(_escape(str(x)) for x in hold))
+    if brk:
+        lines.append("BREAK + ACCEPT → " + " → ".join(_escape(str(x)) for x in brk))
+    if reclaim:
+        lines.append("FAILED BREAK / RECLAIM → " + " → ".join(_escape(str(x)) for x in reclaim))
+    if invalidation:
+        lines.append("INVALIDATION → " + " | ".join(_escape(str(x)) for x in invalidation))
     return "\n".join(lines)
 
 def _format_trade_plan_message(parsed: dict, ai_result: dict) -> str:
@@ -452,6 +478,7 @@ def send(
         for message in (
             _format_analysis_message(parsed, ai_result),
             _format_levels_message(parsed, ai_result),
+            _format_path_message(parsed, ai_result),
             _format_trade_plan_message(parsed, ai_result),
         ):
             for chunk in _chunk(message):
