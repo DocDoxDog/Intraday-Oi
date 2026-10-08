@@ -9,6 +9,8 @@ from datetime import datetime, timedelta, timezone
 
 import requests
 
+from src.customer_narrative import build_customer_narrative, _friendly_bias, _friendly_regime
+
 
 LINE_BROADCAST_API = "https://api.line.me/v2/bot/message/broadcast"
 LINE_PUSH_API = "https://api.line.me/v2/bot/message/push"
@@ -26,6 +28,14 @@ def _image_message(url: str) -> dict:
         "previewImageUrl": url,
     }
 
+
+def _thai_datetime_str(dt: datetime | None = None) -> str:
+    months = [
+        "", "ม.ค.", "ก.พ.", "มี.ค.", "เม.ย.", "พ.ค.", "มิ.ย.",
+        "ก.ค.", "ส.ค.", "ก.ย.", "ต.ค.", "พ.ย.", "ธ.ค.",
+    ]
+    dt = (dt or datetime.now(timezone.utc)).astimezone(timezone(timedelta(hours=7)))
+    return f"วันที่ {dt.day} {months[dt.month]} {dt.year + 543} | เวลา {dt:%H:%M} น."
 
 def _show(value, digits=2) -> str:
     if value is None or value == "":
@@ -80,12 +90,10 @@ def format_message(parsed: dict, ai_result: dict) -> str:
 
 
 def narrative_regime(value: object) -> str:
-    from src.customer_narrative import _friendly_regime
     return _friendly_regime(value)
 
 
 def narrative_bias(value: object) -> str:
-    from src.customer_narrative import _friendly_bias
     return _friendly_bias(value)
 
 
