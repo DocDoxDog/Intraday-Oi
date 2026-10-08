@@ -181,7 +181,7 @@ def persist_flow_intelligence(parsed: dict, ai_result: dict, snapshot_id: int | 
     flow = raw.get("market_flow") or {}
     path = flow.get("path") or ai_result.get("structural_path") or {}
     observed_at = parsed.get("observed_at") or parsed.get("retrieved_at")
-    instrument = parsed.get("contract") or parsed.get("symbol") or "XAU/USD"
+    instrument = ((parsed.get("technical_context") or {}).get("symbol") or parsed.get("symbol") or "XAU/USD")
 
     state_row = {
         "as_of": observed_at,
@@ -264,7 +264,23 @@ def persist_flow_intelligence(parsed: dict, ai_result: dict, snapshot_id: int | 
     if event != "NONE" and observed_at:
         current = _num(path.get("current_price")) or _num(parsed.get("cfd_price"))
         event_level = _num(path.get("observed_event_level")) or (path.get("upper_node") or path.get("lower_node") or {}).get("level")
-        direction = "UP" if event in {"BREAK_ACCEPT", "RECLAIM"} else "DOWN" if event == "REJECT" else None
+        observed_node = path.get("observed_event_node") or {}
+        observed_node_level = _num(observed_node.get("level"))
+        if event == "BREAK_ACCEPT":
+            direction = "UP" if observed_node_level is not None and current is not None and observed_node_level >= current else "DOWN"
+        elif event == "RECLAIM":
+            direction = "UP" if observed_node_level is not None and current is not None and observed_node_level <= current else "DOWN"
+        elif event == "REJECT":
+            upper_level = _num((path.get("upper_node") or {}).get("level"))
+            lower_level = _num((path.get("lower_node") or {}).get("level"))
+            if upper_level is not None and event_level is not None and abs(event_level - upper_level) < 1e-5:
+                direction = "DOWN"
+            elif lower_level is not None and event_level is not None and abs(event_level - lower_level) < 1e-5:
+                direction = "UP"
+            else:
+                direction = None
+        else:
+            direction = None
 
         # Idempotency: the same bar/event/node must not become a new event every
         # scheduler run. A later run can still create a new event after the bar
