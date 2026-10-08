@@ -73,3 +73,8 @@ trade_plan_engine may expose route-level confirmation, but a counter-trend route
 ## Future extension
 
 The next safe extension is a weekly volatility baseline (Mon–Fri) feeding decision.options_context.volatility.level_assessment. That baseline should be evidence-backed before enabling high/low language.
+## Structural zones (v1)
+
+Key levels are no longer generated as a nearest-strike ladder. The engine selects real observed strikes from multi-expiration GEX concentrations, applies a magnitude threshold, and suppresses adjacent strikes using the actual observed strike grid. The resulting nodes are then converted from Futures to CFD using the observed basis.
+
+For a live snapshot where the current Futures price was around 4152.8, the stored multi-expiration concentration data showed major nodes at 4160, 4200 and 4225 on the upside and 4150, 4125, 4100, 4075 and 4050 on the downside; these are evidence-derived nodes, not prices created by adding $5. The customer map uses the corresponding CFD-normalized prices.
