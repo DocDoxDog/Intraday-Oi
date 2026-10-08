@@ -359,6 +359,10 @@ def test_trade_execution_plan_exposes_primary_alternative_and_non_fill_trigger()
     assert plan["primary_setup"]["entry_mode"] == "AFTER_CONFIRMATION"
     assert plan["primary_setup"]["entry_reference_role"] == "TRIGGER_ZONE_NOT_FILL"
     assert plan["trade_permission"] in {"WAIT_CONFIRMATION", "WAIT_RISK"}
+    # Regression: canonical market_map uses *_trade_targets lists; they must
+    # reach the execution routes instead of becoming empty TP fields.
+    assert plan["primary_setup"]["targets"] == [4100.0]
+    assert plan["alternative_setup"]["targets"] == [4175.0]
 
 
 def test_telegram_four_route_plan_renders_tp1_to_tp5():
