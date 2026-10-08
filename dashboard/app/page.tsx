@@ -453,6 +453,11 @@ function EvidenceStack({ data }: { data: any }) {
   const flow = data.flow ?? {};
   const gamma = data.gamma ?? {};
   const tech = data.technical ?? {};
+  const rows = Array.isArray(gamma.primary) ? gamma.primary : [];
+  const callOi = rows.reduce((sum: number, row: any) => sum + (num(row.call_oi) ?? 0), 0);
+  const putOi = rows.reduce((sum: number, row: any) => sum + (num(row.put_oi) ?? 0), 0);
+  const ivValues = rows.flatMap((row: any) => [num(row.call_iv), num(row.put_iv)]).filter((v): v is number => v !== null);
+  const avgIv = ivValues.length ? ivValues.reduce((sum, value) => sum + value, 0) / ivValues.length : null;
 
   return (
     <div className="evidence-grid">
@@ -469,8 +474,8 @@ function EvidenceStack({ data }: { data: any }) {
         <div className="evidence-icon">OI</div>
         <div>
           <span>POSITIONING</span>
-          <strong>{data.regime?.microstructure || "ดูจาก OI / GEX"}</strong>
-          <small>positioning evidence</small>
+          <strong>Call {compact(callOi)} · Put {compact(putOi)}</strong>
+          <small>open interest snapshot</small>
         </div>
       </div>
 
@@ -478,7 +483,7 @@ function EvidenceStack({ data }: { data: any }) {
         <div className="evidence-icon">IV</div>
         <div>
           <span>VOLATILITY</span>
-          <strong>{data.regime?.macro ? "มี context" : "ยังไม่ยืนยัน"}</strong>
+          <strong>{avgIv === null ? "—" : avgIv.toFixed(2) + "%"}</strong>
           <small>DTE {data.market?.dte != null ? Number(data.market.dte).toFixed(1) : "—"}</small>
         </div>
       </div>
