@@ -1297,6 +1297,22 @@ def normalize_analyst_output(
         "execution_targets_exclude": ["gamma_mean", "positive_gamma_zone", "negative_gex_zone", "R1", "R2", "R3", "S1", "S2", "S3"],
     }
 
+    # Customer-facing canonical key levels: real option/OHLC structure,
+    # sorted by price. R/S aliases remain below only for backward compatibility.
+    current_level_price = _num((state.get("price") or {}).get("cfd")) if isinstance(state.get("price"), dict) else None
+    if current_level_price is None:
+        current_level_price = _num((state.get("price") or {}).get("futures"))
+    key_level_values = _unique_sorted(
+        [x for x in (long_key_levels + short_key_levels) if _num(x) is not None]
+    )
+    ai["market_map"]["key_levels"] = [
+        {
+            "price": level,
+            "role": "RESISTANCE_CANDIDATE" if current_level_price is not None and level > current_level_price else "SUPPORT_CANDIDATE",
+        }
+        for level in key_level_values
+    ]
+
     # Give the state machine the exact same canonical map used by rendering.
     state["market_map"] = ai["market_map"]
 
