@@ -1,5 +1,5 @@
 {
-  "version": 1,
+  "version": 2,
   "provider": "gemini",
   "api": {
     "transport": "generateContent",
@@ -7,124 +7,33 @@
     "structured_output": "responseFormat"
   },
   "models": {
-    "fast": {
-      "model": "gemini-3.5-flash-lite",
-      "stable": true,
-      "enabled": true
-    },
-    "standard": {
-      "model": "gemini-2.5-flash",
-      "stable": true,
-      "enabled": true
-    },
-    "deep": {
-      "model": "gemini-2.5-flash",
-      "stable": true,
-      "enabled": true
-    },
-    "deep_preview": {
-      "model": "gemini-2.5-flash",
-      "stable": true,
-      "enabled": true
-    },
-    "embedding": {
-      "model": "gemini-embedding-001",
-      "stable": true,
-      "enabled": true
-    }
+    "fast": {"model": "gemini-3.5-flash-lite", "stable": true, "enabled": true},
+    "standard": {"model": "gemini-2.5-flash", "stable": true, "enabled": true},
+    "deep": {"model": "gemini-2.5-flash", "stable": true, "enabled": true},
+    "deep_preview": {"model": "gemini-2.5-flash", "stable": true, "enabled": true},
+    "embedding": {"model": "gemini-embedding-001", "stable": true, "enabled": true}
   },
   "tasks": {
-    "news.extract": {
-      "route": "fast",
-      "fallback": "standard",
-      "temperature": 0,
-      "max_output_tokens": 1200,
-      "enabled": true
-    },
-    "news.classify": {
-      "route": "fast",
-      "fallback": "standard",
-      "temperature": 0,
-      "max_output_tokens": 800,
-      "enabled": true
-    },
-    "news.cluster": {
-      "route": "fast",
-      "fallback": "standard",
-      "temperature": 0.1,
-      "max_output_tokens": 1000,
-      "enabled": true
-    },
-    "news.summary": {
-      "route": "standard",
-      "fallback": "fast",
-      "temperature": 0.2,
-      "max_output_tokens": 1800,
-      "enabled": true
-    },
-    "news.impact": {
-      "route": "standard",
-      "fallback": "fast",
-      "temperature": 0.2,
-      "max_output_tokens": 1800,
-      "output_schema": "schemas/llm/news_impact_v1.json",
-      "enabled": true,
-      "output_schema_version": "news-impact.v1"
-    },
-    "news.conflict": {
-      "route": "standard",
-      "fallback": "fast",
-      "temperature": 0.1,
-      "max_output_tokens": 2500,
-      "enabled": true
-    },
-    "market.narrative": {
-      "route": "standard",
-      "fallback": "fast",
-      "temperature": 0.2,
-      "max_output_tokens": 4800,
-      "output_schema": "schemas/llm/market_analyst_v2.json",
-      "enabled": true,
-      "output_schema_version": "market-analyst.v2"
-    },
-    "market.scenario": {
-      "route": "standard",
-      "fallback": "fast",
-      "temperature": 0.2,
-      "max_output_tokens": 2200,
-      "enabled": true
-    },
-    "research.deep_dive": {
-      "route": "standard",
-      "fallback": "fast",
-      "temperature": 0.1,
-      "max_output_tokens": 5000,
-      "enabled": true
-    },
-    "research.deep_dive_preview": {
-      "route": "standard",
-      "fallback": "fast",
-      "temperature": 0.1,
-      "max_output_tokens": 6000,
-      "enabled": true
-    },
-    "news.score": {
-      "route": "standard",
-      "fallback": "fast",
-      "temperature": 0.2,
-      "max_output_tokens": 1800,
-      "output_schema": "schemas/llm/news_score_v1.json",
-      "output_schema_version": "news-score.v1",
-      "enabled": true
-    },
-    "market.analyst_v3": {
-      "route": "standard",
-      "fallback": "fast",
-      "temperature": 0.1,
-      "max_output_tokens": 4200,
-      "output_schema": "schemas/llm/market_analyst_v3.json",
-      "output_schema_version": "market-analyst.v3",
-      "enabled": true
+    "news.extract": {"route":"fast","fallback":"standard","temperature":0,"max_output_tokens":1200,"enabled":true},
+    "news.classify": {"route":"fast","fallback":"standard","temperature":0,"max_output_tokens":800,"enabled":true},
+    "news.cluster": {"route":"fast","fallback":"standard","temperature":0.1,"max_output_tokens":1000,"enabled":true},
+    "news.summary": {"route":"standard","fallback":"fast","temperature":0.2,"max_output_tokens":1800,"enabled":true},
+    "news.impact": {"route":"standard","fallback":"fast","temperature":0.2,"max_output_tokens":1800,"output_schema":"schemas/llm/news_impact_v1.json","enabled":true,"output_schema_version":"news-impact.v1"},
+    "news.conflict": {"route":"standard","fallback":"fast","temperature":0.1,"max_output_tokens":2500,"enabled":true},
+    "market.narrative": {"route":"standard","fallback":"fast","temperature":0.2,"max_output_tokens":4800,"output_schema":"schemas/llm/market_analyst_v2.json","enabled":true,"output_schema_version":"market-analyst.v2"},
+    "market.scenario": {"route":"standard","fallback":"fast","temperature":0.2,"max_output_tokens":2200,"enabled":true},
+    "research.deep_dive": {"route":"standard","fallback":"fast","temperature":0.1,"max_output_tokens":5000,"enabled":true},
+    "research.deep_dive_preview": {"route":"standard","fallback":"fast","temperature":0.1,"max_output_tokens":6000,"enabled":true},
+    "news.score": {"route":"standard","fallback":"fast","temperature":0.2,"max_output_tokens":1800,"output_schema":"schemas/llm/news_score_v1.json","output_schema_version":"news-score.v1","enabled":true},
+    "market.analyst_v3": {"route":"standard","fallback":"fast","temperature":0.1,"max_output_tokens":4200,"output_schema":"schemas/llm/market_analyst_v3.json","output_schema_version":"market-analyst.v3","enabled":true},
+    "market.flow_analysis_v1": {
+      "route":"standard",
+      "fallback":"fast",
+      "temperature":0.1,
+      "max_output_tokens":5200,
+      "output_schema":"schemas/llm/flow_market_analyst_v1.json",
+      "output_schema_version":"flow-market-analyst.v1",
+      "enabled":true
     }
   },
   "source_of_truth": "repository_config"
