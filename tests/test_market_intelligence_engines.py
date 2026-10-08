@@ -250,11 +250,12 @@ def test_execution_routes_ignore_distant_levels():
     }
     out = _deterministic_trade_levels(parsed, levels, {"gamma_mean": 4125.0})
 
-    assert out["long_reclaim_trigger"] is None
-    assert out["short_rejection_trigger"] is None
+    # Futures strikes are normalized to the CFD price before local-distance checks.
+    assert out["long_reclaim_trigger"] == 4125.0
+    assert out["short_rejection_trigger"] == 4125.0
     assert out["long_support_trigger"] is None
     assert out["short_breakdown_trigger"] is None
-    assert out["local_action_resistance"] is None
+    assert out["local_action_resistance"] == 4125.0
     assert out["local_action_support"] is None
     assert out["long_key_levels"][0] == 4145.0
     assert out["short_key_levels"][0] == 4080.0
