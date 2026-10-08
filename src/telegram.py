@@ -91,10 +91,16 @@ def _format_analysis_message(parsed: dict, ai_result: dict) -> str:
     why = narrative.get("why_now") or "ยังไม่มีเหตุผลเพิ่มเติมที่ผ่านการตรวจสอบ"
     macro = narrative.get("macro_news") or "ยังไม่มีข่าวที่มี Actual ยืนยัน"
 
+    futures = parsed.get("future_price")
+    cfd = parsed.get("cfd_price")
+    basis = parsed.get("basis_diff")
+    iv = parsed.get("vol")
+    dte = parsed.get("dte")
     lines = [
         "<b>🟡 GOLD MARKET</b>",
         _thai_datetime_str(),
-        f"ราคา <b>{_show(current)}</b> | ภาพหลัก: <b>{direction}</b> | {confirm}",
+        f"CFD <b>{_show(cfd)}</b> | FUTURES <b>{_show(futures)}</b>",
+        f"BASIS <b>{_show(basis)}</b> | IV <b>{_show(iv)}</b> | DTE <b>{_show(dte)}</b>",
         "",
         "<b>ตอนนี้เกิดอะไรขึ้น</b>",
         _escape(read),
@@ -110,7 +116,7 @@ def _format_analysis_message(parsed: dict, ai_result: dict) -> str:
         "<b>ข่าว / เศรษฐกิจ</b>",
         _escape(macro),
         "",
-        f"Options: IV {_show(parsed.get('iv'))} | GEX {_show(parsed.get('net_gex'))} | DTE {_show(parsed.get('dte'))}",
+        f"Options: IV {_show(parsed.get('vol'))} | GEX {_show((raw.get('gex') or {}).get('net_gex'))} | DTE {_show(parsed.get('dte'))}",
         "ตัวเลข Options เป็นหลักฐานประกอบ ส่วนทิศทางต้องดูพฤติกรรมราคาจริง",
         "────────────────────────",
     ]
