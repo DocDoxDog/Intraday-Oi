@@ -33,7 +33,7 @@ def fetch_forex_factory_calendar(*,url:str=FOREX_FACTORY_JSON_URL)->list[dict[st
         except ValueError: dt=None
         if dt is None: continue
         impact=str(e.get("impact") or "Low").strip()
-        out.append({"headline":f"{country} — {title}","source":"Forex Factory","url":"https://www.forexfactory.com/calendar/","published_at":dt,"event_time":dt,"language":"en","category":"MACRO","entities":(country,),"assets":("GOLD","USD") if country=="USD" else ("GOLD",),"severity":severity.get(impact,"LOW"),"calendar":{"country":country,"impact":impact,"forecast":str(e.get("forecast") or ""),"previous":str(e.get("previous") or "")}})
+        out.append({"headline":f"{country} — {title}","source":"Forex Factory","url":"https://www.forexfactory.com/calendar/","published_at":dt,"event_time":dt,"language":"en","category":"MACRO","entities":(country,),"assets":("GOLD","USD") if country=="USD" else ("GOLD",),"severity":severity.get(impact,"LOW"),"calendar":{"country":country,"impact":impact,"actual":str(e.get("actual") or ""),"forecast":str(e.get("forecast") or ""),"previous":str(e.get("previous") or "")}})
     return out
 
 def fetch_free_news_bundle(*,gdelt_query:str='(war OR conflict OR missile OR sanctions OR ceasefire OR airstrike OR military OR invasion OR attack)',gdelt_timespan:str='24h',gdelt_maxrecords:int=25)->list[dict[str,Any]]:
