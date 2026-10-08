@@ -234,12 +234,10 @@ def _flow_statement(parsed: dict[str, Any], ai_result: dict[str, Any]) -> str:
     if h4 and h1 and h4 != h1:
         parts.append("โครงสร้างกรอบเวลาหลักยังขัดกัน จึงควรรอให้ราคายืนยันทางใดทางหนึ่ง")
 
-    if parts:
-        # Keep the deterministic mechanism as the first sentence and let the
-        # verified LLM explanation add nuance without becoming the sole source.
-        llm = _friendly_text(ai_result.get("why"))
-        if llm and llm not in parts:
-            parts.append(llm)
+    decision = state.get("decision") or {}
+    conflicts = decision.get("conflicts") or []
+    if conflicts:
+        parts.append("จุดที่ยังขัดกัน: " + "; ".join(str(x) for x in conflicts[:2]))
     return " ".join(part.strip() for part in parts if part and part.strip())
 
 
@@ -271,10 +269,43 @@ def _why_now(parsed: dict[str, Any], ai_result: dict[str, Any]) -> str:
             parts.append("มีข่าวสำคัญที่ยังใหม่อยู่: " + " / ".join(headlines))
     else:
         parts.append("ยังไม่มีข่าวใหม่ที่ระบบยืนยันว่าเกี่ยวข้องกับจังหวะนี้โดยตรง")
-    llm = _friendly_text(ai_result.get("financial_engineering"))
-    if llm and llm not in parts:
-        parts.append(llm)
+    decision = state.get("decision") or {}
+    if str(decision.get("catalyst") or "").upper() == "ACTIVE":
+        parts.append("มี catalyst สด จึงต้องรอ price response ก่อนเพิ่มน้ำหนักทิศทาง")
     return " ".join(part.strip() for part in parts if part and part.strip())
+
+
+def _confirmation_read(parsed: dict[str, Any]) -> str:
+    state = (parsed.get("raw_series") or {}).get("market_state") or {}
+    decision = state.get("decision") or {}
+    confirmation = str(decision.get("confirmation_state") or "NOT_CONFIRMED").upper()
+    structural = str(decision.get("structural_bias") or "MIXED").upper()
+    tactical = str(decision.get("tactical_direction") or "NEUTRAL").upper()
+    decision_state = str(decision.get("decision_state") or "WAIT").upper()
+
+    labels = {
+        "CONFIRMED": "ยืนยันแล้ว",
+        "TRIGGERED_WAIT_CONFIRMATION": "แตะ trigger แล้ว แต่ยังต้องยืนยัน",
+        "NOT_CONFIRMED": "ยังไม่ยืนยัน",
+        "DATA_INSUFFICIENT": "ข้อมูลไม่พอ",
+    }
+    headline = labels.get(confirmation, confirmation)
+
+    what = decision.get("what_would_confirm") or {}
+    bull = what.get("BULLISH") or []
+    bear = what.get("BEARISH") or []
+    next_lines = []
+    if structural == "BULLISH":
+        next_lines = bull[:2]
+    elif structural == "BEARISH":
+        next_lines = bear[:2]
+    else:
+        next_lines = bull[:1] + bear[:1]
+
+    details = f"สถานะ {headline} | โครงสร้าง {structural} | ระยะสั้น {tactical} | {decision_state}"
+    if next_lines:
+        details += " | ยืนยันเมื่อ: " + " และ ".join(str(x) for x in next_lines)
+    return details
 
 
 def build_customer_narrative(parsed: dict[str, Any], ai_result: dict[str, Any]) -> dict[str, str]:
@@ -311,6 +342,7 @@ def build_customer_narrative(parsed: dict[str, Any], ai_result: dict[str, Any]) 
         "oi_positioning": _oi_read(state.get("flow") or {}),
         "flow_statement": _flow_statement(parsed, ai_result),
         "why_now": _why_now(parsed, ai_result),
+        "confirmation": _confirmation_read(parsed),
         "technical": technical_text,
         "macro_news": macro_text,
     }
