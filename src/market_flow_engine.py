@@ -169,8 +169,49 @@ def build_flow_context(parsed: dict[str,Any]) -> dict[str,Any]:
             level=_n(strike)
             if level is not None and diff is not None:
                 nodes.append({"level":level-diff,"role":"LOCAL_GAMMA_NODE","node_type":"LOCAL_GAMMA_NODE","source":"options","tier":1})
+    # Add strike-level gamma structure so the path engine can see meaningful
+    # local concentrations that are not promoted to a wall. Local prominence
+    # is computed from neighbouring strikes instead of a global 20% cutoff.
+    rows=gex.get("rows") or []
+    ordered=[]
+    for row in rows:
+        strike=_n(row.get("strike"))
+        g=_n(row.get("net_gex"))
+        if strike is None or g is None or diff is None:
+            continue
+        ordered.append((strike,g))
+    ordered.sort(key=lambda x:x[0])
+    for idx,(strike,g) in enumerate(ordered):
+        neighbours=[abs(ordered[j][1]) for j in (idx-1,idx+1) if 0<=j<len(ordered)]
+        local_base=(sum(neighbours)/len(neighbours)) if neighbours else 0.0
+        prominence=max(0.0,abs(g)-local_base)
+        if prominence <= 0 and abs(g) < 1e-9:
+            continue
+        nodes.append({
+            "level":strike-diff,
+            "role":"LOCAL_GAMMA_NODE",
+            "node_type":"LOCAL_GAMMA_NODE",
+            "source":"options_strike",
+            "tier":1 if prominence>0 else 2,
+            "local_prominence":prominence,
+            "aggregate_gex":g,
+            "evidence_refs":[{"type":"gex_strike","strike":strike}],
+        })
     technical=parsed.get("technical_context") or {}
     memory=build_price_memory(technical.get("ohlcv") or {},current_price=price)
+    # Technical price memory contributes only observed price locations; it does
+    # not manufacture evenly spaced levels.
+    for tf,ctx in (technical.get("timeframes") or {}).items():
+        fib=ctx.get("fibonacci") or {}
+        for name in ("swing_high","swing_low","retracement_62","retracement_79"):
+            level=_n(fib.get(name))
+            if level is not None:
+                nodes.append({"level":level,"role":f"{tf.upper()}_{name.upper()}","node_type":"TECHNICAL_NODE","source":"twelve_data","tier":2})
+        fvg=ctx.get("fvg") or {}
+        for name in ("low","high"):
+            level=_n(fvg.get(name))
+            if level is not None:
+                nodes.append({"level":level,"role":f"{tf.upper()}_FVG","node_type":"TECHNICAL_NODE","source":"twelve_data","tier":2})
     recent=((memory.get("timeframes") or {}).get("m5") or {}).get("bars") or []
     ranked=rank_structural_nodes(price,nodes,price_memory=memory)
     path=build_conditional_path(price,ranked,recent_bars=recent)
