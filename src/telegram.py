@@ -303,10 +303,18 @@ def _format_trade_plan_message(parsed: dict, ai_result: dict) -> str:
         preferred = next((x for x in candidates if isinstance(x, dict) and x.get("state") not in {"WAIT", "NO_TRADE", "DATA_INSUFFICIENT", "INVALIDATED"}), None)
     pref_title = preferred.get("title") if isinstance(preferred, dict) else None
 
+    permission = str(execution.get("trade_permission") or "WAIT_CONFIRMATION").upper()
+    permission_label = {
+        "ENTER_CONDITION_SATISFIED": "✅ เข้าเงื่อนไขครบ",
+        "WAIT_CONFIRMATION": "⏳ WAIT — ยังไม่ยืนยัน",
+        "WAIT_RISK": "⚠️ WAIT — Risk/Target ไม่ผ่าน",
+        "WAIT_NO_ZONE": "⏳ WAIT — ยังไม่มีโซน",
+    }.get(permission, "⏳ WAIT")
+
     lines = [
         "📋 <b>TRADE PLAN</b>",
-        f"สิทธิ์เทรดตอนนี้: <b>{_escape(str(execution.get('trade_permission') or 'WAIT_CONFIRMATION'))}</b>",
-        "แสดงแผนหลัก + แผนสำรอง • ไม่แสดง setup ซ้ำซ้อน",
+        f"สิทธิ์เทรดตอนนี้: <b>{_escape(permission_label)}</b>",
+        "แผนหลัก + แผนสำรอง • Entry หลัง Event + Confirmation",
         f"มุมมอง: <b>{_escape(bias)}</b>",
         f"แผนเด่น: <b>{_escape(pref_title or 'WAIT')}</b>",
         "แตะระดับ ≠ เข้า • ต้อง Action + Confirmation + Risk ผ่าน",
