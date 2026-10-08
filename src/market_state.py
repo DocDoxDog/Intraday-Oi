@@ -955,6 +955,21 @@ def _rr(side: str, p: dict[str, float | None]) -> tuple[float | None, float | No
 from src.trade_plan_engine import build_trade_execution_plan
 
 
+def _decision_final_idea(decision: dict[str, Any]) -> str:
+    structural = str(decision.get("structural_bias") or "MIXED").upper()
+    tactical = str(decision.get("tactical_direction") or "NEUTRAL").upper()
+    confirmation = str(decision.get("confirmation_state") or "NOT_CONFIRMED").upper()
+    state = str(decision.get("decision_state") or "WAIT").upper()
+
+    if confirmation == "CONFIRMED":
+        side = "ขึ้น" if structural == "BULLISH" else "ลง" if structural == "BEARISH" else "ตาม setup ที่ยืนยัน"
+        return f"โครงสร้าง {structural} และมี price confirmation แล้ว: ฝั่ง{side}อยู่ในสถานะยืนยัน"
+    if structural == "MIXED":
+        return f"โครงสร้างหลักยังขัดกัน ขณะ tactical เป็น {tactical}; ตอนนี้ {state} และยังไม่ยืนยันทาง"
+    side = "ขึ้น" if structural == "BULLISH" else "ลง"
+    return f"โครงสร้างหลักยัง{side} แต่ {confirmation}; รอ price confirmation ก่อน activate ฝั่งดังกล่าว"
+
+
 def normalize_analyst_output(
     parsed: dict[str, Any],
     history: dict[str, Any] | None,
@@ -997,8 +1012,16 @@ def normalize_analyst_output(
 
     old_trade = ai.get("trade_plan") if isinstance(ai.get("trade_plan"), dict) else {}
     bias = str(ai.get("bias") or old_trade.get("direction") or "WAIT").upper()
-    if bias not in {"BUY", "SELL"}:
+    if bias not in {"BUY", "SELL", "BULLISH", "BEARISH"}:
         bias = "WAIT"
+    # Customer-facing bias is a structural view; executable direction is gated
+    # separately by confirmation below.
+    if bias == "BULLISH":
+        market_view = "BULLISH"
+    elif bias == "BEARISH":
+        market_view = "BEARISH"
+    else:
+        market_view = "WAIT"
 
     def plan_line(side: str, values: dict[str, float | None]) -> str:
         rr = long_rr if side == "LONG" else short_rr
@@ -1027,10 +1050,17 @@ def normalize_analyst_output(
     else:
         deterministic_idea = "Directional context มีอยู่ แต่ trigger/confirmation ยังไม่ครบ จึงรอ event confirmation"
 
+    confirmed_long = bool((decision.get("confirmation") or {}).get("LONG", {}).get("confirmed"))
+    confirmed_short = bool((decision.get("confirmation") or {}).get("SHORT", {}).get("confirmed"))
+
     deterministic_plan = {
         **deterministic,
         "status": "CONDITIONAL",
-        "direction": bias if bias in {"BUY", "SELL"} and has_any_numeric_plan else "WAIT",
+        "direction": (
+            "BUY" if confirmed_long and market_view == "BULLISH" and has_any_numeric_plan
+            else "SELL" if confirmed_short and market_view == "BEARISH" and has_any_numeric_plan
+            else "WAIT"
+        ),
     }
     validated_plan = _validate_or_clear_trade_plan(deterministic_plan)
     plan_status = str(validated_plan.get("status") or "NO_TRADE").upper()
@@ -1110,6 +1140,10 @@ def normalize_analyst_output(
         "short_invalidation": validated_plan["short_stop"],
         "pivot": pivot,
         "location_state": location_state,
+        "structural_bias": decision.get("structural_bias"),
+        "tactical_direction": decision.get("tactical_direction"),
+        "confirmation_state": decision.get("confirmation_state"),
+        "decision_state": decision.get("decision_state"),
         "roles": {
             "call_wall": "RESISTANCE / DECISION_ZONE",
             "put_wall": "SUPPORT / DECISION_ZONE",
@@ -1137,6 +1171,32 @@ def normalize_analyst_output(
     from src.action_zone_engine import build_action_zones
     from src.data_clock import apply_data_clock
     state["action_zones"] = build_action_zones(state)
+
+    # Re-compose the canonical decision after the market map/action zones exist.
+    # This is the final evidence -> interpretation -> confirmation boundary.
+    from src.decision_engine import build_decision_context
+    decision = build_decision_context(state)
+    state["decision"] = decision
+    state["decision_framework"] = decision["legacy_framework"]
+
+    # The deterministic decision engine owns directional state. LLM bias remains
+    # narrative context only and can never promote an unconfirmed setup.
+    ai["structural_bias"] = decision.get("structural_bias")
+    ai["tactical_direction"] = decision.get("tactical_direction")
+    ai["confirmation_state"] = decision.get("confirmation_state")
+    ai["decision_state"] = decision.get("decision_state")
+    ai["decision_conflicts"] = decision.get("conflicts") or []
+    ai["what_would_confirm"] = decision.get("what_would_confirm") or {}
+    ai["decision_summary"] = decision.get("summary")
+
+    deterministic_status = str(decision.get("analysis_status") or "DEVELOPING").upper()
+    if not state.get("cfd_complete"):
+        deterministic_status = "DEGRADED"
+    ai["analysis_status"] = deterministic_status
+
+    structural_bias = str(decision.get("structural_bias") or "MIXED").upper()
+    ai["bias"] = structural_bias if structural_bias in {"BULLISH", "BEARISH"} else "WAIT"
+
     apply_data_clock(parsed)
 
     execution_plan = build_trade_execution_plan(state)
@@ -1237,7 +1297,7 @@ def normalize_analyst_output(
 
     # Replace model-authored execution language with the deterministic gate
     # interpretation. The model still supplies the broader thesis fields.
-    ai["final_trade_idea"] = deterministic_idea
+    ai["final_trade_idea"] = _decision_final_idea(decision)
     ai["trade_plan"]["execution_state"] = execution_plan["state"]
     ai["trade_plan"]["execution_plan"] = execution_plan
     ai["market_state"] = state
