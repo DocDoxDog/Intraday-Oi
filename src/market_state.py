@@ -184,6 +184,30 @@ def _levels(parsed: dict[str, Any]) -> dict[str, Any]:
     resistance_nodes = convert_strikes(zones.get("resistance_nodes"))
     support_nodes = convert_strikes(zones.get("support_nodes"))
 
+    # Fallback for single-expiration/legacy snapshots: select significant real
+    # current-expiry GEX nodes with the same non-maximum-suppression policy.
+    if not resistance_nodes and not support_nodes:
+        try:
+            from src.multi_expiry import select_structural_nodes
+            aggregate = [
+                (float(row.get("strike")), float(row.get("net_gex")))
+                for row in (gex.get("rows") or [])
+                if isinstance(row, dict)
+                and _num(row.get("strike")) is not None
+                and _num(row.get("net_gex")) is not None
+            ]
+            positives = [item for item in aggregate if item[1] > 0]
+            negatives = [item for item in aggregate if item[1] < 0]
+            resistance_nodes = convert_strikes(
+                select_structural_nodes(positives, current=future, side="UP")
+            )
+            support_nodes = convert_strikes(
+                select_structural_nodes(negatives, current=future, side="DOWN")
+            )
+        except Exception:
+            resistance_nodes = []
+            support_nodes = []
+
     # Keep walls as explicit anchors even when they are not selected as one of
     # the top concentration nodes. They are source-derived structural zones.
     call_wall_cfd = _cfd_level(call_wall, future, cfd)
