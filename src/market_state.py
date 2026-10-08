@@ -1078,24 +1078,25 @@ def normalize_analyst_output(
     # The deterministic decision gate controls the actionability language.
     # Keep the LLM's bias as a contextual view, but never let its free-form
     # narrative invent a trigger or override contradictory structure.
-    decision = ((state.get("decision_framework") or {}).get("steps") or {}).get("8_decision")
-    if decision == "LONG_CONDITIONAL":
+    decision_context = state.get("decision") or {}
+    legacy_decision = ((state.get("decision_framework") or {}).get("steps") or {}).get("8_decision")
+    if legacy_decision == "LONG_CONDITIONAL":
         deterministic_idea = (
             f"โครงสร้าง H4/H1 สนับสนุนฝั่งขึ้นและราคาผ่าน long trigger แล้ว "
             f"แต่ยังต้องเห็น acceptance/retest ก่อนถือว่า setup ทำงานจริง"
         )
-    elif decision == "SHORT_CONDITIONAL":
+    elif legacy_decision == "SHORT_CONDITIONAL":
         deterministic_idea = (
             f"โครงสร้าง H4/H1 สนับสนุนฝั่งลงและราคาหลุด short trigger แล้ว "
             f"แต่ยังต้องเห็น failed retest/continuation ก่อนถือว่า setup ทำงานจริง"
         )
-    elif decision == "WAIT_MIXED_STRUCTURE":
+    elif legacy_decision == "WAIT_MIXED_STRUCTURE":
         deterministic_idea = "โครงสร้างหลักยังขัดกัน จึงรอให้ H4/H1 ให้ทิศทางสอดคล้องก่อน"
     else:
         deterministic_idea = "Directional context มีอยู่ แต่ trigger/confirmation ยังไม่ครบ จึงรอ event confirmation"
 
-    confirmed_long = bool((decision.get("confirmation") or {}).get("LONG", {}).get("confirmed"))
-    confirmed_short = bool((decision.get("confirmation") or {}).get("SHORT", {}).get("confirmed"))
+    confirmed_long = bool((decision_context.get("confirmation") or {}).get("LONG", {}).get("confirmed"))
+    confirmed_short = bool((decision_context.get("confirmation") or {}).get("SHORT", {}).get("confirmed"))
 
     deterministic_plan = {
         **deterministic,
@@ -1225,20 +1226,20 @@ def normalize_analyst_output(
 
     # The deterministic decision engine owns directional state. LLM bias remains
     # narrative context only and can never promote an unconfirmed setup.
-    ai["structural_bias"] = decision.get("structural_bias")
-    ai["tactical_direction"] = decision.get("tactical_direction")
-    ai["confirmation_state"] = decision.get("confirmation_state")
-    ai["decision_state"] = decision.get("decision_state")
-    ai["decision_conflicts"] = decision.get("conflicts") or []
-    ai["what_would_confirm"] = decision.get("what_would_confirm") or {}
-    ai["decision_summary"] = decision.get("summary")
+    ai["structural_bias"] = decision_context.get("structural_bias")
+    ai["tactical_direction"] = decision_context.get("tactical_direction")
+    ai["confirmation_state"] = decision_context.get("confirmation_state")
+    ai["decision_state"] = decision_context.get("decision_state")
+    ai["decision_conflicts"] = decision_context.get("conflicts") or []
+    ai["what_would_confirm"] = decision_context.get("what_would_confirm") or {}
+    ai["decision_summary"] = decision_context.get("summary")
 
     deterministic_status = str(decision.get("analysis_status") or "DEVELOPING").upper()
     if not state.get("cfd_complete"):
         deterministic_status = "DEGRADED"
     ai["analysis_status"] = deterministic_status
 
-    structural_bias = str(decision.get("structural_bias") or "MIXED").upper()
+    structural_bias = str(decision_context.get("structural_bias") or "MIXED").upper()
     ai["bias"] = structural_bias if structural_bias in {"BULLISH", "BEARISH"} else "WAIT"
 
     apply_data_clock(parsed)
