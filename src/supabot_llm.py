@@ -141,6 +141,22 @@ def _level_candidates(parsed: dict[str, Any]) -> list[dict[str, Any]]:
             "raw_series.gex.rows",
         )
 
+    # Observed OHLC structure is a first-class level source. These are
+    # evidence-backed candidates, not synthetic support/resistance values.
+    price_memory = (parsed.get("technical_context") or {}).get("price_memory") or {}
+    for tf, context in (price_memory.get("timeframes") or {}).items():
+        if not isinstance(context, dict):
+            continue
+        for key in ("swing_high", "swing_low"):
+            value = context.get(key)
+            if isinstance(value, (int, float)) and value > 0:
+                add(
+                    f"ohlc:{tf}:{key}",
+                    value,
+                    f"{tf.upper()} observed {key.replace('_', ' ')}",
+                    f"technical_context.price_memory.{tf}",
+                )
+
     # Market-state levels are already normalized to CFD coordinates and are
     # authoritative candidates for the analyst; do not force the model to
     # reconstruct them from raw Futures strikes.
