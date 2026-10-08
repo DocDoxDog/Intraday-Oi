@@ -15,6 +15,9 @@ class NewsItem:
     published_at: datetime
     detected_at: datetime
     event_time: datetime | None = None
+    actual: str | None = None
+    forecast: str | None = None
+    previous: str | None = None
     language: str = "en"
     category: str = "UNKNOWN"
     entities: tuple[str,...] = ()
@@ -53,6 +56,10 @@ class NewsItem:
             "url": self.url,
             "published_at": self.published_at.isoformat(),
             "detected_at": self.detected_at.isoformat(),
+            "event_time": self.event_time.isoformat() if self.event_time else None,
+            "actual": self.actual,
+            "forecast": self.forecast,
+            "previous": self.previous,
             "category": self.category,
             "relevance": relevance,
             "rights_status": "SOURCE_POLICY_REVIEW",
