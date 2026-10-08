@@ -22,7 +22,7 @@ except ImportError:
 
 DEFAULT_GATEWAY_PATH = "/internal/v1/llm/generate"
 TASK = "market.narrative"
-PROMPT_VERSION = "intraday-oi-market-analyst-v7"
+PROMPT_VERSION = "intraday-oi-market-analyst-v8"
 DATASET_VERSION = "quikstrike-oi-view-v2"
 CALCULATION_VERSION = "intraday-oi-calcs-v1"
 
@@ -735,6 +735,14 @@ RULES
 - Trade plan ของ LLM ให้ระบุเฉพาะเงื่อนไข/ระดับที่ source-derived; ห้ามคำนวณ RR เอง เพราะ deterministic execution engine เป็นผู้คำนวณ
 - ห้ามใช้ตัวเลขเช่น 1.5, 2.0 หรือ 0.75 เป็นตัวเลขประกอบ narrative เพียงเพราะเป็น heuristic; เปลี่ยนเป็นคำอธิบายเชิงคุณภาพแทน
 - ภาษาไทยธรรมชาติแบบ institutional trader อธิบายให้คนทั่วไปเข้าใจ
+- เขียนแบบ "เกิดอะไรขึ้น → เพราะอะไร → อะไรต้องจับตา" ไม่ใช่การเทตัวเลขให้คนอ่านตีความเอง
+- ใช้ศัพท์เทคนิคเท่าที่จำเป็น และแปลความหมายในประโยคแรก เช่น "Gamma เป็นลบ" แล้วอธิบายว่า "ราคามีโอกาสแกว่งแรงขึ้น"
+- ห้ามใช้คำว่า OI, IV, GEX, skew, term structure, aggressor, absorption หรือ dealer เป็นคำอธิบายหลักโดยไม่มีคำแปลภาษาคนประกอบ
+- market_overview ต้องตอบให้ได้ในย่อหน้าแรกว่าตลาดกำลังทำอะไรและทิศทางชัดหรือยัง
+- positioning ต้องอธิบาย "ผู้เล่นกำลังเพิ่ม/ลดสถานะอย่างไร" และย้ำว่า OI/ΔOI อย่างเดียวระบุฝั่งซื้อขายไม่ได้
+- financial_engineering ต้องอธิบายผลของ Gamma/IV/DTE ต่อพฤติกรรมราคา ไม่ใช่แค่เรียงตัวเลข
+- history_comparison ต้องเล่า "อะไรเปลี่ยนจากช่วงก่อน" และใช้สัปดาห์/เซสชันปัจจุบันเป็นบริบทหลัก; อย่าใช้ข้อมูลเก่าเป็น baseline ของ intraday โดยไม่มีหลักฐานรองรับ
+- ห้ามสร้างบทสรุปว่าแรงใดเป็นผู้ชนะเพียงเพราะ Call/Put OI เพิ่มขึ้น
 """
 
 
