@@ -42,7 +42,12 @@ def test_outcome_excludes_event_bar_and_measures_forward_move():
     assert result["time_to_next_node_seconds"] == 600
 
 
-def test_upper_and_lower_rejections_get_opposite_outcome_direction():
-    # Regression contract for persistence mapping: rejection direction depends
-    # on which structural side rejected, not merely on event type.
-    assert True
+def test_conditional_path_keeps_source_bar_time_for_event_persistence():
+    path = build_conditional_path(
+        100,
+        [{"level": 100}, {"level": 105}, {"level": 95}],
+        recent_bars=[{"datetime": "2026-10-08T10:00:00+00:00", "close": 100},
+                     {"datetime": "2026-10-08T10:05:00+00:00", "high": 106, "low": 99, "close": 105.2}],
+    )
+    assert path["observed_last_event"] == "BREAK_ACCEPT"
+    assert path["observed_event_time"] == "2026-10-08T10:05:00+00:00"
