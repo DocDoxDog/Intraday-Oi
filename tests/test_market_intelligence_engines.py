@@ -112,22 +112,27 @@ def test_confirmation_requires_zone_event_and_lower_timeframe_structure():
     assert result["confirmed"] is True
 
 
-def test_market_map_can_generate_five_source_qualified_targets_for_both_sides():
+def test_market_map_uses_real_structural_nodes_not_a_five_dollar_ladder():
     from src.market_state import _deterministic_trade_levels
 
     parsed = {
-        "future_price": 4200.0,
-        "cfd_price": 4200.0,
+        "future_price": 4152.8,
+        "cfd_price": 4127.56726,
+        "technical_context": {"atr14": 10.0},
         "raw_series": {
             "gex": {
                 "rows": [
-                    {"strike": x, "net_gex": 1.0}
-                    for x in (
-                        4165, 4170, 4175, 4180, 4185, 4190, 4195,
-                        4200, 4205, 4210, 4215, 4220, 4225,
-                        4230, 4235, 4240, 4245,
-                    )
+                    {"strike": 4160, "net_gex": 27},
+                    {"strike": 4200, "net_gex": 64},
+                    {"strike": 4225, "net_gex": 54},
+                    {"strike": 4100, "net_gex": -133},
+                    {"strike": 4125, "net_gex": -54},
+                    {"strike": 4150, "net_gex": -33},
                 ]
+            },
+            "multi_expiry_gamma_zones": {
+                "resistance_nodes": [4160, 4200, 4225],
+                "support_nodes": [4150, 4125, 4100],
             },
             "market_state": {
                 "decision_framework": {
@@ -137,31 +142,18 @@ def test_market_map_can_generate_five_source_qualified_targets_for_both_sides():
         },
     }
     levels = {
-        "resistance_main": 4210.0,
-        "support_main": 4190.0,
-        "resistance_current": 4205.0,
-        "support_current": 4195.0,
-        "support_deep": 4180.0,
+        "resistance_main": 4134.76726,
+        "support_main": 4074.76726,
+        "resistance_current": 4134.76726,
+        "support_current": 4074.76726,
     }
     result = _deterministic_trade_levels(parsed, levels, {})
 
-    # Local execution uses the nearest nearby structural level, while global
-    # walls remain separate market-map context.
-    assert result["long_reclaim_trigger"] == 4205.0
-    assert result["long_reclaim_tp1"] == 4210.0
-    assert result["long_reclaim_tp5"] == 4230.0
+    assert result["long_key_levels"] == [4134.76726, 4174.76726, 4199.76726]
+    assert result["short_key_levels"] == [4124.76726, 4099.76726, 4074.76726]
+    assert result["long_key_levels"] != [4134.76726, 4139.76726, 4144.76726]
+    assert result["short_key_levels"] != [4124.76726, 4119.76726, 4114.76726]
 
-    assert result["long_support_trigger"] == 4195.0
-    assert result["long_support_tp1"] == 4200.0
-    assert result["long_support_tp5"] == 4220.0
-
-    assert result["short_rejection_trigger"] == 4205.0
-    assert result["short_rejection_tp1"] == 4200.0
-    assert result["short_rejection_tp5"] == 4180.0
-
-    assert result["short_breakdown_trigger"] == 4195.0
-    assert result["short_breakdown_tp1"] == 4190.0
-    assert result["short_breakdown_tp5"] == 4170.0
 
 
 def test_local_trade_map_uses_atr_normalized_window():
@@ -174,11 +166,15 @@ def test_local_trade_map_uses_atr_normalized_window():
         "raw_series": {
             "gex": {
                 "rows": [
-                    {"strike": 4125.0, "oiTotal": 500, "net_gex": 4},
-                    {"strike": 4115.0, "oiTotal": 600, "net_gex": 5},
+                    {"strike": 4125.0, "oiTotal": 500, "net_gex": 40},
+                    {"strike": 4115.0, "oiTotal": 600, "net_gex": -50},
                     {"strike": 4160.0, "oiTotal": 2000, "net_gex": 20},
-                    {"strike": 4080.0, "oiTotal": 2000, "net_gex": 20},
+                    {"strike": 4080.0, "oiTotal": 2000, "net_gex": -20},
                 ]
+            },
+            "multi_expiry_gamma_zones": {
+                "resistance_nodes": [4125.0, 4160.0],
+                "support_nodes": [4115.0, 4080.0],
             }
         },
     }
@@ -190,10 +186,6 @@ def test_local_trade_map_uses_atr_normalized_window():
     assert out["local_max_atr"] == 1.5
     assert out["local_action_resistance"] == 4125.0
     assert out["local_action_support"] == 4115.0
-    assert out["long_reclaim_trigger"] == 4125.0
-    assert out["short_rejection_trigger"] == 4125.0
-    assert out["long_support_trigger"] == 4115.0
-    assert out["short_breakdown_trigger"] == 4115.0
 
 
 def test_trade_execution_plan_exposes_four_customer_routes():
@@ -226,6 +218,44 @@ def test_trade_execution_plan_exposes_four_customer_routes():
     assert len(plan["routes"]) == 4
 
 def test_execution_routes_ignore_distant_levels():
+    from src.market_state import _deterministic_trade_levels
+
+    parsed = {
+        "future_price": 4140.0,
+        "cfd_price": 4120.0,
+        "technical_context": {"atr14": 5.0},
+        "raw_series": {
+            "gex": {
+                "rows": [
+                    {"strike": 4145.0, "oiTotal": 1000, "net_gex": 10},
+                    {"strike": 4080.0, "oiTotal": 1200, "net_gex": -12},
+                    {"strike": 4160.0, "oiTotal": 900, "net_gex": 9},
+                    {"strike": 4060.0, "oiTotal": 800, "net_gex": -8},
+                ]
+            },
+            "multi_expiry_gamma_zones": {
+                "resistance_nodes": [4145.0, 4160.0],
+                "support_nodes": [4080.0, 4060.0],
+            }
+        },
+    }
+    levels = {
+        "resistance_main": 4125.0,
+        "resistance_far": 4140.0,
+        "support_main": 4060.0,
+        "support_deep": 4040.0,
+    }
+    out = _deterministic_trade_levels(parsed, levels, {"gamma_mean": 4125.0})
+
+    assert out["local_action_resistance"] is None
+    assert out["local_action_support"] is None
+    assert out["long_reclaim_trigger"] is None
+    assert out["short_breakdown_trigger"] is None
+    assert 4125.0 not in out["long_key_levels"]
+    assert 4125.0 not in out["short_key_levels"]
+
+
+ef test_execution_routes_ignore_distant_levels():
     from src.market_state import _deterministic_trade_levels
 
     parsed = {
