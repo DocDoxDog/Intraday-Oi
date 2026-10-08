@@ -37,11 +37,12 @@ def test_telegram_renders_canonical_v2_without_creating_trade_levels():
     }
     message = format_message(parsed, ai)
     assert "GOLD MARKET" in message
-    assert "Futures 4,300.00 | CFD 4,297.00" in message
-    assert "MARKET READ" in message
-    assert "WHY NOW" in message
-    assert "TECHNICAL" in message
-    assert "MACROECONOMIC / NEWS" in message
+    assert "ราคา <b>4,297.00</b>" in message
+    assert "ตอนนี้เกิดอะไรขึ้น" in message
+    assert "ทำไมระดับนี้ถึงสำคัญ" in message
+    assert "ข่าว / เศรษฐกิจ" in message
+    assert "Options:" in message
+    assert "TRADE PLAN" not in message
 
 
 def test_telegram_requires_explicit_authorized_chat_ids(monkeypatch):
@@ -99,19 +100,15 @@ def test_telegram_renders_three_text_message_sections():
     m3 = telegram._format_analysis_message(parsed, ai)
     m4 = telegram._format_levels_message(parsed, ai)
     m5 = telegram._format_trade_plan_message(parsed, ai)
-    assert "WHAT text" in m3
-    assert "FLOW STATEMENT" in m3
-    assert "VOLATILITY" in m3
+    assert "WHAT text" not in m3
+    assert "ตอนนี้เกิดอะไรขึ้น" in m3
+    assert "ข่าว / เศรษฐกิจ" in m3
     assert "Current OI" not in m3
-    assert "STRUCTURAL ZONES" in m4
-    assert "🔴 <b>ต้าน</b>" in m4 and "🟢 <b>รับ</b>" in m4
-    assert "R1 • 4,232.49" in m4 and "R4 •" in m4
-    assert "Mean • -" in m4
-    assert "S1 • 4,152.49" in m4 and "S4 •" in m4
+    assert "📍 KEY LEVELS — จุดสำคัญของตลาด" in m4
+    assert "ยังไม่มีจุดสำคัญที่ข้อมูลยืนยันได้" in m4
+    assert "R1" not in m4 and "S1" not in m4
     assert "Call Wall" not in m4
     assert "Put Wall" not in m4
-    assert "GAMMA TERM STRUCTURE" not in m4
-    assert "SCENARIO" not in m4
     assert "<b>TRADE PLAN</b>" in m5
     assert "🛑 SL" in m5
     assert "BUY — แผนหลัก" in m5 or "SELL — แผนหลัก" in m5
@@ -152,7 +149,7 @@ def test_degraded_v2_has_no_trade_levels():
     message = format_message(parsed, ai)
     assert "GOLD MARKET" in message
     assert "GOLD OI UPDATE" not in message
-    assert "DEGRADED" in message
+    assert "ยังไม่ยืนยัน" in message
 
 
 def test_telegram_escapes_dynamic_trade_level_text():
@@ -441,8 +438,8 @@ def test_customer_narrative_is_plain_language_and_uses_evidence_relationships():
         "macro": "มีข่าวสำคัญที่ตลาดกำลังรอ",
     }
     message = telegram._format_analysis_message(parsed, ai)
-    assert "ผู้เล่นกำลังเพิ่ม/ลดสถานะอย่างไร" in message
-    assert "มีการเพิ่มสถานะทั้ง Put และ Call ใกล้เคียงกัน" in message
-    assert "Gamma เป็นลบ" in message
+    assert "ตอนนี้เกิดอะไรขึ้น" in message
+    assert "ทำไมระดับนี้ถึงสำคัญ" in message
+    assert "ข่าว / เศรษฐกิจ" in message
     assert "Current OI" not in message
     assert "OI Change" not in message
