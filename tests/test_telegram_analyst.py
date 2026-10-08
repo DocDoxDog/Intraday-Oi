@@ -105,10 +105,10 @@ def test_telegram_renders_three_text_message_sections():
     assert "Options: IV" in m3
     assert "Current OI" not in m3
     assert "KEY LEVELS" in m4
-    assert "🔴 <b>ต้าน</b>" in m4 and "🟢 <b>รับ</b>" in m4
-    assert "R1 • 4,232.49" in m4 and "R4 •" in m4
-    assert "Mean • -" in m4
-    assert "S1 • 4,152.49" in m4 and "S4 •" in m4
+    assert "KEY LEVELS" in m4
+    assert "ราคาปัจจุบัน • <b>4,186.59</b>" in m4
+    assert "ยังไม่มีจุดสำคัญที่ข้อมูลยืนยันได้" in m4
+    assert "R1 •" not in m4 and "S1 •" not in m4
     assert "Call Wall" not in m4
     assert "Put Wall" not in m4
     assert "GAMMA TERM STRUCTURE" not in m4
