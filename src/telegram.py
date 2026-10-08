@@ -144,37 +144,31 @@ def _friendly_bias(value: object) -> str:
 
 
 def _format_levels_message(parsed: dict, ai_result: dict) -> str:
-    """Render observed structural nodes in price order; no synthetic R/S ladder."""
-    market_map = ai_result.get("market_map") or {}
-    path = ai_result.get("structural_path") or ((parsed.get("raw_series") or {}).get("market_state") or {}).get("path") or {}
-    nodes = list(path.get("nodes") or market_map.get("structural_nodes") or [])
-    def val(x):
-        if isinstance(x,dict): return _show(x.get("level"))
-        return _show(x)
+    """Show real structural nodes in descending price order."""
+    raw=parsed.get("raw_series") or {}
+    path=ai_result.get("structural_path") or (raw.get("market_flow") or {}).get("path") or (raw.get("market_state") or {}).get("path") or {}
+    nodes=list(path.get("nodes") or (ai_result.get("market_map") or {}).get("structural_nodes") or [])
+    current=path.get("current_price") or parsed.get("cfd_price")
     priced=[]
     for n in nodes:
-        try: priced.append((float(n.get("level",n) if isinstance(n,dict) else n),n))
-        except (TypeError,ValueError): pass
+        try:
+            level=float(n.get("level",n) if isinstance(n,dict) else n)
+        except (TypeError,ValueError):
+            continue
+        priced.append((level,n))
+    priced=sorted({round(level,5):n for level,n in priced}.items(),reverse=True)
+    lines=["<b>📍 KEY LEVELS — จุดสำคัญของตลาด</b>"]
+    if current is not None: lines.append(f"ราคาปัจจุบัน • <b>{_show(current)}</b>")
     if not priced:
-        # Compatibility: show only real structural nodes, never generated 5-point ladders.
-        for key in ("structural_resistance_nodes","structural_support_nodes"):
-            for x in market_map.get(key) or []:
-                try: priced.append((float(x),x))
-                except (TypeError,ValueError): pass
-    priced=sorted({p:n for p,n in priced}.items(), reverse=True)
-    current=path.get("current_price") or parsed.get("cfd_price")
-    lines=["<b>📍 KEY LEVELS — STRUCTURAL MAP</b>",""]
-    if current is not None: lines.append(f"CURRENT • <b>{_show(current)}</b>")
-    if not priced:
-        lines.append("ยังไม่มี structural node ที่ยืนยันได้")
+        lines.append("ยังไม่มีจุดสำคัญที่ข้อมูลยืนยันได้")
         return "\n".join(lines)
-    for level,node in priced:
-        if isinstance(node,dict):
-            role=node.get("role") or node.get("node_type") or "STRUCTURAL NODE"
-            direction="↑" if current is not None and level>float(current) else "↓"
-            lines.append(f"{direction} <b>{_show(level)}</b> • {_escape(role)}")
+    for level,n in priced:
+        if isinstance(n,dict):
+            role=str(n.get("role") or n.get("node_type") or "จุดสำคัญ").replace("_"," ").lower()
         else:
-            lines.append(f"{'↑' if current is not None and level>float(current) else '↓'} <b>{_show(level)}</b> • STRUCTURAL NODE")
+            role="จุดสำคัญ"
+        side="เหนือราคา" if current is not None and level>float(current) else "ใต้ราคา"
+        lines.append(f"{'↑' if side=='เหนือราคา' else '↓'} <b>{_show(level)}</b> • {role}")
     return "\n".join(lines)
 
 def _format_path_message(parsed: dict, ai_result: dict) -> str:
