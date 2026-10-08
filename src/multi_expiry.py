@@ -160,45 +160,46 @@ def select_structural_nodes(
     limit: int = 5,
     grid_strikes: list[float] | None = None,
 ) -> list[float]:
-    """Select significant real strikes; never manufacture +5/+10 ladders.
+    """Select real structural strikes using local prominence, not a global 20% cutoff.
 
-    Selection is based on observed concentration magnitude and real strike
-    spacing. A non-maximum-suppression gap prevents adjacent strikes from being
-    promoted as separate 'important zones' when they belong to the same local
-    concentration area.
+    A large distant concentration must not erase a smaller but locally important
+    node near current price. The function still never creates synthetic prices.
     """
     if not concentrations:
         return []
-
-    # Strike spacing must come from the complete observed option-chain grid.
-    # Using only the top concentration list would make the spacing look wider
-    # than it really is and could suppress valid nearby structural nodes.
-    strike_values = sorted(grid_strikes or [strike for strike, _ in concentrations])
-    min_gap = max(10.0, 2.0 * _median_spacing(strike_values))
-    peak = max(abs(value) for _, value in concentrations)
-    threshold = peak * 0.20
-
-    if current is None:
-        candidates = [item for item in concentrations if abs(item[1]) >= threshold]
-    elif side == "UP":
-        candidates = [
-            item for item in concentrations
-            if item[0] > current and abs(item[1]) >= threshold
-        ]
-    else:
-        candidates = [
-            item for item in concentrations
-            if item[0] < current and abs(item[1]) >= threshold
-        ]
-
-    candidates.sort(key=lambda item: abs(item[1]), reverse=True)
-    selected: list[float] = []
-    for strike, _ in candidates:
-        if all(abs(strike - picked) >= min_gap for picked in selected):
+    observed=sorted(set(float(x) for x in (grid_strikes or [s for s,_ in concentrations])))
+    spacing=_median_spacing(observed)
+    min_gap=max(5.0, 1.5*spacing)
+    values=[abs(float(v)) for _,v in concentrations if v is not None]
+    if not values: return []
+    # Robust global noise floor. MAD is deliberately soft; it ranks candidates
+    # rather than hard-filtering them.
+    med=sorted(values)[len(values)//2]
+    deviations=sorted(abs(v-med) for v in values)
+    mad=deviations[len(deviations)//2] if deviations else 0.0
+    floor=max(0.0, med + 2.0*mad)
+    candidates=[]
+    for strike,value in concentrations:
+        strike=float(strike); magnitude=abs(float(value))
+        if current is not None and ((side=="UP" and strike<=current) or (side!="UP" and strike>=current)):
+            continue
+        local=[]
+        for s,v in concentrations:
+            s=float(s)
+            if abs(s-strike) <= max(spacing*2.0,10.0):
+                local.append(abs(float(v)))
+        local_peak=max(local,default=magnitude)
+        prominence=(magnitude/(local_peak or 1.0))
+        # Preserve strong local barriers even when they are below the largest
+        # global concentration. Tier is based on evidence strength.
+        tier=0 if magnitude >= max(floor, 0.50*max(values)) else (1 if prominence>=0.80 else 2)
+        candidates.append((tier,-prominence,-magnitude,abs(strike-(current or strike)),strike))
+    candidates.sort()
+    selected=[]
+    for _,_,_,_,strike in candidates:
+        if all(abs(strike-picked)>=min_gap for picked in selected):
             selected.append(strike)
-        if len(selected) >= limit:
-            break
-
+        if len(selected)>=limit: break
     return sorted(selected)
 
 
