@@ -170,7 +170,7 @@ def test_local_trade_map_uses_atr_normalized_window():
     parsed = {
         "future_price": 4120.0,
         "cfd_price": 4120.0,
-        "technical_context": {"atr14": 5.0},
+        "technical_context": {"timeframes": {"m5": {"atr14": 5.0}}},
         "raw_series": {
             "gex": {
                 "rows": [
