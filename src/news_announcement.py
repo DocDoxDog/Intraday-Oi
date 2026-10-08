@@ -307,16 +307,21 @@ def collect_news(
 
 
 def format_news_announcement(items: list[NewsItem | dict], *, limit: int = 3) -> str:
-    """Render concise source-backed news announcements."""
+    """Render source-backed announcements with verified calendar fields when available."""
     rows = items[: max(1, int(limit))]
     lines = ["<b>🚨 NEWS ANNOUNCEMENT</b>", ""]
     for row in rows:
+        actual = forecast = previous = event_time = None
         if isinstance(row, dict):
             category = row.get("category") or "OTHER"
             headline = row.get("headline") or "UNKNOWN"
             source = row.get("source") or "UNKNOWN"
             published = row.get("published_at") or "UNKNOWN"
             url = row.get("url") or ""
+            actual = row.get("actual")
+            forecast = row.get("forecast")
+            previous = row.get("previous")
+            event_time = row.get("event_time")
         else:
             category = row.category
             headline = row.headline
@@ -324,12 +329,17 @@ def format_news_announcement(items: list[NewsItem | dict], *, limit: int = 3) ->
             published = row.published_at or "UNKNOWN"
             url = row.url
 
+        status = "RELEASED" if actual not in (None, "") else "UPCOMING" if event_time else "SCHEDULED"
         lines.extend([
             f"<b>{html.escape(str(category))}</b>",
             html.escape(str(headline)),
             f"Source: {html.escape(str(source))} | {html.escape(str(published))}",
+            f"สถานะ: {status}",
+            f"Actual: {html.escape(str(actual)) if actual not in (None, '') else '—'}",
+            f"Forecast: {html.escape(str(forecast)) if forecast not in (None, '') else '—'}",
+            f"Previous: {html.escape(str(previous)) if previous not in (None, '') else '—'}",
             html.escape(str(url)),
             "",
         ])
-    lines.append("หมายเหตุ: source announcement เท่านั้น • Analyst จะนำไปพิจารณาร่วมกับ market evidence")
+    lines.append("หมายเหตุ: source announcement เท่านั้น • Analyst จะนำ Actual/Forecast/Previous ไปพิจารณาร่วมกับ market evidence เมื่อมีข้อมูลยืนยัน")
     return "\n".join(lines).strip()
