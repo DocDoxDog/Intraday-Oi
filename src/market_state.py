@@ -149,10 +149,11 @@ def _history_for(parsed: dict[str, Any], history: dict[str, Any]) -> dict[str, A
     }
 
 
-def _levels(parsed: dict[str, Any]) -> dict[str, float | None]:
-    """Expose structural trigger levels only; execution targets are built separately."""
+def _levels(parsed: dict[str, Any]) -> dict[str, Any]:
+    """Expose real structural option nodes; never manufacture a price ladder."""
     raw = parsed.get("raw_series") or {}
     gex = raw.get("gex") or {}
+    zones = raw.get("multi_expiry_gamma_zones") or {}
     future = _num(parsed.get("future_price"))
     cfd = _num(parsed.get("cfd_price"))
     if future is None or cfd is None:
@@ -163,22 +164,50 @@ def _levels(parsed: dict[str, Any]) -> dict[str, float | None]:
             "support_current": None,
             "support_main": None,
             "support_deep": None,
+            "resistance_nodes": [],
+            "support_nodes": [],
         }
 
-    # The primary trigger is the structural wall, not the nearest $5 strike.
-    # Nearest strikes are useful for local context but are too noisy to define
-    # the breakout trigger.
     call_wall = _num(gex.get("call_wall"))
     put_wall = _num(gex.get("put_wall"))
-    return {
-        "resistance_far": None,
-        "resistance_main": _cfd_level(call_wall, future, cfd),
-        "resistance_current": _cfd_level(call_wall, future, cfd),
-        "support_current": _cfd_level(put_wall, future, cfd),
-        "support_main": _cfd_level(put_wall, future, cfd),
-        "support_deep": None,
-    }
 
+    def convert_strikes(values: Any) -> list[float]:
+        out = []
+        for value in values or []:
+            converted = _cfd_level(value, future, cfd)
+            if converted is not None:
+                out.append(converted)
+        return sorted(dict.fromkeys(out))
+
+    # Multi-expiry structural nodes are based on actual GEX concentration,
+    # not consecutive strikes around the current price.
+    resistance_nodes = convert_strikes(zones.get("resistance_nodes"))
+    support_nodes = convert_strikes(zones.get("support_nodes"))
+
+    # Keep walls as explicit anchors even when they are not selected as one of
+    # the top concentration nodes. They are source-derived structural zones.
+    call_wall_cfd = _cfd_level(call_wall, future, cfd)
+    put_wall_cfd = _cfd_level(put_wall, future, cfd)
+    if call_wall_cfd is not None and call_wall_cfd not in resistance_nodes:
+        resistance_nodes.append(call_wall_cfd)
+    if put_wall_cfd is not None and put_wall_cfd not in support_nodes:
+        support_nodes.append(put_wall_cfd)
+    resistance_nodes = sorted(set(resistance_nodes))
+    support_nodes = sorted(set(support_nodes), reverse=True)
+
+    # The global primary anchors remain Call/Put Wall; selected nodes are
+    # separate structural zones for the customer map.
+    return {
+        "resistance_far": resistance_nodes[-1] if len(resistance_nodes) > 1 else None,
+        "resistance_main": call_wall_cfd,
+        "resistance_current": call_wall_cfd,
+        "support_current": put_wall_cfd,
+        "support_main": put_wall_cfd,
+        "support_deep": support_nodes[-1] if len(support_nodes) > 1 else None,
+        "resistance_nodes": resistance_nodes,
+        "support_nodes": support_nodes,
+        "zone_selection_method": zones.get("selection_method") or "SOURCE_WALLS_ONLY",
+    }
 
 def _gamma_state(parsed: dict[str, Any], history: dict[str, Any]) -> dict[str, Any]:
     raw = parsed.get("raw_series") or {}
@@ -705,14 +734,6 @@ def _deterministic_trade_levels(
     )
     local_distance_mode = "ATR" if atr14 is not None and atr14 > 0 else "FALLBACK_ABSOLUTE"
 
-    local_action_resistance = next(
-        (level for level in above_levels if current is not None and level - current <= local_max_distance),
-        None,
-    )
-    local_action_support = next(
-        (level for level in below_levels if current is not None and current - level <= local_max_distance),
-        None,
-    )
 
     def structural_levels(side: str, anchor: float | None) -> list[float]:
         candidates = source_candidates(side, anchor)
@@ -747,9 +768,39 @@ def _deterministic_trade_levels(
     long_candidates = source_candidates("LONG", long_trigger)
     short_candidates = source_candidates("SHORT", short_trigger)
 
-    # R/S are nearest structural context around current price.
-    long_key_levels = above_levels[:5]
-    short_key_levels = below_levels[:5]
+    # R/S are significant structural nodes selected from actual
+    # multi-expiry concentration, not sequential $5 strike ladders.
+    structural_resistance = [
+        _num(v) for v in (levels.get("resistance_nodes") or [])
+        if _num(v) is not None and (current is None or _num(v) > current)
+    ]
+    structural_support = [
+        _num(v) for v in (levels.get("support_nodes") or [])
+        if _num(v) is not None and (current is None or _num(v) < current)
+    ]
+    long_key_levels = sorted(dict.fromkeys(structural_resistance))[:5]
+    short_key_levels = sorted(dict.fromkeys(structural_support), reverse=True)[:5]
+
+    # Keep local action selection tied to the significant nodes first. The
+    # ordinary source-strike search remains a last-resort fallback.
+    local_action_resistance = next(
+        (level for level in long_key_levels if current is not None and level - current <= local_max_distance),
+        None,
+    )
+    local_action_support = next(
+        (level for level in short_key_levels if current is not None and current - level <= local_max_distance),
+        None,
+    )
+    if local_action_resistance is None:
+        local_action_resistance = next(
+            (level for level in above_levels if current is not None and level - current <= local_max_distance),
+            None,
+        )
+    if local_action_support is None:
+        local_action_support = next(
+            (level for level in below_levels if current is not None and current - level <= local_max_distance),
+            None,
+        )
 
     long_reclaim_trigger = local_action_resistance
     long_reclaim_stop = (
