@@ -8,6 +8,8 @@ import math
 from typing import Any
 
 GC_CONTRACT_MULTIPLIER = 100.0
+GEX_MODEL = "dealer_short_all"
+GEX_MODEL_VERSION = "canonical-gex-v2"
 
 
 def _num(v: Any) -> float | None:
@@ -88,6 +90,8 @@ def calculate_gex(
             "gamma": gamma,
             "gex_multiplier": multiplier,
             "gamma_source": source,
+            "gex_model": GEX_MODEL,
+            "gex_model_version": GEX_MODEL_VERSION,
         })
         out.append(item)
 
@@ -120,6 +124,8 @@ def calculate_gex(
         "contract_multiplier": multiplier,
         "gex_unit": "USD per 1% underlying move",
         "convention": "dealer_call_positive_put_negative",
+        "model": GEX_MODEL,
+        "model_version": GEX_MODEL_VERSION,
         "net_gex": net,
         "call_gex_total": call_total,
         "put_gex_total": put_total,

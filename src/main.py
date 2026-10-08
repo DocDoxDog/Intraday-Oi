@@ -41,6 +41,7 @@ from src.news_announcement import collect_news, format_news_announcement
 from src.market_state import enrich_market_state, normalize_analyst_output
 from src.macro_state import build_macro_state
 from src.quant_metrics import enrich_quant_metrics
+from src.canonical_options import build_canonical_snapshot, validate_canonical_snapshot
 from intelligence.news.free_feed import collect_free_news
 
 
@@ -184,6 +185,20 @@ def run():
               f"migrations={len(migration.get('shifts', []))}")
     except Exception as e:
         print(f"⚠️  OI intelligence failed (raw OI remains available): {e}", file=sys.stderr)
+
+    # Canonical Options Intelligence boundary: one governed schema for downstream consumers.
+    try:
+        canonical = build_canonical_snapshot(parsed)
+        canonical_errors = validate_canonical_snapshot(canonical)
+        parsed.setdefault("raw_series", {})["canonical_options"] = canonical
+        parsed["raw_series"]["canonical_options_validation"] = {
+            "status": "VALID" if not canonical_errors else "INVALID",
+            "errors": canonical_errors,
+        }
+        print(f"    canonical options: status={'VALID' if not canonical_errors else 'INVALID'} | oi={canonical['freshness']['oi']['status']} iv={canonical['freshness']['iv']['status']} quote={canonical['freshness']['quote']['status']} | gex_model={canonical['gex']['model_version']}")
+    except Exception as e:
+        parsed.setdefault("raw_series", {})["canonical_options_validation"] = {"status": "INVALID", "errors": [type(e).__name__]}
+        print(f"⚠️  Canonical options contract failed: {e}", file=sys.stderr)
 
     # Deterministic cross-session deltas used by the renderer and LLM.
     try:
