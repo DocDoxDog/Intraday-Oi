@@ -135,11 +135,20 @@ def build_trade_execution_plan(state: dict[str, Any]) -> dict[str, Any]:
         return fallback_confirmation(side, trigger)
 
     def target_list(prefix: str, legacy_prefix: str | None = None) -> list[float | None]:
+        # Canonical market_map stores route targets as a source-derived list
+        # (e.g. long_reclaim_trade_targets). Older payloads may expose tp1..tp5.
         values = [_n(market_map.get(f"{prefix}_tp{i}")) for i in range(1, 6)]
-        if not any(v is not None for v in values) and legacy_prefix:
-            legacy = market_map.get(legacy_prefix)
-            if isinstance(legacy, list):
-                values = [_n(x) for x in legacy[:5]]
+        if not any(v is not None for v in values):
+            candidates = [
+                market_map.get(f"{prefix}_trade_targets"),
+                market_map.get(f"{prefix}_targets"),
+                market_map.get(legacy_prefix) if legacy_prefix else None,
+            ]
+            for candidate in candidates:
+                if isinstance(candidate, list):
+                    values = [_n(x) for x in candidate[:5]]
+                    if any(v is not None for v in values):
+                        break
         return values
 
     def side_payload(
