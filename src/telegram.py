@@ -66,10 +66,11 @@ def _chunk(text: str, limit: int = MAX_MESSAGE_LEN) -> list[str]:
 
 def _format_analysis_message(parsed: dict, ai_result: dict) -> str:
     """Render analysis first; raw OI/vol numbers stay as supporting evidence."""
-    status = str(ai_result.get("analysis_status") or "CONFIRMED").upper()
-    bias = str(ai_result.get("bias") or "WAIT").upper()
     raw = parsed.get("raw_series") or {}
     state = raw.get("market_state") or {}
+    decision = state.get("decision") or {}
+    status = str(decision.get("analysis_status") or state.get("analysis_status") or "DEVELOPING").upper()
+    bias = str(decision.get("structural_bias") or ai_result.get("bias") or "WAIT").upper()
     narrative = build_customer_narrative(parsed, ai_result)
 
     return "\n".join([
