@@ -7,7 +7,7 @@ explanation layer.
 """
 from __future__ import annotations
 
-from typing import Any
+from typing import Any\n\nfrom src.market_flow_engine import compact_market_flow
 
 
 def _num(value: Any) -> float | None:
@@ -365,7 +365,7 @@ def build_customer_narrative(parsed: dict[str, Any], ai_result: dict[str, Any]) 
     if not macro_text:
         macro_text = "ยังไม่มีข้อมูล Macro/News ที่เพียงพอ"
 
-    return {
+    path = ai_result.get("structural_path") or state.get("path") or {}\n    current = _num(path.get("current_price")) or _num(parsed.get("cfd_price"))\n    market_flow = compact_market_flow(current, path, state) if current is not None and isinstance(path, dict) else {\n        "read": market_read, "flow": "ยังไม่มี conditional path ที่ยืนยันได้"\n    }\n\n    return {
         "market_read": market_read,
         "volatility": _volatility_read(volatility, parsed),
         "oi_positioning": _oi_read(state.get("flow") or {}),
