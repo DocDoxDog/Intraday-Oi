@@ -254,7 +254,7 @@ def summarize_gamma_zones(gamma_matrix: dict[str, Any]) -> dict[str, Any]:
         "negative_concentrations": [
             {"strike": strike, "aggregate_gex": value} for strike, value in negative[:10]
         ],
-        "selection_method": "magnitude_threshold_20pct_plus_strike_spacing_non_max_suppression",
+        "selection_method": "local_prominence_tiered_selection_with_robust_noise_floor_and_spacing",
         "status": "VALID" if aggregate else "UNKNOWN",
     }
 
