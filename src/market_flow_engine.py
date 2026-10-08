@@ -167,6 +167,7 @@ def build_conditional_path(price: float, nodes: list[dict[str,Any]],
             "status":"VALID" if upper or lower else "UNKNOWN",
             "observed_last_event":observed_event,
             "observed_event_level":observed_node.get("level") if observed_node else None,
+            "observed_event_time":(last.get("bar_time") or last.get("datetime")) if observed_node and last else None,
             "observed_event_node":observed_node,
             "observed_event_candidates":[
                 {"event": event_name, "level": node["level"]}
