@@ -93,8 +93,8 @@ def _format_analysis_message(parsed: dict, ai_result: dict) -> str:
 
     futures = parsed.get("future_price")
     cfd = parsed.get("cfd_price")
-    basis = parsed.get("basis_diff")
-    iv = parsed.get("vol")
+    basis = parsed.get("basis_diff", parsed.get("basis"))
+    iv = parsed.get("vol", parsed.get("iv"))
     dte = parsed.get("dte")
     lines = [
         "<b>🟡 GOLD MARKET</b>",
@@ -298,6 +298,17 @@ def _format_trade_plan_message(parsed: dict, ai_result: dict) -> str:
         targets = list(p.get("targets") or [])
         if not targets:
             targets = [p.get(f"tp{i}") for i in range(1, 6)]
+        if not any(v is not None for v in targets):
+            market_map = ai_result.get("market_map") or {}
+            route_target_key = {
+                "long_reclaim": "long_reclaim_trade_targets",
+                "long_support": "long_support_trade_targets",
+                "short_rejection": "short_rejection_trade_targets",
+                "short_breakdown": "short_breakdown_trade_targets",
+            }.get(route_key)
+            source_targets = market_map.get(route_target_key) if route_target_key else None
+            if isinstance(source_targets, list):
+                targets = list(source_targets[:5])
         targets.extend([None] * (5 - len(targets)))
         action = _text(p.get("action")) if p.get("action") else default_action
 
