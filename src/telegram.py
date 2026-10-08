@@ -73,7 +73,16 @@ def _format_analysis_message(parsed: dict, ai_result: dict) -> str:
     bias = str(decision.get("structural_bias") or ai_result.get("bias") or "WAIT").upper()
     narrative = build_customer_narrative(parsed, ai_result)
 
+    decision = state.get("decision") or {}
+    summary_bias = str(decision.get("structural_bias") or bias).upper()
+    summary_confirmation = str(decision.get("confirmation_state") or "NOT_CONFIRMED").upper()
+    summary_direction = "🟢 ขึ้น" if summary_bias == "BULLISH" else "🔴 ลง" if summary_bias == "BEARISH" else "🟡 รอยืนยัน"
+    summary_state = "ยืนยันแล้ว" if summary_confirmation == "CONFIRMED" else "ยังไม่ยืนยัน"
+
     return "\n".join([
+        "<b>⚡ MARKET SUMMARY</b>",
+        f"<b>{summary_direction}</b> | สถานะ: <b>{summary_state}</b>",
+        f"โครงสร้าง: {_escape(summary_bias)} | ระยะสั้น: {_escape(decision.get('tactical_direction') or 'NEUTRAL')}",
         "<b>GOLD MARKET</b>",
         _thai_datetime_str(),
         "",
