@@ -152,7 +152,7 @@ def _median_spacing(values: list[float]) -> float:
     return gaps[mid] if len(gaps) % 2 else (gaps[mid - 1] + gaps[mid]) / 2.0
 
 
-def _select_structural_nodes(
+def select_structural_nodes(
     concentrations: list[tuple[float, float]],
     *,
     current: float | None,
@@ -226,10 +226,10 @@ def summarize_gamma_zones(gamma_matrix: dict[str, Any]) -> dict[str, Any]:
         reverse=True,
     )
 
-    resistance_nodes = _select_structural_nodes(
+    resistance_nodes = select_structural_nodes(
         positive, current=current, side="UP"
     )
-    support_nodes = _select_structural_nodes(
+    support_nodes = select_structural_nodes(
         negative, current=current, side="DOWN"
     )
 
