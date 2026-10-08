@@ -1060,7 +1060,30 @@ def normalize_analyst_output(
         ai["analysis_status"] = "DEGRADED"
 
     gamma = state.get("gamma") or {}
-    deterministic = _deterministic_trade_levels(parsed, levels, gamma)
+
+    # When the deterministic conditional-path engine is valid, its observed
+    # structural nodes become the execution-map anchors. Legacy wall-derived
+    # levels remain a compatibility fallback only.
+    flow = (parsed.get("raw_series") or {}).get("market_flow") or {}
+    path = flow.get("path") if isinstance(flow, dict) else None
+    execution_levels = dict(levels)
+    if isinstance(path, dict) and path.get("status") == "VALID":
+        upper = path.get("upper_node") or {}
+        lower = path.get("lower_node") or {}
+        next_up = path.get("next_up") or {}
+        next_down = path.get("next_down") or {}
+        if _num(upper.get("level")) is not None:
+            execution_levels["resistance_current"] = _num(upper.get("level"))
+            execution_levels["resistance_main"] = _num(upper.get("level"))
+        if _num(next_up.get("level")) is not None:
+            execution_levels["resistance_far"] = _num(next_up.get("level"))
+        if _num(lower.get("level")) is not None:
+            execution_levels["support_current"] = _num(lower.get("level"))
+            execution_levels["support_main"] = _num(lower.get("level"))
+        if _num(next_down.get("level")) is not None:
+            execution_levels["support_deep"] = _num(next_down.get("level"))
+
+    deterministic = _deterministic_trade_levels(parsed, execution_levels, gamma)
     plan = {
         "long": {
             "entry": deterministic["long_trigger"],
