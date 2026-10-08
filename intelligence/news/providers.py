@@ -185,8 +185,6 @@ def _enrich_calendar_from_html(
 
     matched = 0
     actual_enriched = 0
-    used_fallback: set[tuple[str, str, int]] = set()
-
     for event in payload:
         country = str(event.get("country") or "").strip().upper()
         title = _canonical_title(event.get("title"))
@@ -210,17 +208,12 @@ def _enrich_calendar_from_html(
             if candidates:
                 row = candidates.pop(0)
 
-        # Fall back only when the title/currency pair is unique. This avoids
-        # inventing values when the same event appears multiple times.
+        # Fall back only when the title/currency pair is unique.
+        # Ambiguous duplicate events are intentionally left unmatched.
         if row is None:
             candidates = by_title.get((country, title), [])
             if len(candidates) == 1:
                 row = candidates[0]
-            elif len(candidates) > 1:
-                signature = (country, title, len(candidates))
-                if signature not in used_fallback:
-                    used_fallback.add(signature)
-                    row = candidates[0]
 
         calendar = event.setdefault("calendar", {})
         if row is None:
