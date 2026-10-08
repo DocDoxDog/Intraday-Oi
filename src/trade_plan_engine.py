@@ -90,16 +90,16 @@ def _risk_reward(side: str, entry: float | None, stop: float | None, tp: float |
 
 
 def build_trade_execution_plan(state: dict[str, Any]) -> dict[str, Any]:
-    """Build the complete four-route trade map.
+    """Build a deterministic conditional trade map.
 
-    Every route is visible at the same time:
-      BUY 1 = resistance breakout / reclaim
-      BUY 2 = support reaction
-      SELL 1 = resistance rejection / failed retest
-      SELL 2 = support breakdown / retest failure
+    Four route objects are retained for backward compatibility, but the
+    execution decision is reduced to:
+      PRIMARY = route aligned with structural bias
+      ALTERNATIVE = opposite-side contingency
 
-    The selected market bias changes priority, not the existence of the
-    alternative plans. No route places an order.
+    A trigger is a zone/event reference, not a literal fill price. An entry
+    becomes executable only after the route-specific confirmation event and
+    risk gate pass. This module never places orders.
     """
     market_map = state.get("market_map") or {}
     levels = state.get("levels") or {}
@@ -177,6 +177,12 @@ def build_trade_execution_plan(state: dict[str, Any]) -> dict[str, Any]:
         return {
             "side": side,
             "route": key,
+            "entry_mode": "AFTER_CONFIRMATION",
+            "entry_reference_role": "TRIGGER_ZONE_NOT_FILL",
+            "execution_ready": bool(
+                effective_state in {"CONFIRMED", "COUNTERTREND_CONFIRMED"}
+                and risk.get("status") == "PASS"
+            ),
             "title": title,
             "strategy": strategy,
             "state": effective_state,
@@ -329,18 +335,46 @@ def build_trade_execution_plan(state: dict[str, Any]) -> dict[str, Any]:
     else:
         priority = [long_reclaim, long_support, short_rejection, short_breakdown]
 
-    preferred = next(
-        (x for x in priority if x.get("state") not in {"WAIT", "NO_TRADE", "INVALIDATED", "DATA_INSUFFICIENT", "COUNTERTREND_CONFIRMED"}),
-        None,
-    )
+    # Select the primary route from structural bias. Keep an alternative route
+    # explicit, but never pretend it is simultaneously executable.
+    if htf == "bearish":
+        primary = short_rejection
+        alternative = long_reclaim
+    elif htf == "bullish":
+        primary = long_reclaim
+        alternative = short_rejection
+    else:
+        # Transition/mixed structure: prefer the route that is closer to an
+        # actual event, otherwise keep both as WAIT.
+        priority_mixed = [short_rejection, long_reclaim, short_breakdown, long_support]
+        primary = next(
+            (x for x in priority_mixed if x.get("state") not in {"WAIT", "DATA_INSUFFICIENT", "INVALIDATED"}),
+            short_rejection,
+        )
+        alternative = long_reclaim if primary is not long_reclaim else short_rejection
+
+    executable_primary = bool(primary.get("execution_ready"))
+    executable_alternative = bool(alternative.get("execution_ready"))
+    if executable_primary:
+        permission = "ENTER_CONDITION_SATISFIED"
+    elif primary.get("risk_blocked"):
+        permission = "WAIT_RISK"
+    elif primary.get("trigger") is None:
+        permission = "WAIT_NO_ZONE"
+    else:
+        permission = "WAIT_CONFIRMATION"
 
     return {
-        "version": "trade-plan-v3-four-routes",
+        "version": "trade-plan-v4-two-scenario",
         "state": overall,
         "htf_context": htf,
         "current_price": current,
-        "preferred_setup": preferred.get("route") if preferred else None,
-        "preferred_action": preferred.get("action") if preferred else "รอให้เกิด Action ที่โซน",
+        "preferred_setup": primary.get("route") if primary else None,
+        "preferred_action": primary.get("action") if primary else "รอให้เกิด Action ที่โซน",
+        "primary_setup": primary,
+        "alternative_setup": alternative,
+        "trade_permission": permission,
+        "execution_ready": executable_primary,
         "long": primary_long,
         "long_support": long_support,
         "short": primary_short,
@@ -349,13 +383,13 @@ def build_trade_execution_plan(state: dict[str, Any]) -> dict[str, Any]:
         "short_breakdown": short_breakdown,
         "routes": routes,
         "rules": [
-            "Price touching a level is not an entry.",
-            "Execution routes use nearby levels only; distant R/S stay market-map context.",
-            "Each route requires its own market event and confirmation.",
-            "TP1-TP5 are source-derived structural levels; missing levels stay UNKNOWN.",
-            "Risk failure blocks confirmation and must render NO TRADE.",
-            "Directional bias changes priority, not the availability of the opposite setup.",
-            "Counter-trend route confirmation cannot promote the global decision state.",
+            "A structural zone is not an entry price.",
+            "Entry becomes actionable only after route confirmation and risk gate pass.",
+            "Primary follows H4/H1 structural bias; alternative is the contingency route.",
+            "TP1-TP5 must come from source-derived structural nodes; missing levels stay UNKNOWN.",
+            "No structural target means NO_TRADE rather than a fabricated price ladder.",
+            "Risk failure blocks execution and renders WAIT/NO_TRADE.",
+            "Counter-trend confirmation never promotes the global directional state.",
             "No order is placed by this module.",
         ],
     }
