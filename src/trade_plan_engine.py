@@ -361,7 +361,9 @@ def build_trade_execution_plan(state: dict[str, Any]) -> dict[str, Any]:
         # event, but never promote it to a directional confirmation by itself.
         primary = _pick_active([short_rejection, short_breakdown, long_reclaim, long_support])
         alternative = (
-            long_reclaim if primary in {short_rejection, short_breakdown} else short_rejection
+            long_reclaim
+            if str(primary.get("route")) in {"SELL_REJECTION", "SELL_BREAKDOWN"}
+            else short_rejection
         )
 
     executable_primary = bool(primary.get("execution_ready"))
