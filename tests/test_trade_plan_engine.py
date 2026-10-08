@@ -65,4 +65,5 @@ def test_structural_key_levels_are_not_automatic_trade_targets():
     p = build_trade_execution_plan(state)
     assert p["long"]["targets"] == []
     assert p["long"]["rr"] == []
-    # No route-specific trigger was supplied, so the v3 engine must fail closed.\n    assert p["long"]["state"] == "DATA_INSUFFICIENT"
+    # No route-specific trigger was supplied, so the v3 engine must fail closed.
+    assert p["long"]["state"] == "DATA_INSUFFICIENT"
