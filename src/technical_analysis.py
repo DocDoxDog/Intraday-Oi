@@ -208,6 +208,9 @@ def build_context(api_key: str | None = None, symbol: str | None = None) -> dict
         candles = _fetch(symbol, interval, key)
         candles_by_tf[name] = candles
         result["timeframes"][name] = _structure(candles)
+        # Persistable source history: downstream engines can build price memory
+        # and event outcomes without refetching or relying on derived summaries.
+        result.setdefault("ohlcv", {})[name] = candles
 
     # OHLCV profile is intentionally labeled as a bar proxy. We do not claim
     # tick-level executed-volume precision without tick/order-book source data.
