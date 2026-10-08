@@ -99,6 +99,116 @@ def upsert_market_bars(technical_context: dict) -> int:
     return len(rows)
 
 
+
+def persist_flow_intelligence(parsed: dict, ai_result: dict, snapshot_id: int | None = None) -> dict:
+    """Persist deterministic state/path/event evidence for replay and audit."""
+    client = get_client()
+    raw = parsed.get("raw_series") or {}
+    state = raw.get("market_state") or {}
+    flow = raw.get("market_flow") or {}
+    path = flow.get("path") or ai_result.get("structural_path") or {}
+    observed_at = parsed.get("observed_at") or parsed.get("retrieved_at")
+    instrument = parsed.get("contract") or parsed.get("symbol") or "XAU/USD"
+
+    state_row = {
+        "as_of": observed_at,
+        "instrument": instrument,
+        "state_version": "market-state-v2",
+        "regime": state.get("regime"),
+        "price_state": state.get("price"),
+        "volatility_state": state.get("volatility"),
+        "options_state": state.get("gamma"),
+        "macro_state": raw.get("macro_state"),
+        "technical_state": state.get("technical"),
+        "path_state": path,
+        "evidence_refs": {"snapshot_id": snapshot_id, "market_flow_version": flow.get("version")},
+        "data_quality": {"flow_status": flow.get("status"), "cfd_complete": state.get("cfd_complete")},
+    }
+    state_result = client.table("market_state_snapshots").insert(state_row).execute()
+    state_id = (state_result.data or [{}])[0].get("id")
+
+    node_ids = {}
+    nodes = path.get("nodes") or flow.get("nodes") or []
+    node_rows = []
+    for node in nodes:
+        if not isinstance(node, dict) or node.get("level") is None:
+            continue
+        node_rows.append({
+            "snapshot_id": state_id,
+            "instrument": instrument,
+            "observed_at": observed_at,
+            "level": node.get("level"),
+            "futures_level": node.get("futures_level"),
+            "cfd_level": node.get("level"),
+            "node_type": node.get("node_type") or "STRUCTURAL_NODE",
+            "role": node.get("role"),
+            "tier": node.get("tier"),
+            "direction": node.get("direction"),
+            "source": node.get("source"),
+            "expiry_scope": node.get("expiry_scope"),
+            "oi_context": node.get("oi_context"),
+            "risk_context": node.get("risk_context"),
+            "local_prominence": node.get("local_prominence"),
+            "distance_from_price": node.get("distance_from_price"),
+            "volatility_distance": node.get("volatility_distance"),
+            "state": node.get("state"),
+            "evidence_refs": node.get("evidence_refs") or [],
+        })
+    if node_rows:
+        nr = client.table("structural_nodes").insert(node_rows).execute()
+        for row, node in zip(nr.data or [], node_rows):
+            node_ids[round(float(node["level"]), 5)] = row.get("id")
+
+    transition_rows = []
+    for transition in path.get("transitions") or []:
+        if not isinstance(transition, dict):
+            continue
+        from_level = transition.get("from")
+        to_level = transition.get("to")
+        if from_level in (None, "CURRENT") or to_level in (None, "CURRENT"):
+            continue
+        from_id = node_ids.get(round(float(from_level), 5)) if _num(from_level) is not None else None
+        to_id = node_ids.get(round(float(to_level), 5)) if _num(to_level) is not None else None
+        if from_id and to_id:
+            transition_rows.append({
+                "from_node_id": from_id,
+                "to_node_id": to_id,
+                "condition_type": transition.get("condition_type") or "UNKNOWN",
+                "condition": transition.get("condition") or {},
+                "mechanism": transition.get("mechanism"),
+                "priority": transition.get("priority"),
+                "state": transition.get("state"),
+                "evidence_refs": transition.get("evidence_refs") or [],
+            })
+    if transition_rows:
+        client.table("structural_transitions").upsert(
+            transition_rows,
+            on_conflict="from_node_id,to_node_id,condition_type",
+        ).execute()
+
+    event = path.get("observed_last_event") or "NONE"
+    if event != "NONE" and observed_at:
+        current = _num(path.get("current_price")) or _num(parsed.get("cfd_price"))
+        client.table("market_events").insert({
+            "event_time": observed_at,
+            "detected_at": observed_at,
+            "instrument": instrument,
+            "event_type": event,
+            "source_type": "conditional_path",
+            "source_ref": str(snapshot_id or state_id or observed_at),
+            "level": (path.get("upper_node") or path.get("lower_node") or {}).get("level"),
+            "direction": "UP" if event in {"BREAK_ACCEPT", "RECLAIM"} else "DOWN" if event == "REJECT" else None,
+            "magnitude": None,
+            "status": "OBSERVED",
+            "evidence": {"path": path, "current_price": current},
+            "state_before": state,
+            "state_after": state,
+            "path_before": path,
+            "path_after": path,
+        }).execute()
+
+    return {"state_id": state_id, "nodes": len(node_rows), "transitions": len(transition_rows), "event": event}
+
 def insert_snapshot(
     parsed: dict,
     ai_summary: str | None = None,
