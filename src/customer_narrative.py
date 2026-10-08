@@ -317,9 +317,13 @@ def _confirmation_read(parsed: dict[str, Any]) -> str:
     return details
 
 
-def _decision_market_read(parsed: dict[str, Any]) -> str:
+def _decision_market_read(parsed: dict[str, Any], ai_result: dict[str, Any]) -> str:
     state = (parsed.get("raw_series") or {}).get("market_state") or {}
-    decision = state.get("decision") or {}
+    decision = state.get("decision")
+    if not isinstance(decision, dict):
+        legacy = _clean_text(ai_result.get("market_overview") or ai_result.get("what"))
+        return _friendly_text(legacy) or "ยังไม่มี market read ที่ยืนยันได้"
+
     structural = str(decision.get("structural_bias") or "MIXED").upper()
     tactical = str(decision.get("tactical_direction") or "NEUTRAL").upper()
     confirmation = str(decision.get("confirmation_state") or "NOT_CONFIRMED").upper()
@@ -346,7 +350,7 @@ def build_customer_narrative(parsed: dict[str, Any], ai_result: dict[str, Any]) 
 
     # Deterministic decision state is the source of truth for Market Read.
     # The LLM may add thesis details elsewhere, but it cannot override state.
-    market_read = _decision_market_read(parsed)
+    market_read = _decision_market_read(parsed, ai_result)
 
     technical_llm = _friendly_text(ai_result.get("market_microstructure"))
     h4 = _clean_text((technical.get("h4") or {}).get("trend"))
