@@ -150,77 +150,74 @@ def _location(state: dict[str, Any]) -> str:
     return "INSIDE_STRUCTURE"
 
 
-def _side_confirmation(
+def _route_confirmations(
     state: dict[str, Any],
     side: str,
-    *,
     structural_bias: str,
-    location: str,
 ) -> dict[str, Any]:
-    technical = state.get("technical") or {}
-    m15 = _trend(state, "m15")
-    m5 = _trend(state, "m5")
-    bos = _bos(state, "m5")
-    price = state.get("price") or {}
-    current = _n(price.get("cfd"))
-    trigger = _action_trigger(state, side)
+    """Reuse the canonical route confirmation engine for global confirmation."""
+    from src.confirmation_engine import confirm_setup
 
-    if current is None or trigger is None:
+    if side == "LONG":
+        route_keys = ("breakout_retest_long", "reversal_long")
+        allowed = structural_bias == "BULLISH"
+    else:
+        route_keys = ("breakout_retest_short", "reversal_short")
+        allowed = structural_bias == "BEARISH"
+
+    setups = ((state.get("action_zones") or {}).get("setups") or {})
+    routes: list[dict[str, Any]] = []
+    for key in route_keys:
+        setup = setups.get(key)
+        if not isinstance(setup, dict):
+            continue
+        result = confirm_setup(setup, state)
+        routes.append({
+            "route": key,
+            "zone_state": setup.get("state"),
+            "trigger": _n(setup.get("zone_price")),
+            "state": result.get("state", "WAIT"),
+            "confirmed": bool(result.get("confirmed")) and allowed,
+            "route_confirmed": bool(result.get("confirmed")),
+            "conditions": result.get("checks") or [],
+            "event_required": result.get("event_required") or setup.get("event_required"),
+            "action": result.get("action") or setup.get("action"),
+        })
+
+    if not routes:
         return {
             "state": "DATA_INSUFFICIENT",
             "confirmed": False,
-            "conditions": ["price_and_trigger_required"],
-            "trigger": trigger,
+            "route": None,
+            "routes": [],
+            "conditions": ["no_action_zone_confirmation_route"],
         }
 
-    if side == "LONG":
-        location_ok = current > trigger
-        structure_ok = structural_bias == "BULLISH" and m15 == "bullish" and m5 == "bullish"
-        bos_ok = bos in LONG_BOS
-        condition_names = [
-            "htf_bullish" if structural_bias == "BULLISH" else "htf_not_bullish",
-            "m15_bullish" if m15 == "bullish" else "m15_not_bullish",
-            "m5_bullish" if m5 == "bullish" else "m5_not_bullish",
-            "price_above_resistance" if location_ok else "waiting_break_above_resistance",
-            "m5_bos_up" if bos_ok else "m5_bos_not_confirmed",
-        ]
+    confirmed = next((x for x in routes if x["confirmed"]), None)
+    triggered = next(
+        (x for x in routes if x["state"] in {"TRIGGERED_WAIT_CONFIRMATION", "TRIGGERED"}),
+        None,
+    )
+    active = confirmed or triggered or routes[0]
+    if confirmed:
+        global_state = "CONFIRMED"
+    elif triggered:
+        global_state = "TRIGGERED_WAIT_CONFIRMATION"
     else:
-        location_ok = current < trigger
-        structure_ok = structural_bias == "BEARISH" and m15 == "bearish" and m5 == "bearish"
-        bos_ok = bos in SHORT_BOS
-        condition_names = [
-            "htf_bearish" if structural_bias == "BEARISH" else "htf_not_bearish",
-            "m15_bearish" if m15 == "bearish" else "m15_not_bearish",
-            "m5_bearish" if m5 == "bearish" else "m5_not_bearish",
-            "price_below_support" if location_ok else "waiting_break_below_support",
-            "m5_bos_down" if bos_ok else "m5_bos_not_confirmed",
-        ]
-
-    catalyst_active = bool(_fresh_high_news(state))
-    regime = str((state.get("regime") or {}).get("regime") or "").upper()
-    if catalyst_active or regime == "EVENT":
-        event_gate = False
-        condition_names.append("event_gate_active")
-    else:
-        event_gate = True
-
-    if location_ok and structure_ok and bos_ok and event_gate:
-        result = "CONFIRMED"
-    elif location_ok:
-        result = "TRIGGERED_WAIT_CONFIRMATION"
-    elif current is not None:
-        result = "ARMED"
+        global_state = str(active.get("state") or "WAIT")
 
     return {
-        "state": result,
-        "confirmed": result == "CONFIRMED",
-        "trigger": trigger,
-        "conditions": condition_names,
-        "structure_aligned": structure_ok,
-        "price_event": location_ok,
-        "bos_confirmed": bos_ok,
-        "event_gate": event_gate,
+        "state": global_state,
+        "confirmed": bool(confirmed),
+        "route": active.get("route"),
+        "trigger": active.get("trigger"),
+        "conditions": active.get("conditions") or [],
+        "event_required": active.get("event_required"),
+        "action": active.get("action"),
+        "routes": routes,
+        "structure_aligned": allowed,
     }
+
 
 
 def _what_would_confirm(structural_bias: str, state: dict[str, Any]) -> dict[str, list[str]]:
@@ -258,12 +255,8 @@ def build_decision_context(state: dict[str, Any]) -> dict[str, Any]:
         "volatility": _volatility_context(state),
         "oi": _oi_context(state),
     }
-    long_conf = _side_confirmation(
-        state, "LONG", structural_bias=structural_bias, location=location
-    )
-    short_conf = _side_confirmation(
-        state, "SHORT", structural_bias=structural_bias, location=location
-    )
+    long_conf = _route_confirmations(state, "LONG", structural_bias)
+    short_conf = _route_confirmations(state, "SHORT", structural_bias)
 
     conflicts: list[str] = []
     if structural_bias == "MIXED":
@@ -286,7 +279,7 @@ def build_decision_context(state: dict[str, Any]) -> dict[str, Any]:
 
     confirmed_sides = [
         side for side, data in (("BULLISH", long_conf), ("BEARISH", short_conf))
-        if data["confirmed"]
+        if data.get("confirmed")
     ]
     if confirmed_sides:
         decision_state = f"{confirmed_sides[0]}_CONFIRMED"
@@ -296,7 +289,7 @@ def build_decision_context(state: dict[str, Any]) -> dict[str, Any]:
         decision_state = "WAIT_TRANSITION"
         confirmation_state = "NOT_CONFIRMED"
         analysis_status = "DEVELOPING"
-    elif long_conf["state"] == "TRIGGERED_WAIT_CONFIRMATION" or short_conf["state"] == "TRIGGERED_WAIT_CONFIRMATION":
+    elif long_conf.get("state") == "TRIGGERED_WAIT_CONFIRMATION" or short_conf.get("state") == "TRIGGERED_WAIT_CONFIRMATION":
         decision_state = "WAIT_FOR_PRICE_CONFIRMATION"
         confirmation_state = "TRIGGERED_WAIT_CONFIRMATION"
         analysis_status = "DEVELOPING"
