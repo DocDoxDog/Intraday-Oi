@@ -99,7 +99,10 @@ def test_telegram_renders_three_text_message_sections():
     m3 = telegram._format_analysis_message(parsed, ai)
     m4 = telegram._format_levels_message(parsed, ai)
     m5 = telegram._format_trade_plan_message(parsed, ai)
-    assert "WHAT text" in m3 and "WHY text" in m3 and "POSITIONING text" in m3
+    assert "WHAT text" in m3
+    assert "FLOW STATEMENT" in m3
+    assert "VOLATILITY" in m3
+    assert "Current OI" not in m3
     assert "KEY LEVELS" in m4
     assert "🔴 <b>ต้าน</b>" in m4 and "🟢 <b>รับ</b>" in m4
     assert "R1 • 4,232.49" in m4 and "R4 •" in m4
@@ -350,3 +353,53 @@ def test_telegram_four_route_plan_renders_tp1_to_tp5():
     assert "BUY 2 — รับด้านล่าง" in message
     assert "SELL 1 — ต้านไม่ผ่าน" in message
     assert "SELL 2 — หลุดแนวรับ" in message
+
+
+def test_customer_narrative_is_plain_language_and_uses_evidence_relationships():
+    from src import telegram
+
+    parsed = {
+        "future_price": 4136.70,
+        "cfd_price": 4134.78,
+        "basis_diff": 1.92,
+        "dte": 0.55,
+        "vol": 29.17,
+        "raw_series": {
+            "market_state": {
+                "flow": {
+                    "oi_put": 1209,
+                    "oi_call": 491,
+                    "oi_change_put": 188,
+                    "oi_change_call": 189,
+                    "source_churn_total": 23.83,
+                },
+                "volatility": {"iv": 29.17, "iv_change_1h": 0.8, "skew": 1.2},
+                "gamma": {
+                    "net_gex": -87310948.74,
+                    "put_wall": 4123.08156,
+                    "call_wall": 4223.08156,
+                },
+                "technical": {
+                    "h4": {"trend": "bearish"},
+                    "h1": {"trend": "mixed"},
+                },
+            }
+        },
+    }
+    ai = {
+        "analysis_status": "DEGRADED",
+        "bias": "WAIT",
+        "market_regime": "EVENT",
+        "market_overview": "ราคายังแกว่งใกล้ระดับสำคัญและยังไม่มีการยืนยันทางใด",
+        "why": "OI activity สองฝั่งเพิ่มขึ้น แต่ aggressor direction ยังไม่ชัด",
+        "financial_engineering": "Negative Gamma เพิ่มโอกาสให้การเคลื่อนไหวแรงขึ้น",
+        "market_microstructure": "H4 bearish แต่กรอบสั้นยังไม่ยืนยัน",
+        "macro": "มีข่าวสำคัญที่ตลาดกำลังรอ",
+    }
+    message = telegram._format_analysis_message(parsed, ai)
+    assert "ผู้เล่นกำลังเพิ่ม/ลดสถานะอย่างไร" in message
+    assert "มีการเพิ่มสถานะทั้ง Put และ Call ใกล้เคียงกัน" in message
+    assert "Gamma เป็นลบ" in message
+    assert "ผู้ดูแลสภาพคล่อง" in message
+    assert "Current OI" not in message
+    assert "OI Change" not in message
