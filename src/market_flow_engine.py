@@ -138,3 +138,35 @@ def compact_market_flow(price: float, path: dict[str,Any], market_state: dict[st
         read=f"{current}; ยังไม่มี structural node ที่ยืนยันได้"
         flow="ยังไม่สร้าง path เพราะข้อมูลโครงสร้างไม่พอ"
     return {"read":read,"flow":flow}
+
+
+def build_flow_context(parsed: dict[str,Any]) -> dict[str,Any]:
+    """Build a deterministic flow context from the current parsed snapshot."""
+    raw=parsed.get("raw_series") or {}
+    price=_n(parsed.get("cfd_price"))
+    if price is None: price=_n(parsed.get("future_price"))
+    if price is None: return {"status":"UNKNOWN","reason":"CURRENT_PRICE_UNKNOWN"}
+    diff=_n(parsed.get("basis_diff")) or 0.0
+    zones=raw.get("multi_expiry_gamma_zones") or {}
+    gex=raw.get("gex") or {}
+    nodes=[]
+    for key,role in (("call_wall","CALL_WALL"),("put_wall","PUT_WALL"),("gamma_flip","GAMMA_FLIP")):
+        level=_n(gex.get(key))
+        if level is not None:
+            # QuikStrike structural levels are futures; convert only when CFD basis is known.
+            level=level-diff
+            nodes.append({"level":level,"role":role,"node_type":role,"source":"options","tier":0})
+    for key,role in (("resistance_nodes","LOCAL_GAMMA_NODE"),("support_nodes","LOCAL_GAMMA_NODE")):
+        for strike in zones.get(key) or []:
+            level=_n(strike)
+            if level is not None:
+                nodes.append({"level":level-diff,"role":role,"node_type":"LOCAL_GAMMA_NODE",
+                              "source":"options","tier":1})
+    technical=parsed.get("technical_context") or {}
+    bars=technical.get("ohlcv") or {}
+    memory=build_price_memory(bars,current_price=price)
+    ranked=rank_structural_nodes(price,nodes,price_memory=memory)
+    path=build_conditional_path(price,ranked)
+    path["nodes"]=ranked
+    return {"version":"market-flow-context-v1","status":"VALID","price_memory":memory,
+            "nodes":ranked,"path":path}
