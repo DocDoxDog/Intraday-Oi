@@ -1106,33 +1106,14 @@ def normalize_analyst_output(
     # Keep the LLM's bias as a contextual view, but never let its free-form
     # narrative invent a trigger or override contradictory structure.
     decision_context = state.get("decision") or {}
-    legacy_decision = ((state.get("decision_framework") or {}).get("steps") or {}).get("8_decision")
-    if legacy_decision == "LONG_CONDITIONAL":
-        deterministic_idea = (
-            f"โครงสร้าง H4/H1 สนับสนุนฝั่งขึ้นและราคาผ่าน long trigger แล้ว "
-            f"แต่ยังต้องเห็น acceptance/retest ก่อนถือว่า setup ทำงานจริง"
-        )
-    elif legacy_decision == "SHORT_CONDITIONAL":
-        deterministic_idea = (
-            f"โครงสร้าง H4/H1 สนับสนุนฝั่งลงและราคาหลุด short trigger แล้ว "
-            f"แต่ยังต้องเห็น failed retest/continuation ก่อนถือว่า setup ทำงานจริง"
-        )
-    elif legacy_decision == "WAIT_MIXED_STRUCTURE":
-        deterministic_idea = "โครงสร้างหลักยังขัดกัน จึงรอให้ H4/H1 ให้ทิศทางสอดคล้องก่อน"
-    else:
-        deterministic_idea = "Directional context มีอยู่ แต่ trigger/confirmation ยังไม่ครบ จึงรอ event confirmation"
-
-    confirmed_long = bool((decision_context.get("confirmation") or {}).get("LONG", {}).get("confirmed"))
-    confirmed_short = bool((decision_context.get("confirmation") or {}).get("SHORT", {}).get("confirmed"))
+    deterministic_idea = _decision_final_idea(decision_context) if decision_context else (
+        "Directional context มีอยู่ แต่ trigger/confirmation ยังไม่ครบ จึงรอ event confirmation"
+    )
 
     deterministic_plan = {
         **deterministic,
         "status": "CONDITIONAL",
-        "direction": (
-            "BUY" if confirmed_long and market_view == "BULLISH" and has_any_numeric_plan
-            else "SELL" if confirmed_short and market_view == "BEARISH" and has_any_numeric_plan
-            else "WAIT"
-        ),
+        "direction": "WAIT",
     }
     validated_plan = _validate_or_clear_trade_plan(deterministic_plan)
     plan_status = str(validated_plan.get("status") or "NO_TRADE").upper()
@@ -1250,23 +1231,45 @@ def normalize_analyst_output(
     decision = build_decision_context(state)
     state["decision"] = decision
     state["decision_framework"] = decision["legacy_framework"]
+    decision_context = decision
+
+    # Recompute actionability from the FINAL decision object. This prevents the
+    # first pre-market-map decision from leaking into trade direction/status.
+    confirmed_long = bool((decision.get("confirmation") or {}).get("LONG", {}).get("confirmed"))
+    confirmed_short = bool((decision.get("confirmation") or {}).get("SHORT", {}).get("confirmed"))
+    structural_bias_final = str(decision.get("structural_bias") or "MIXED").upper()
+    deterministic_plan["direction"] = (
+        "BUY" if confirmed_long and structural_bias_final == "BULLISH" and has_any_numeric_plan
+        else "SELL" if confirmed_short and structural_bias_final == "BEARISH" and has_any_numeric_plan
+        else "WAIT"
+    )
+    validated_plan = _validate_or_clear_trade_plan(deterministic_plan)
+    plan_status = str(validated_plan.get("status") or "NO_TRADE").upper()
+    requested_direction = str(validated_plan.get("direction") or "WAIT").upper()
+    plan_direction = (
+        "BUY" if requested_direction == "BUY" and validated_plan.get("long_status") == "CONDITIONAL"
+        else "SELL" if requested_direction == "SELL" and validated_plan.get("short_status") == "CONDITIONAL"
+        else "WAIT"
+    )
+
+    deterministic_idea = _decision_final_idea(decision)
 
     # The deterministic decision engine owns directional state. LLM bias remains
     # narrative context only and can never promote an unconfirmed setup.
-    ai["structural_bias"] = decision_context.get("structural_bias")
-    ai["tactical_direction"] = decision_context.get("tactical_direction")
-    ai["confirmation_state"] = decision_context.get("confirmation_state")
-    ai["decision_state"] = decision_context.get("decision_state")
-    ai["decision_conflicts"] = decision_context.get("conflicts") or []
-    ai["what_would_confirm"] = decision_context.get("what_would_confirm") or {}
-    ai["decision_summary"] = decision_context.get("summary")
+    ai["structural_bias"] = decision.get("structural_bias")
+    ai["tactical_direction"] = decision.get("tactical_direction")
+    ai["confirmation_state"] = decision.get("confirmation_state")
+    ai["decision_state"] = decision.get("decision_state")
+    ai["decision_conflicts"] = decision.get("conflicts") or []
+    ai["what_would_confirm"] = decision.get("what_would_confirm") or {}
+    ai["decision_summary"] = decision.get("summary")
 
     deterministic_status = str(decision.get("analysis_status") or "DEVELOPING").upper()
     if not state.get("cfd_complete"):
         deterministic_status = "DEGRADED"
     ai["analysis_status"] = deterministic_status
 
-    structural_bias = str(decision_context.get("structural_bias") or "MIXED").upper()
+    structural_bias = str(decision.get("structural_bias") or "MIXED").upper()
     ai["bias"] = structural_bias if structural_bias in {"BULLISH", "BEARISH"} else "WAIT"
 
     apply_data_clock(parsed)
