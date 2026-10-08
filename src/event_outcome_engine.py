@@ -72,10 +72,15 @@ def measure_outcome(
     highs = [x[2] for x in window if x[2] is not None]
     lows = [x[3] for x in window if x[3] is not None]
     forward_return = (last[1] - event_price) / event_price
-    mfe = (max(highs) - event_price) / event_price if highs else None
-    mae = (min(lows) - event_price) / event_price if lows else None
 
     direction = str(event.get("direction") or "").upper()
+    if direction == "DOWN":
+        mfe = (event_price - min(lows)) / event_price if lows else None
+        mae = (event_price - max(highs)) / event_price if highs else None
+    else:
+        mfe = (max(highs) - event_price) / event_price if highs else None
+        mae = (min(lows) - event_price) / event_price if lows else None
+
     signed_return = forward_return if direction != "DOWN" else -forward_return
     outcome_state = "FAVORABLE" if signed_return > 0 else "ADVERSE" if signed_return < 0 else "FLAT"
 
@@ -89,6 +94,10 @@ def measure_outcome(
     for node in ordered_nodes:
         node_level = _n(node.get("level"))
         if node_level is None or abs(node_level - event_price) < 1e-9:
+            continue
+        if direction == "UP" and node_level <= event_price:
+            continue
+        if direction == "DOWN" and node_level >= event_price:
             continue
         if node_level > event_price:
             hit_bar = next((b for b in window if b[2] is not None and b[2] >= node_level), None)
