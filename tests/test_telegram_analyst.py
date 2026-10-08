@@ -365,6 +365,36 @@ def test_trade_execution_plan_exposes_primary_alternative_and_non_fill_trigger()
     assert plan["alternative_setup"]["targets"] == [4175.0]
 
 
+def test_telegram_execution_route_falls_back_to_top_level_trade_targets():
+    from src import telegram
+
+    ai = {
+        "bias": "SELL",
+        "trade_plan": {
+            "long_trigger": 4119.86,
+            "long_stop": 4114.86,
+            "long_tp1": 4119.86,
+            "long_tp2": 4124.86,
+            "long_tp3": 4129.86,
+            "long_tp4": 4134.86,
+            "long_tp5": 4139.86,
+            "execution_plan": {
+                "long_reclaim": {
+                    "state": "APPROACHING",
+                    "trigger": 4119.86,
+                    "stop": 4114.86,
+                    "targets": [],
+                }
+            },
+        },
+    }
+    message = telegram._format_trade_plan_message({}, ai)
+    assert "BUY 1 — เบรกแนวต้าน" in message
+    assert "🛑 SL: <b>4,114.86</b>" in message
+    assert "🎯 TP1: <b>4,119.86</b>" in message
+    assert "🎯 TP5: <b>4,139.86</b>" in message
+
+
 def test_telegram_four_route_plan_renders_tp1_to_tp5():
     from src import telegram
 
