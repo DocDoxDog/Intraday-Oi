@@ -40,61 +40,53 @@ def _show(value, digits=2) -> str:
 
 
 def format_message(parsed: dict, ai_result: dict) -> str:
+    """Render the same analysis-first narrative used by Telegram."""
     raw = parsed.get("raw_series") or {}
-    totals = raw.get("totals") or {}
-    news = parsed.get("news_context") or []
+    state = raw.get("market_state") or {}
+    narrative = build_customer_narrative(parsed, ai_result)
+    status = str(ai_result.get("analysis_status") or "CONFIRMED").upper()
+    bias = str(ai_result.get("bias") or "WAIT").upper()
 
-    now = datetime.now(timezone.utc).astimezone(timezone(timedelta(hours=7)))
-    months = ["", "ม.ค.", "ก.พ.", "มี.ค.", "เม.ย.", "พ.ค.", "มิ.ย.",
-              "ก.ค.", "ส.ค.", "ก.ย.", "ต.ค.", "พ.ย.", "ธ.ค."]
-    date_text = f"วันที่ {now.day} {months[now.month]} {now.year + 543} | เวลา {now:%H:%M} น."
-
-    lines = [
-        f"GOLD MARKET ANALYST V2 • {date_text}",
+    return "\n".join([
+        f"GOLD MARKET ANALYST • {_thai_datetime_str()}",
         f"Futures {_show(parsed.get('future_price'))} | CFD {_show(parsed.get('cfd_price'))} | "
-        f"Basis {_show(parsed.get('basis_diff'))} (FUTURES - CFD) | DTE {_show(parsed.get('dte'))}",
-        f"Status: {str(ai_result.get('analysis_status') or 'CONFIRMED').upper()} | "
-        f"Bias: {str(ai_result.get('bias') or 'WAIT').upper()}",
+        f"Basis {_show(parsed.get('basis_diff'))} | DTE {_show(parsed.get('dte'))}",
+        f"สถานะ: {status} | มุมมอง: {narrative_bias(bias)}",
+        f"Regime: {narrative_regime(ai_result.get('market_regime') or (state.get('regime') or {}).get('regime'))}",
         "",
-        "MARKET STATE",
-        f"Regime: {ai_result.get('market_regime') or '-'}",
-        ai_result.get("what") or ai_result.get("market_overview") or "-",
+        "MARKET READ",
+        narrative["market_read"],
         "",
-        "DRIVERS",
-        f"Macro: {ai_result.get('macro') or '-'}",
-        f"Financial Engineering: {ai_result.get('financial_engineering') or '-'}",
-        f"Microstructure: {ai_result.get('market_microstructure') or '-'}",
-        f"Psychology: {ai_result.get('market_psychology') or '-'}",
+        "VOLATILITY — ตลาดกำลังผันผวนแค่ไหน",
+        narrative["volatility"],
         "",
-        "WHY / POSITIONING",
-        ai_result.get("why") or "-",
-        ai_result.get("positioning") or "-",
+        "OI POSITIONING — ผู้เล่นกำลังเพิ่ม/ลดสถานะอย่างไร",
+        narrative["oi_positioning"],
         "",
-        "FLOW & HISTORY",
-        f"OI Put {_show(totals.get('open_interest_view_put', totals.get('open_interest_put')))} | "
-        f"Call {_show(totals.get('open_interest_view_call', totals.get('open_interest_call')))} | "
-        f"Total {_show(totals.get('open_interest_view_total', totals.get('open_interest_total')))}",
-        f"OI Change Put {_show(totals.get('oi_change_put'))} | "
-        f"Call {_show(totals.get('oi_change_call'))} | "
-        f"Total {_show(totals.get('oi_change_total'))}",
-        f"ΔOI vs baseline Put {_show(totals.get('oi_delta_put'))} | "
-        f"Call {_show(totals.get('oi_delta_call'))} | "
-        f"Total {_show(totals.get('oi_delta_total'))}",
-        f"Churn Put {_show(totals.get('quikstrike_churn_put'))} | "
-        f"Call {_show(totals.get('quikstrike_churn_call'))} | "
-        f"Total {_show(totals.get('churn'))}",
-        f"Volume Put {_show(parsed.get('put_volume'))} | Call {_show(parsed.get('call_volume'))}",
-        f"IV {_show(parsed.get('vol'))}% | IV Δ {_show(parsed.get('vol_chg'))}%",
-        ai_result.get("history_comparison") or "-",
-    ]
-    if news:
-        lines += ["", "NEWS CONTEXT"]
-        for item in news[:2]:
-            lines.append(
-                f"• {item.get('headline') or '-'}\n"
-                f"  {item.get('source') or '-'} | {item.get('published_at') or '-'}"
-            )
-    return "\n".join(lines)
+        "FLOW STATEMENT — ภาพรวมแรงที่กำลังเกิดขึ้น",
+        narrative["flow_statement"],
+        "",
+        "WHY NOW — ทำไมต้องจับตาตอนนี้",
+        narrative["why_now"],
+        "",
+        "TECHNICAL",
+        narrative["technical"],
+        "",
+        "MACROECONOMIC / NEWS",
+        narrative["macro_news"],
+        "",
+        "หมายเหตุ: ตัวเลข OI / IV / Gamma เป็นหลักฐานประกอบการวิเคราะห์ ไม่ใช่สัญญาณซื้อขายโดยตรง",
+    ])
+
+
+def narrative_regime(value: object) -> str:
+    from src.customer_narrative import _friendly_regime
+    return _friendly_regime(value)
+
+
+def narrative_bias(value: object) -> str:
+    from src.customer_narrative import _friendly_bias
+    return _friendly_bias(value)
 
 
 def _levels_message(parsed: dict, ai_result: dict) -> str:
