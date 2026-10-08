@@ -32,6 +32,7 @@ from src.supabase_client import (
     insert_news_announcements,
     can_notify,
     mark_notified,
+    upsert_market_bars,
 )
 from src.url_manager import UrlManager, UrlManagerError
 from src import history, telegram, line
