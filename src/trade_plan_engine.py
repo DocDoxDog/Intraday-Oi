@@ -261,7 +261,7 @@ def build_trade_execution_plan(state: dict[str, Any]) -> dict[str, Any]:
         long_support_stop,
         target_map["long_support"],
         long_support_conf,
-        "แตะโซนรับ → rejection/absorption → M5 BOS ขึ้น → BUY",
+        "แตะโซนรับ → มีแรงตอบสนองราคา → M5 BOS ขึ้น → BUY",
         "รับไม่อยู่ / ยอมรับราคาต่ำกว่า support",
     )
     short_rejection = side_payload(
@@ -337,21 +337,32 @@ def build_trade_execution_plan(state: dict[str, Any]) -> dict[str, Any]:
 
     # Select the primary route from structural bias. Keep an alternative route
     # explicit, but never pretend it is simultaneously executable.
+    def _pick_active(candidates: list[dict[str, Any]]) -> dict[str, Any]:
+        # Prefer a route that has actually reached its event/zone. This prevents
+        # a dormant rejection route from hiding an already-triggered breakdown.
+        active_states = {
+            "CONFIRMED",
+            "TRIGGERED_WAIT_CONFIRMATION",
+            "TRIGGERED",
+            "IN_ZONE",
+            "APPROACHING",
+            "ARMED",
+        }
+        return next((x for x in candidates if str(x.get("state") or "WAIT").upper() in active_states), candidates[0])
+
     if htf == "bearish":
-        primary = short_rejection
-        alternative = long_reclaim
+        primary = _pick_active([short_rejection, short_breakdown])
+        alternative = _pick_active([long_reclaim, long_support])
     elif htf == "bullish":
-        primary = long_reclaim
-        alternative = short_rejection
+        primary = _pick_active([long_reclaim, long_support])
+        alternative = _pick_active([short_rejection, short_breakdown])
     else:
-        # Transition/mixed structure: prefer the route that is closer to an
-        # actual event, otherwise keep both as WAIT.
-        priority_mixed = [short_rejection, long_reclaim, short_breakdown, long_support]
-        primary = next(
-            (x for x in priority_mixed if x.get("state") not in {"WAIT", "DATA_INSUFFICIENT", "INVALIDATED"}),
-            short_rejection,
+        # Transition/mixed structure: show the route closest to an observable
+        # event, but never promote it to a directional confirmation by itself.
+        primary = _pick_active([short_rejection, short_breakdown, long_reclaim, long_support])
+        alternative = (
+            long_reclaim if primary in {short_rejection, short_breakdown} else short_rejection
         )
-        alternative = long_reclaim if primary is not long_reclaim else short_rejection
 
     executable_primary = bool(primary.get("execution_ready"))
     executable_alternative = bool(alternative.get("execution_ready"))
