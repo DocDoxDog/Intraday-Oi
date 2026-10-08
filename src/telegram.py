@@ -65,52 +65,64 @@ def _chunk(text: str, limit: int = MAX_MESSAGE_LEN) -> list[str]:
 
 
 def _format_analysis_message(parsed: dict, ai_result: dict) -> str:
-    """Customer-facing Gold Market message: tell the price story, not the data dump."""
+    """Customer-facing Gold Market message: explain the flow in plain language.
+
+    Price/path is the narrative. IV, OI, Gamma and news are evidence layers.
+    Trade execution is rendered separately and is never inferred here.
+    """
     raw = parsed.get("raw_series") or {}
     state = raw.get("market_state") or {}
     flow = raw.get("market_flow") or {}
     path = ai_result.get("structural_path") or flow.get("path") or state.get("path") or {}
     narrative = build_customer_narrative(parsed, ai_result)
-    current = path.get("current_price") or parsed.get("cfd_price")
-    bias = str((state.get("decision") or {}).get("structural_bias") or ai_result.get("bias") or "WAIT").upper()
-    confirmation = str((state.get("decision") or {}).get("confirmation_state") or "NOT_CONFIRMED").upper()
 
-    def node(level_key: str, fallback_key: str):
-        x = path.get(level_key) or path.get(fallback_key) or {}
-        return x if isinstance(x, dict) else {}
+    futures = parsed.get("future_price")
+    bias = str(
+        (state.get("decision") or {}).get("structural_bias")
+        or ai_result.get("bias")
+        or "WAIT"
+    ).upper()
+    confirmation = str(
+        (state.get("decision") or {}).get("confirmation_state")
+        or "NOT_CONFIRMED"
+    ).upper()
+    status = str(ai_result.get("analysis_status") or "UNKNOWN").upper()
 
-    upper = node("upper_node", "next_up")
-    lower = node("lower_node", "next_down")
-    next_up = path.get("next_up") or {}
-    next_down = path.get("next_down") or {}
-
-    direction = "ขาลง" if bias in {"BEARISH", "SELL"} else "ขาขึ้น" if bias in {"BULLISH", "BUY"} else "ยังรอยืนยัน"
+    direction = (
+        "ขาลง" if bias in {"BEARISH", "SELL"}
+        else "ขาขึ้น" if bias in {"BULLISH", "BUY"}
+        else "ยังรอยืนยัน"
+    )
     confirm = "ยืนยันแล้ว" if confirmation == "CONFIRMED" else "ยังไม่ยืนยัน"
-
-    read = flow.get("read") or narrative.get("market_read") or "ยังไม่มีภาพตลาดที่ยืนยันได้"
-    why = narrative.get("why_now") or "ยังไม่มีเหตุผลเพิ่มเติมที่ผ่านการตรวจสอบ"
-    macro = narrative.get("macro_news") or "ยังไม่มีข่าวที่มี Actual ยืนยัน"
 
     lines = [
         "<b>🟡 GOLD MARKET</b>",
         _thai_datetime_str(),
-        f"ราคา <b>{_show(current)}</b> | ภาพหลัก: <b>{direction}</b> | {confirm}",
+        f"Futures {_show(futures)} | CFD {_show(parsed.get('cfd_price'))}",
+        f"ภาพหลัก: <b>{direction}</b> | {confirm} | Analyst: <b>{_escape(status)}</b>",
         "",
-        "<b>ตอนนี้เกิดอะไรขึ้น</b>",
-        _escape(read),
-    ]
-
-    # Conditional path is rendered in its own message to avoid repeating
-    # the same transition map twice in the customer bundle.
-    lines += [
+        "<b>MARKET READ</b>",
+        _escape(narrative.get("market_read") or "ยังไม่มี market read ที่ยืนยันได้"),
         "",
-        "<b>ทำไมระดับนี้ถึงสำคัญ</b>",
-        _escape(why),
+        "<b>WHY NOW</b>",
+        _escape(narrative.get("why_now") or "ยังไม่มีเหตุผลเพิ่มเติมที่ผ่านการตรวจสอบ"),
         "",
-        "<b>ข่าว / เศรษฐกิจ</b>",
-        _escape(macro),
+        "<b>IV STRUCTURE</b>",
+        _escape(narrative.get("volatility") or "ยังไม่มี IV ที่ยืนยันได้"),
         "",
-        f"Options: IV {_show(parsed.get('iv'))} | GEX {_show(parsed.get('net_gex'))} | DTE {_show(parsed.get('dte'))}",
+        "<b>OI POSITION</b>",
+        _escape(narrative.get("oi_positioning") or "ยังไม่มีข้อมูล OI ที่เพียงพอ"),
+        "",
+        "<b>FLOW STATEMENT</b>",
+        _escape(narrative.get("flow_statement") or "ยังไม่มี FLOW ที่ยืนยันได้"),
+        "",
+        "<b>TECHNICAL</b>",
+        _escape(narrative.get("technical") or "ยังไม่มีข้อมูล Technical ที่ยืนยันได้"),
+        "",
+        "<b>MACROECONOMIC / NEWS</b>",
+        _escape(narrative.get("macro_news") or "ยังไม่มีข้อมูล Macro/News ที่เพียงพอ"),
+        "",
+        f"Options: IV {_show(parsed.get('iv') or parsed.get('vol'))} | GEX {_show(parsed.get('net_gex'))} | DTE {_show(parsed.get('dte'))}",
         "ตัวเลข Options เป็นหลักฐานประกอบ ส่วนทิศทางต้องดูพฤติกรรมราคาจริง",
         "────────────────────────",
     ]
@@ -262,7 +274,7 @@ def _format_trade_plan_message(parsed: dict, ai_result: dict) -> str:
             f"ทำแบบนี้: {_escape(action)}",
         ]
         if trigger is not None:
-            lines.append(f"โซน/Trigger: <b>{fmt(trigger)}</b>")
+            lines.append(f"เข้าเมื่อ: <b>{fmt(trigger)}</b>")
             lines.append("Entry: <b>หลัง Event + Confirmation เท่านั้น</b>")
         else:
             watch = p.get("watch_level")
