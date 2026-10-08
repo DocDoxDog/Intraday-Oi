@@ -9,6 +9,7 @@ import os
 import re
 import time
 import uuid
+from src.event_outcome_engine import HORIZONS_SECONDS, measure_outcome
 from supabase import create_client, Client
 
 SCREENSHOT_BUCKET = os.environ.get("SUPABASE_STORAGE_BUCKET", "oi-screenshots")
@@ -106,6 +107,72 @@ def upsert_market_bars(technical_context: dict) -> int:
 
 
 
+def resolve_market_event_outcomes(client=None, instrument: str | None = None) -> int:
+    """Fill fixed-horizon outcomes for observed events using stored m5 bars."""
+    client = client or get_client()
+    query = (
+        client.table("market_events")
+        .select("id,event_time,detected_at,level,direction,evidence,path_before")
+        .eq("status", "OBSERVED")
+        .order("event_time", desc=True)
+        .limit(100)
+    )
+    if instrument:
+        query = query.eq("instrument", instrument)
+    events = query.execute().data or []
+    if not events:
+        return 0
+
+    bars_query = (
+        client.table("market_bars")
+        .select("bar_time,open,high,low,close,volume")
+        .eq("source", "twelve_data")
+        .eq("timeframe", "m5")
+        .order("bar_time", desc=False)
+        .limit(1000)
+    )
+    if instrument:
+        bars_query = bars_query.eq("instrument", instrument)
+    bars = bars_query.execute().data or []
+    if not bars:
+        return 0
+
+    written = 0
+    for event in events:
+        path_before = event.get("path_before") or {}
+        nodes = path_before.get("nodes") or []
+        for horizon in HORIZONS_SECONDS:
+            existing = (
+                client.table("market_event_outcomes")
+                .select("id")
+                .eq("event_id", event["id"])
+                .eq("horizon_seconds", horizon)
+                .limit(1)
+                .execute()
+            )
+            if existing.data:
+                continue
+            measured = measure_outcome(event, bars, nodes=nodes, horizon_seconds=horizon)
+            if measured is None:
+                continue
+            client.table("market_event_outcomes").insert({
+                "event_id": event["id"],
+                "horizon_seconds": horizon,
+                "observed_at": measured["observed_at"],
+                "forward_return": measured["forward_return"],
+                "forward_range": measured["forward_range"],
+                "mfe": measured["mfe"],
+                "mae": measured["mae"],
+                "next_node_hit": measured["next_node_hit"],
+                "next_node_id": measured["next_node_id"],
+                "time_to_next_node_seconds": measured["time_to_next_node_seconds"],
+                "outcome_state": measured["outcome_state"],
+                "metrics": measured["metrics"],
+            }).execute()
+            written += 1
+    return written
+
+
 def persist_flow_intelligence(parsed: dict, ai_result: dict, snapshot_id: int | None = None) -> dict:
     """Persist deterministic state/path/event evidence for replay and audit."""
     client = get_client()
@@ -193,27 +260,59 @@ def persist_flow_intelligence(parsed: dict, ai_result: dict, snapshot_id: int | 
         ).execute()
 
     event = path.get("observed_last_event") or "NONE"
+    event_id = None
     if event != "NONE" and observed_at:
         current = _num(path.get("current_price")) or _num(parsed.get("cfd_price"))
-        client.table("market_events").insert({
-            "event_time": observed_at,
-            "detected_at": observed_at,
-            "instrument": instrument,
-            "event_type": event,
-            "source_type": "conditional_path",
-            "source_ref": str(snapshot_id or state_id or observed_at),
-            "level": (path.get("upper_node") or path.get("lower_node") or {}).get("level"),
-            "direction": "UP" if event in {"BREAK_ACCEPT", "RECLAIM"} else "DOWN" if event == "REJECT" else None,
-            "magnitude": None,
-            "status": "OBSERVED",
-            "evidence": {"path": path, "current_price": current},
-            "state_before": state,
-            "state_after": state,
-            "path_before": path,
-            "path_after": path,
-        }).execute()
+        event_level = (path.get("upper_node") or path.get("lower_node") or {}).get("level")
+        direction = "UP" if event in {"BREAK_ACCEPT", "RECLAIM"} else "DOWN" if event == "REJECT" else None
 
-    return {"state_id": state_id, "nodes": len(node_rows), "transitions": len(transition_rows), "event": event}
+        # Idempotency: the same bar/event/node must not become a new event every
+        # scheduler run. A later run can still create a new event after the bar
+        # timestamp changes.
+        existing = (
+            client.table("market_events")
+            .select("id")
+            .eq("instrument", instrument)
+            .eq("event_type", event)
+            .eq("event_time", observed_at)
+            .eq("source_type", "conditional_path")
+            .limit(1)
+            .execute()
+        )
+        if existing.data:
+            event_id = existing.data[0].get("id")
+        else:
+            inserted = client.table("market_events").insert({
+                "event_time": observed_at,
+                "detected_at": observed_at,
+                "instrument": instrument,
+                "event_type": event,
+                "source_type": "conditional_path",
+                "source_ref": str(snapshot_id or state_id or observed_at),
+                "level": event_level,
+                "direction": direction,
+                "magnitude": None,
+                "status": "OBSERVED",
+                "evidence": {"path": path, "current_price": current},
+                "state_before": state,
+                "state_after": state,
+                "path_before": path,
+                "path_after": path,
+            }).execute()
+            event_id = (inserted.data or [{}])[0].get("id")
+
+    # Resolve older observed events against persisted OHLC bars. Only bars
+    # strictly after event_time are eligible, so outcome measurement cannot
+    # leak the event bar into the result.
+    outcomes_written = resolve_market_event_outcomes(client, instrument=instrument)
+    return {
+        "state_id": state_id,
+        "nodes": len(node_rows),
+        "transitions": len(transition_rows),
+        "event": event,
+        "event_id": event_id,
+        "outcomes_written": outcomes_written,
+    }
 
 def insert_snapshot(
     parsed: dict,
