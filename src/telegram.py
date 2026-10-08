@@ -244,13 +244,14 @@ def _format_trade_plan_message(parsed: dict, ai_result: dict) -> str:
             f"ทำแบบนี้: {_escape(action)}",
         ]
         if trigger is not None:
-            lines.append(f"เข้าเมื่อ: <b>{fmt(trigger)}</b>")
+            lines.append(f"โซน/Trigger: <b>{fmt(trigger)}</b>")
+            lines.append("Entry: <b>หลัง Event + Confirmation เท่านั้น</b>")
         else:
             watch = p.get("watch_level")
             ref = "ยังไม่มีโซนใกล้ราคา"
             if watch is not None:
                 ref += f" • เฝ้า {fmt(watch)}"
-            lines.append(f"เข้าเมื่อ: <b>{ref}</b>")
+            lines.append(f"โซน/Trigger: <b>{ref}</b>")
         lines.append(f"🛑 SL: <b>{fmt(stop)}</b>")
         for i, value in enumerate(targets[:5], 1):
             lines.append(f"🎯 TP{i}: <b>{fmt(value)}</b>")
@@ -260,16 +261,37 @@ def _format_trade_plan_message(parsed: dict, ai_result: dict) -> str:
             lines.append(warning)
         return lines
 
-    routes = [
-        ("long_reclaim", "🟢", "BUY 1 — เบรกแนวต้าน", "เบรกและยืนเหนือโซน → รีเทสต์ไม่หลุด → BUY"),
-        ("long_support", "🟢", "BUY 2 — รับด้านล่าง", "แตะโซนรับ → rejection/absorption → M5 BOS ขึ้น → BUY"),
-        ("short_rejection", "🔴", "SELL 1 — ต้านไม่ผ่าน", "เด้งกลับต้าน → rejection → M5 BOS ลง → SELL"),
-        ("short_breakdown", "🔴", "SELL 2 — หลุดแนวรับ", "หลุดแนวรับ → รีเทสต์ไม่ผ่าน → M5 BOS ลง → SELL"),
-    ]
+    primary = execution.get("primary_setup") if isinstance(execution.get("primary_setup"), dict) else None
+    alternative = execution.get("alternative_setup") if isinstance(execution.get("alternative_setup"), dict) else None
 
-    bias = str(ai_result.get("bias") or trade.get("direction") or "WAIT").upper()
+    if primary is not None:
+        primary_side = str(primary.get("side") or "").upper()
+        alternative_side = str(alternative.get("side") or "").upper() if alternative else ""
+        routes = [
+            (
+                "primary_setup",
+                "🔴" if primary_side.startswith("SHORT") else "🟢",
+                "SELL — แผนหลัก" if primary_side.startswith("SHORT") else "BUY — แผนหลัก",
+                str(primary.get("action") or ""),
+            ),
+            (
+                "alternative_setup",
+                "🟢" if alternative_side.startswith("LONG") else "🔴",
+                "BUY — แผนสำรอง" if alternative_side.startswith("LONG") else "SELL — แผนสำรอง",
+                str(alternative.get("action") or ""),
+            ),
+        ]
+    else:
+        routes = [
+            ("long_reclaim", "🟢", "BUY 1 — เบรกแนวต้าน", "เบรกและยืนเหนือโซน → รีเทสต์ไม่หลุด → BUY"),
+            ("long_support", "🟢", "BUY 2 — รับด้านล่าง", "แตะโซนรับ → reaction → M5 BOS ขึ้น → BUY"),
+            ("short_rejection", "🔴", "SELL 1 — ต้านไม่ผ่าน", "เด้งกลับต้าน → rejection → M5 BOS ลง → SELL"),
+            ("short_breakdown", "🔴", "SELL 2 — หลุดแนวรับ", "หลุดแนวรับ → รีเทสต์ไม่ผ่าน → SELL"),
+        ]
+
+    bias = str((state := (parsed.get("raw_series") or {}).get("market_state") or {}).get("decision", {}).get("structural_bias") or ai_result.get("bias") or trade.get("direction") or "WAIT").upper()
     preferred_key = execution.get("preferred_setup")
-    preferred = execution.get(preferred_key) if preferred_key else None
+    preferred = execution.get(preferred_key) if preferred_key else execution.get("primary_setup")
     if not isinstance(preferred, dict) or preferred.get("state") in {"WAIT", "NO_TRADE", "DATA_INSUFFICIENT", "INVALIDATED"}:
         candidates = [execution.get("short_rejection"), execution.get("short_breakdown")] if bias in {"SELL", "BEARISH"} else [execution.get("long_reclaim"), execution.get("long_support")]
         preferred = next((x for x in candidates if isinstance(x, dict) and x.get("state") not in {"WAIT", "NO_TRADE", "DATA_INSUFFICIENT", "INVALIDATED"}), None)
@@ -277,7 +299,8 @@ def _format_trade_plan_message(parsed: dict, ai_result: dict) -> str:
 
     lines = [
         "📋 <b>TRADE PLAN</b>",
-        "ครบ 4 ทาง • ใช้เฉพาะ Local Zone ใกล้ราคาปัจจุบัน",
+        f"สิทธิ์เทรดตอนนี้: <b>{_escape(str(execution.get('trade_permission') or 'WAIT_CONFIRMATION'))}</b>",
+        "แสดงแผนหลัก + แผนสำรอง • ไม่แสดง setup ซ้ำซ้อน",
         f"มุมมอง: <b>{_escape(bias)}</b>",
         f"แผนเด่น: <b>{_escape(pref_title or 'WAIT')}</b>",
         "แตะระดับ ≠ เข้า • ต้อง Action + Confirmation + Risk ผ่าน",
