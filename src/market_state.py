@@ -588,6 +588,7 @@ def enrich_market_state(parsed: dict[str, Any], history: dict[str, Any] | None =
         },
         "gamma": _gamma_state(parsed, history),
         "history": _history_for(parsed, history),
+        "price_memory": history.get("price_memory") or {},
         "technical": technical_summary,
         "news": [
             {
