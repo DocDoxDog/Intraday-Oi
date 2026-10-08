@@ -306,6 +306,27 @@ def collect_news(
     return output
 
 
+def _event_status(actual: object, event_time: object, detected_at: object) -> str:
+    if actual not in (None, ""):
+        return "RELEASED"
+    if event_time:
+        try:
+            event_dt = datetime.fromisoformat(str(event_time).replace("Z", "+00:00"))
+            if event_dt.tzinfo is None:
+                return "UNKNOWN"
+            ref_dt = (
+                datetime.fromisoformat(str(detected_at).replace("Z", "+00:00"))
+                if detected_at
+                else datetime.now(timezone.utc)
+            )
+            if ref_dt.tzinfo is None:
+                return "UNKNOWN"
+            return "UPCOMING" if event_dt.astimezone(timezone.utc) > ref_dt.astimezone(timezone.utc) else "RELEASED"
+        except (TypeError, ValueError):
+            return "UNKNOWN"
+    return "SCHEDULED"
+
+
 def format_news_announcement(items: list[NewsItem | dict], *, limit: int = 3) -> str:
     """Render source-backed announcements with verified calendar fields when available."""
     rows = items[: max(1, int(limit))]
