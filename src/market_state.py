@@ -150,10 +150,9 @@ def _history_for(parsed: dict[str, Any], history: dict[str, Any]) -> dict[str, A
 
 
 def _levels(parsed: dict[str, Any]) -> dict[str, Any]:
-    """Expose real structural option nodes; never manufacture a price ladder."""
+    """Expose structural trigger anchors without manufacturing a price ladder."""
     raw = parsed.get("raw_series") or {}
     gex = raw.get("gex") or {}
-    zones = raw.get("multi_expiry_gamma_zones") or {}
     future = _num(parsed.get("future_price"))
     cfd = _num(parsed.get("cfd_price"))
     if future is None or cfd is None:
@@ -164,85 +163,20 @@ def _levels(parsed: dict[str, Any]) -> dict[str, Any]:
             "support_current": None,
             "support_main": None,
             "support_deep": None,
-            "resistance_nodes": [],
-            "support_nodes": [],
         }
 
     call_wall = _num(gex.get("call_wall"))
     put_wall = _num(gex.get("put_wall"))
-
-    def convert_strikes(values: Any) -> list[float]:
-        out = []
-        for value in values or []:
-            converted = _cfd_level(value, future, cfd)
-            if converted is not None:
-                out.append(converted)
-        return sorted(dict.fromkeys(out))
-
-    # Multi-expiry structural nodes are based on actual GEX concentration,
-    # not consecutive strikes around the current price.
-    resistance_nodes = convert_strikes(zones.get("resistance_nodes"))
-    support_nodes = convert_strikes(zones.get("support_nodes"))
-
-    # Fallback for single-expiration/legacy snapshots, or one-sided gaps:
-    # select significant real current-expiry GEX nodes with the same
-    # non-maximum-suppression policy.
-    if not resistance_nodes or not support_nodes:
-        try:
-            from src.multi_expiry import select_structural_nodes
-            aggregate = [
-                (float(row.get("strike")), float(row.get("net_gex")))
-                for row in (gex.get("rows") or [])
-                if isinstance(row, dict)
-                and _num(row.get("strike")) is not None
-                and _num(row.get("net_gex")) is not None
-            ]
-            grid = [
-                float(row.get("strike")) for row in (gex.get("rows") or [])
-                if isinstance(row, dict) and _num(row.get("strike")) is not None
-            ]
-            positives = [item for item in aggregate if item[1] > 0]
-            negatives = [item for item in aggregate if item[1] < 0]
-            if not resistance_nodes:
-                resistance_nodes = convert_strikes(
-                    select_structural_nodes(
-                        positives, current=future, side="UP", grid_strikes=grid
-                    )
-                )
-            if not support_nodes:
-                support_nodes = convert_strikes(
-                    select_structural_nodes(
-                        negatives, current=future, side="DOWN", grid_strikes=grid
-                    )
-                )
-        except Exception:
-            resistance_nodes = resistance_nodes or []
-            support_nodes = support_nodes or []
-
-    # Keep walls as explicit anchors even when they are not selected as one of
-    # the top concentration nodes. They are source-derived structural zones.
-    call_wall_cfd = _cfd_level(call_wall, future, cfd)
-    put_wall_cfd = _cfd_level(put_wall, future, cfd)
-    if call_wall_cfd is not None and call_wall_cfd not in resistance_nodes:
-        resistance_nodes.append(call_wall_cfd)
-    if put_wall_cfd is not None and put_wall_cfd not in support_nodes:
-        support_nodes.append(put_wall_cfd)
-    resistance_nodes = sorted(set(resistance_nodes))
-    support_nodes = sorted(set(support_nodes), reverse=True)
-
-    # The global primary anchors remain Call/Put Wall; selected nodes are
-    # separate structural zones for the customer map.
     return {
-        "resistance_far": resistance_nodes[-1] if len(resistance_nodes) > 1 else None,
-        "resistance_main": call_wall_cfd,
-        "resistance_current": call_wall_cfd,
-        "support_current": put_wall_cfd,
-        "support_main": put_wall_cfd,
-        "support_deep": support_nodes[-1] if len(support_nodes) > 1 else None,
-        "resistance_nodes": resistance_nodes,
-        "support_nodes": support_nodes,
-        "zone_selection_method": zones.get("selection_method") or "SOURCE_WALLS_ONLY",
+        "resistance_far": None,
+        "resistance_main": _cfd_level(call_wall, future, cfd),
+        "resistance_current": _cfd_level(call_wall, future, cfd),
+        "support_current": _cfd_level(put_wall, future, cfd),
+        "support_main": _cfd_level(put_wall, future, cfd),
+        "support_deep": None,
     }
+
+
 
 def _gamma_state(parsed: dict[str, Any], history: dict[str, Any]) -> dict[str, Any]:
     raw = parsed.get("raw_series") or {}
@@ -803,43 +737,55 @@ def _deterministic_trade_levels(
     long_candidates = source_candidates("LONG", long_trigger)
     short_candidates = source_candidates("SHORT", short_trigger)
 
-    # R/S are significant structural nodes selected from actual
-    # multi-expiry concentration, not sequential $5 strike ladders.
-    structural_resistance = [
-        _num(v) for v in (levels.get("resistance_nodes") or [])
-        if _num(v) is not None and (current is None or _num(v) > current)
-    ]
-    structural_support = [
-        _num(v) for v in (levels.get("support_nodes") or [])
-        if _num(v) is not None and (current is None or _num(v) < current)
-    ]
-    long_key_levels = sorted(dict.fromkeys(structural_resistance))[:5]
-    short_key_levels = sorted(dict.fromkeys(structural_support), reverse=True)[:5]
+    # Significant key levels come from the multi-expiry concentration engine.
+    # They are converted to the same CFD coordinate as all execution levels.
+    zone_source = (raw.get("multi_expiry_gamma_zones") or {})
+    def convert_zone_nodes(values: Any) -> list[float]:
+        out = []
+        for value in values or []:
+            converted = _cfd_level(value, future, cfd)
+            if converted is not None:
+                out.append(converted)
+        return sorted(dict.fromkeys(out))
 
-    # Keep local action selection tied to the significant nodes first. The
-    # ordinary source-strike search remains a last-resort fallback.
-    local_action_resistance = next(
-        (level for level in long_key_levels if current is not None and level - current <= local_max_distance),
-        None,
-    )
-    local_action_support = next(
-        (level for level in short_key_levels if current is not None and current - level <= local_max_distance),
-        None,
-    )
+    long_key_levels = convert_zone_nodes(zone_source.get("resistance_nodes"))
+    short_key_levels = sorted(convert_zone_nodes(zone_source.get("support_nodes")), reverse=True)
+
+    # Legacy/single-expiration callers without the multi-expiry concentration
+    # object keep the old nearby-source behaviour. Production multi-expiry
+    # snapshots never use this fallback for important zones.
+    has_multi_expiry_nodes = bool(long_key_levels or short_key_levels)
+    if has_multi_expiry_nodes:
+        local_action_resistance = next(
+            (level for level in long_key_levels if current is not None and level - current <= local_max_distance),
+            None,
+        )
+        local_action_support = next(
+            (level for level in short_key_levels if current is not None and current - level <= local_max_distance),
+            None,
+        )
+    else:
+        local_action_resistance = next(
+            (level for level in above_levels if current is not None and level - current <= local_max_distance),
+            None,
+        )
+        local_action_support = next(
+            (level for level in below_levels if current is not None and current - level <= local_max_distance),
+            None,
+        )
     def structural_targets(side: str, anchor: float | None) -> list[float]:
         if anchor is None:
             return []
-        source = levels.get("resistance_nodes") if side == "LONG" else levels.get("support_nodes")
-        values = []
-        for value in source or []:
-            num = _num(value)
-            if num is None:
-                continue
-            if side == "LONG" and num > anchor:
-                values.append(num)
-            elif side == "SHORT" and num < anchor:
-                values.append(num)
-        return sorted(dict.fromkeys(values), reverse=side == "SHORT")
+        nodes = long_key_levels if side == "LONG" else short_key_levels
+        if nodes:
+            return [
+                value for value in nodes
+                if (value > anchor if side == "LONG" else value < anchor)
+            ]
+        # Legacy/single-expiration path: preserve source-derived targets when
+        # no multi-expiry structural concentration nodes are available.
+        candidates = source_candidates(side, anchor)
+        return [item["level"] for item in candidates]
 
     long_reclaim_trigger = local_action_resistance
     long_reclaim_stop = (
