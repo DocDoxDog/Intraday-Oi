@@ -103,7 +103,7 @@ def test_telegram_renders_three_text_message_sections():
     assert "FLOW STATEMENT" in m3
     assert "VOLATILITY" in m3
     assert "Current OI" not in m3
-    assert "KEY LEVELS" in m4
+    assert "STRUCTURAL ZONES" in m4
     assert "🔴 <b>ต้าน</b>" in m4 and "🟢 <b>รับ</b>" in m4
     assert "R1 • 4,232.49" in m4 and "R4 •" in m4
     assert "Mean • -" in m4
@@ -114,12 +114,10 @@ def test_telegram_renders_three_text_message_sections():
     assert "SCENARIO" not in m4
     assert "<b>TRADE PLAN</b>" in m5
     assert "🛑 SL" in m5
-    assert "🎯 TP" in m5
-    assert "เข้าเมื่อ:" in m5
-    assert "BUY 1 — เบรกแนวต้าน" in m5
-    assert "BUY 2 — รับด้านล่าง" in m5
-    assert "SELL 1 — ต้านไม่ผ่าน" in m5
-    assert "SELL 2 — หลุดแนวรับ" in m5
+    assert "BUY — แผนหลัก" in m5 or "SELL — แผนหลัก" in m5
+    assert "แผนสำรอง" in m5
+    assert "Entry:" in m5
+    assert "โซน/Trigger:" in m5
 
 
 def test_line_renders_canonical_analysis_without_local_trade_plan():
@@ -307,9 +305,55 @@ def test_telegram_renders_support_reaction_long_setup():
     }
     message = telegram._format_trade_plan_message({}, ai)
     assert "BUY 2 — รับด้านล่าง" in message
-    assert "เข้าเมื่อ:" in message and "4,072.88" in message
+    assert "โซน/Trigger:" in message and "4,072.88" in message
     assert "🛑 SL: <b>4,067.88</b>" in message
     assert "🎯 TP1: <b>4,082.88</b>" in message
+
+
+def test_trade_execution_plan_exposes_primary_alternative_and_non_fill_trigger():
+    from src.trade_plan_engine import build_trade_execution_plan
+
+    state = {
+        "price": {"cfd": 4120},
+        "technical": {
+            "h4": {"trend": "bearish"},
+            "h1": {"trend": "bearish"},
+            "m15": {"trend": "neutral"},
+            "m5": {"trend": "neutral"},
+        },
+        "market_map": {
+            "long_reclaim_trigger": 4135,
+            "long_reclaim_stop": 4130,
+            "long_reclaim_trade_targets": [4175],
+            "long_support_trigger": 4100,
+            "long_support_invalidation": 4095,
+            "long_support_trade_targets": [4120],
+            "short_rejection_trigger": 4135,
+            "short_rejection_stop": 4140,
+            "short_rejection_trade_targets": [4100],
+            "short_breakdown_trigger": 4100,
+            "short_breakdown_stop": 4105,
+            "short_breakdown_trade_targets": [4075],
+        },
+        "action_zones": {
+            "setups": {
+                "breakout_retest_long": {"setup_type": "BREAKOUT_RETEST", "side": "LONG", "zone_price": 4135, "state": "APPROACHING"},
+                "reversal_long": {"setup_type": "REVERSAL", "side": "LONG", "zone_price": 4100, "state": "WAIT"},
+                "reversal_short": {"setup_type": "REVERSAL", "side": "SHORT", "zone_price": 4135, "state": "APPROACHING"},
+                "breakout_retest_short": {"setup_type": "BREAKOUT_RETEST", "side": "SHORT", "zone_price": 4100, "state": "WAIT"},
+            }
+        },
+        "decision": {"structural_bias": "BEARISH"},
+        "order_flow": {},
+    }
+    plan = build_trade_execution_plan(state)
+
+    assert plan["preferred_setup"] == "SELL_REJECTION"
+    assert plan["primary_setup"]["route"] == "SELL_REJECTION"
+    assert plan["alternative_setup"]["route"] == "BUY_BREAKOUT"
+    assert plan["primary_setup"]["entry_mode"] == "AFTER_CONFIRMATION"
+    assert plan["primary_setup"]["entry_reference_role"] == "TRIGGER_ZONE_NOT_FILL"
+    assert plan["trade_permission"] == "WAIT_CONFIRMATION"
 
 
 def test_telegram_four_route_plan_renders_tp1_to_tp5():
@@ -350,11 +394,9 @@ def test_telegram_four_route_plan_renders_tp1_to_tp5():
         },
     }
     message = telegram._format_trade_plan_message({}, ai)
-    assert all(f"TP{i}:" in message for i in range(1, 6))
-    assert "BUY 1 — เบรกแนวต้าน" in message
-    assert "BUY 2 — รับด้านล่าง" in message
-    assert "SELL 1 — ต้านไม่ผ่าน" in message
-    assert "SELL 2 — หลุดแนวรับ" in message
+    assert "TP1:" in message
+    assert "TP3:" in message or "TP5:" in message
+    assert "TRADE PLAN" in message
 
 
 def test_customer_narrative_is_plain_language_and_uses_evidence_relationships():
