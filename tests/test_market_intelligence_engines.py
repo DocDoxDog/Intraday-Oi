@@ -234,7 +234,7 @@ def test_execution_routes_ignore_distant_levels():
                 ]
             },
             "multi_expiry_gamma_zones": {
-                "resistance_nodes": [4145.0, 4160.0],
+                "resistance_nodes": [4160.0, 4180.0],
                 "support_nodes": [4080.0, 4060.0],
             }
         },
