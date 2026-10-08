@@ -31,6 +31,38 @@ def _state(h4="bearish", h1="bearish", m15="bearish", m5="bearish", bos="bearish
         "news": [],
         "regime": {"regime": "TREND"},
         "history": {},
+        "action_zones": {
+            "setups": {
+                "breakout_retest_long": {
+                    "setup_type": "BREAKOUT_RETEST",
+                    "side": "LONG",
+                    "zone_price": 4140,
+                    "state": "WAIT",
+                    "event_required": "breakout + acceptance proxy + retest hold",
+                },
+                "reversal_long": {
+                    "setup_type": "REVERSAL",
+                    "side": "LONG_SUPPORT",
+                    "zone_price": 4100,
+                    "state": "WAIT",
+                    "event_required": "support interaction + rejection + bullish BOS",
+                },
+                "breakout_retest_short": {
+                    "setup_type": "BREAKOUT_RETEST",
+                    "side": "SHORT",
+                    "zone_price": 4100,
+                    "state": "WAIT",
+                    "event_required": "breakdown + acceptance proxy + retest failure",
+                },
+                "reversal_short": {
+                    "setup_type": "REVERSAL",
+                    "side": "SHORT",
+                    "zone_price": 4140,
+                    "state": "WAIT",
+                    "event_required": "resistance interaction + rejection + bearish BOS",
+                },
+            }
+        },
     }
 
 
@@ -63,6 +95,7 @@ def test_mixed_higher_timeframe_structure_resolves_to_wait_transition():
 def test_price_and_structure_confirmation_are_required_for_confirmed_short():
     state = _state(h4="bearish", h1="bearish", m15="bearish", m5="bearish",
                    bos="bearish", price=4090, support=4100)
+    state["action_zones"]["setups"]["breakout_retest_short"]["state"] = "TRIGGERED"
     out = build_decision_context(state)
 
     assert out["structural_bias"] == "BEARISH"
