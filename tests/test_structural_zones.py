@@ -27,7 +27,7 @@ def test_structural_nodes_do_not_follow_every_five_dollars():
         side="UP",
     )
 
-    assert supports == [4100.0, 4125.0, 4150.0]
+    assert supports == [4050.0, 4075.0, 4100.0, 4125.0, 4150.0]
     assert 4160.0 in resistances
     assert 4200.0 in resistances
     assert 4225.0 in resistances
@@ -43,3 +43,13 @@ def test_structural_node_selection_is_magnitude_and_spacing_based():
         side="UP",
     )
     assert selected == [4200.0, 4250.0]
+
+
+def test_live_style_cfd_normalization_preserves_real_non_five_dollar_nodes():
+    futures = 4152.8
+    cfd = 4127.56726
+    real_futures_nodes = [4150.0, 4160.0, 4200.0, 4225.0]
+    cfd_nodes = [round(node - futures + cfd, 5) for node in real_futures_nodes]
+
+    assert cfd_nodes == [4124.76726, 4134.76726, 4174.76726, 4199.76726]
+    assert [round(cfd_nodes[i] - cfd_nodes[i - 1], 5) for i in range(1, len(cfd_nodes))] == [10.0, 40.0, 25.0]
