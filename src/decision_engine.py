@@ -60,7 +60,7 @@ def _tactical_direction(state: dict[str, Any], structural_bias: str) -> str:
     m15, m5 = _trend(state, "m15"), _trend(state, "m5")
     tactical = m5 if m5 in {"bullish", "bearish"} else m15 if m15 in {"bullish", "bearish"} else "neutral"
     if structural_bias == "MIXED":
-        return tactical.upper() if tactical != "neutral" else "NEUTRAL"
+        return f"{tactical.upper()}_TRANSITION" if tactical != "neutral" else "NEUTRAL_TRANSITION"
     if tactical == structural_bias.lower():
         return f"{tactical.upper()}_ALIGNED"
     if tactical in {"bullish", "bearish"}:
@@ -125,12 +125,22 @@ def _volatility_context(state: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _action_trigger(state: dict[str, Any], side: str) -> float | None:
+    setups = ((state.get("action_zones") or {}).get("setups") or {})
+    key = "breakout_retest_long" if side == "LONG" else "breakout_retest_short"
+    setup = setups.get(key) or {}
+    zone = _n(setup.get("zone_price"))
+    if zone is not None:
+        return zone
+    levels = state.get("levels") or {}
+    return _n(levels.get("resistance_current" if side == "LONG" else "support_current"))
+
+
 def _location(state: dict[str, Any]) -> str:
     price = state.get("price") or {}
     current = _n(price.get("cfd"))
-    levels = state.get("levels") or {}
-    resistance = _n(levels.get("resistance_current"))
-    support = _n(levels.get("support_current"))
+    resistance = _action_trigger(state, "LONG")
+    support = _action_trigger(state, "SHORT")
     if current is None or resistance is None or support is None:
         return "UNKNOWN"
     if current >= resistance:
@@ -153,12 +163,7 @@ def _side_confirmation(
     bos = _bos(state, "m5")
     price = state.get("price") or {}
     current = _n(price.get("cfd"))
-    levels = state.get("levels") or {}
-    trigger = _n(
-        levels.get("resistance_current")
-        if side == "LONG"
-        else levels.get("support_current")
-    )
+    trigger = _action_trigger(state, side)
 
     if current is None or trigger is None:
         return {
@@ -219,9 +224,8 @@ def _side_confirmation(
 
 
 def _what_would_confirm(structural_bias: str, state: dict[str, Any]) -> dict[str, list[str]]:
-    levels = state.get("levels") or {}
-    resistance = _n(levels.get("resistance_current"))
-    support = _n(levels.get("support_current"))
+    resistance = _action_trigger(state, "LONG")
+    support = _action_trigger(state, "SHORT")
 
     bull = [
         f"ราคายืนเหนือ {_fmt(resistance)} และผ่านการทดสอบซ้ำ" if resistance is not None else "ราคาทะลุแนวต้านและยืนได้",
