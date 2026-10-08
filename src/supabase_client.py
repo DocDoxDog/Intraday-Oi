@@ -167,10 +167,47 @@ def insert_news_announcements(items: list[dict]) -> list[dict]:
         "rights_status",
     }
 
-    payload = [
-        {key: value for key, value in item.items() if key in persistable_keys}
-        for item in normalized_items
-    ]
+    # Build the payload after reading the existing row so a transient provider
+    # failure can never erase a previously verified Actual/Forecast/Previous.
+    # Calendar facts are monotonic from "unknown" to "known", except when the
+    # source explicitly supplies a new non-empty value (e.g. a revision).
+    payload: list[dict] = []
+    for item in normalized_items:
+        key = (
+            str(item.get("source") or "").strip(),
+            str(item.get("external_id") or "").strip(),
+        )
+        existing = existing_by_key.get(key) or {}
+        merged = {field: item.get(field) for field in persistable_keys if field in item}
+
+        for field in ("actual", "forecast", "previous"):
+            incoming = item.get(field)
+            previous_value = existing.get(field)
+            if incoming in (None, "") and previous_value not in (None, ""):
+                merged[field] = previous_value
+
+        for field in ("actual_source", "forecast_source", "previous_source"):
+            if not merged.get(field) and existing.get(field):
+                merged[field] = existing.get(field)
+
+        if merged.get("event_time") is None and existing.get("event_time") is not None:
+            merged["event_time"] = existing.get("event_time")
+        if not merged.get("calendar_retrieved_at") and existing.get("calendar_retrieved_at"):
+            merged["calendar_retrieved_at"] = existing.get("calendar_retrieved_at")
+        if merged.get("calendar_data_status") in (None, "", "UNKNOWN") and existing.get("calendar_data_status"):
+            merged["calendar_data_status"] = existing.get("calendar_data_status")
+
+        # Once an event is released, a later feed outage must not downgrade it
+        # back to UNKNOWN/UPCOMING.
+        effective_actual = merged.get("actual")
+        if effective_actual not in (None, ""):
+            merged["event_status"] = "RELEASED"
+        elif existing.get("event_status") == "RELEASED":
+            merged["event_status"] = "RELEASED"
+        elif not merged.get("event_status"):
+            merged["event_status"] = existing.get("event_status") or "UNKNOWN"
+
+        payload.append(merged)
 
     # One database write for the batch. The unique(source, external_id)
     # constraint makes this an idempotent event ledger.
