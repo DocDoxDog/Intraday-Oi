@@ -15,7 +15,7 @@ def confirm_setup(setup:dict[str,Any], market_state:dict[str,Any])->dict[str,Any
     short_bos=bos in {"bearish","bear","down","bos_down","bearish_bos","break_down"}
     checks=[]
     checks.append({"name":"zone_event","pass":setup.get("state") in {"TRIGGERED","CONFIRMED"}})
-    if side=="LONG":
+    if side.startswith("LONG"):
         checks += [{"name":"m15_alignment","pass":m15=="bullish"},
                    {"name":"m5_alignment","pass":m5=="bullish"},
                    {"name":"m5_structure_shift","pass":long_bos}]
