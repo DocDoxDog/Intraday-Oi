@@ -263,7 +263,7 @@ def persist_flow_intelligence(parsed: dict, ai_result: dict, snapshot_id: int | 
     event_id = None
     if event != "NONE" and observed_at:
         current = _num(path.get("current_price")) or _num(parsed.get("cfd_price"))
-        event_level = (path.get("upper_node") or path.get("lower_node") or {}).get("level")
+        event_level = _num(path.get("observed_event_level")) or (path.get("upper_node") or path.get("lower_node") or {}).get("level")
         direction = "UP" if event in {"BREAK_ACCEPT", "RECLAIM"} else "DOWN" if event == "REJECT" else None
 
         # Idempotency: the same bar/event/node must not become a new event every
