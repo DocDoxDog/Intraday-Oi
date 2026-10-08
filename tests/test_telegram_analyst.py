@@ -37,7 +37,8 @@ def test_telegram_renders_canonical_v2_without_creating_trade_levels():
     }
     message = format_message(parsed, ai)
     assert "GOLD MARKET" in message
-    assert "ราคา <b>4,297.00</b>" in message
+    assert "CFD <b>4,297.00</b> | FUTURES <b>4,300.00</b>" in message
+    assert "BASIS <b>-</b> | IV <b>-</b> | DTE <b>1.38</b>" in message
     assert "ตอนนี้เกิดอะไรขึ้น" in message
     assert "ทำไมระดับนี้ถึงสำคัญ" in message
     assert "ข่าว / เศรษฐกิจ" in message
