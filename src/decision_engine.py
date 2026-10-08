@@ -387,7 +387,7 @@ def build_decision_context(state: dict[str, Any]) -> dict[str, Any]:
                     },
                     "churn": _n((state.get("flow") or {}).get("source_churn_total")),
                     "interpretation": options["oi"]["activity"],
-                    "warning": options["oi"]["limitation"],
+                    "warning": "OI change/churn describe positioning activity; they do not identify aggressor direction.",
                 },
                 "3_gamma": {"regime": options["gamma"], "net_gex": _n((state.get("gamma") or {}).get("net_gex")), "dte": _n((state.get("price") or {}).get("dte"))},
                 "4_history": state.get("history") or {},
