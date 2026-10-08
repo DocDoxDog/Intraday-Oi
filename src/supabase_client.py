@@ -261,7 +261,8 @@ def persist_flow_intelligence(parsed: dict, ai_result: dict, snapshot_id: int | 
 
     event = path.get("observed_last_event") or "NONE"
     event_id = None
-    if event != "NONE" and observed_at:
+    event_time = path.get("observed_event_time") or observed_at
+    if event != "NONE" and event_time:
         current = _num(path.get("current_price")) or _num(parsed.get("cfd_price"))
         event_level = _num(path.get("observed_event_level")) or (path.get("upper_node") or path.get("lower_node") or {}).get("level")
         observed_node = path.get("observed_event_node") or {}
@@ -290,7 +291,7 @@ def persist_flow_intelligence(parsed: dict, ai_result: dict, snapshot_id: int | 
             .select("id")
             .eq("instrument", instrument)
             .eq("event_type", event)
-            .eq("event_time", observed_at)
+            .eq("event_time", event_time)
             .eq("source_type", "conditional_path")
             .limit(1)
             .execute()
@@ -299,7 +300,7 @@ def persist_flow_intelligence(parsed: dict, ai_result: dict, snapshot_id: int | 
             event_id = existing.data[0].get("id")
         else:
             inserted = client.table("market_events").insert({
-                "event_time": observed_at,
+                "event_time": event_time,
                 "detected_at": observed_at,
                 "instrument": instrument,
                 "event_type": event,
