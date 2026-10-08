@@ -254,38 +254,3 @@ def test_execution_routes_ignore_distant_levels():
     assert 4125.0 not in out["long_key_levels"]
     assert 4125.0 not in out["short_key_levels"]
 
-
-ef test_execution_routes_ignore_distant_levels():
-    from src.market_state import _deterministic_trade_levels
-
-    parsed = {
-        "future_price": 4140.0,
-        "cfd_price": 4120.0,
-        "raw_series": {
-            "gex": {
-                "rows": [
-                    {"strike": 4145.0, "oiTotal": 1000, "net_gex": 10},
-                    {"strike": 4080.0, "oiTotal": 1200, "net_gex": 12},
-                    {"strike": 4160.0, "oiTotal": 900, "net_gex": 9},
-                    {"strike": 4060.0, "oiTotal": 800, "net_gex": 8},
-                ]
-            }
-        },
-    }
-    levels = {
-        "resistance_main": 4145.0,
-        "resistance_far": 4160.0,
-        "support_main": 4080.0,
-        "support_deep": 4060.0,
-    }
-    out = _deterministic_trade_levels(parsed, levels, {"gamma_mean": 4125.0})
-
-    # Futures strikes are normalized to the CFD price before local-distance checks.
-    assert out["long_reclaim_trigger"] == 4125.0
-    assert out["short_rejection_trigger"] == 4125.0
-    assert out["long_support_trigger"] is None
-    assert out["short_breakdown_trigger"] is None
-    assert out["local_action_resistance"] == 4125.0
-    assert out["local_action_support"] is None
-    assert out["long_key_levels"][0] == 4125.0
-    assert out["short_key_levels"][0] == 4080.0
