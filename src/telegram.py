@@ -108,10 +108,18 @@ def _format_analysis_message(parsed: dict, ai_result: dict) -> str:
 
     # Conditional path is rendered in its own message to avoid repeating
     # the same transition map twice in the customer bundle.
+    flow_statement = narrative.get("flow_statement") or ""
+    oi_positioning = narrative.get("oi_positioning") or ""
+    volatility_read = narrative.get("volatility") or ""
     lines += [
         "",
         "<b>ทำไมระดับนี้ถึงสำคัญ</b>",
         _escape(why),
+        *([_escape(flow_statement)] if flow_statement else []),
+        "",
+        "<b>ความผันผวน / OI</b>",
+        _escape(volatility_read),
+        _escape(oi_positioning),
         "",
         "<b>ข่าว / เศรษฐกิจ</b>",
         _escape(macro),
@@ -263,19 +271,23 @@ def _format_trade_plan_message(parsed: dict, ai_result: dict) -> str:
         # Canonical execution_plan is preferred, but older/cached analyst
         # payloads may only have route fields on trade_plan. Merge them so a
         # renderer bug cannot silently turn a valid SL/TP map into "-".
+        # Top-level legacy trade_plan fields use long/short names, while
+        # execution_plan uses the four canonical route names.
         prefix = {
-            "long_reclaim": "long_reclaim",
+            "long_reclaim": "long",
             "long_support": "long_support",
-            "short_rejection": "short_rejection",
-            "short_breakdown": "short_breakdown",
+            "short_rejection": "short",
+            "short_breakdown": "short",
         }.get(route_key)
         if prefix:
             if p.get("trigger") is None:
                 p["trigger"] = trade.get(f"{prefix}_trigger")
             if p.get("stop") is None:
                 p["stop"] = trade.get(f"{prefix}_stop")
-            if not p.get("targets"):
-                p["targets"] = [trade.get(f"{prefix}_tp{i}") for i in range(1, 6)]
+            route_targets = [x for x in (p.get("targets") or []) if x is not None]
+            if not route_targets:
+                route_targets = [trade.get(f"{prefix}_tp{i}") for i in range(1, 6)]
+            p["targets"] = route_targets
         p = p or {}
         trigger = p.get("trigger")
         if trigger is None:
