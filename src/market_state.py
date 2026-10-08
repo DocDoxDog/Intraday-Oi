@@ -856,7 +856,11 @@ def _deterministic_trade_levels(
     long_reclaim_stop = (
         nearest_source_level(long_reclaim_trigger, above=False)
         if long_reclaim_trigger is not None else None
-    ) or nearest_canonical_level(long_reclaim_trigger, above=False)
+    ) or nearest_canonical_level(long_reclaim_trigger, above=False) or next(
+        (level for level in short_key_levels
+         if long_reclaim_trigger is not None and level < long_reclaim_trigger),
+        None,
+    )
     long_reclaim_targets = trade_targets(
         "LONG", long_reclaim_trigger, long_reclaim_stop,
         structural_targets("LONG", long_reclaim_trigger)
@@ -866,7 +870,11 @@ def _deterministic_trade_levels(
     long_support_stop = (
         nearest_source_level(long_support_trigger, above=False)
         if long_support_trigger is not None else None
-    ) or nearest_canonical_level(long_support_trigger, above=False)
+    ) or nearest_canonical_level(long_support_trigger, above=False) or next(
+        (level for level in short_key_levels
+         if long_support_trigger is not None and level < long_support_trigger),
+        None,
+    )
     long_support_targets = trade_targets(
         "LONG", long_support_trigger, long_support_stop,
         structural_targets("LONG", long_support_trigger)
@@ -876,7 +884,11 @@ def _deterministic_trade_levels(
     short_rejection_stop = (
         nearest_source_level(short_rejection_trigger, above=True)
         if short_rejection_trigger is not None else None
-    ) or nearest_canonical_level(short_rejection_trigger, above=True)
+    ) or nearest_canonical_level(short_rejection_trigger, above=True) or next(
+        (level for level in long_key_levels
+         if short_rejection_trigger is not None and level > short_rejection_trigger),
+        None,
+    )
     short_rejection_targets = trade_targets(
         "SHORT", short_rejection_trigger, short_rejection_stop,
         structural_targets("SHORT", short_rejection_trigger)
@@ -886,7 +898,11 @@ def _deterministic_trade_levels(
     short_breakdown_stop = (
         nearest_source_level(short_breakdown_trigger, above=True)
         if short_breakdown_trigger is not None else None
-    ) or nearest_canonical_level(short_breakdown_trigger, above=True)
+    ) or nearest_canonical_level(short_breakdown_trigger, above=True) or next(
+        (level for level in long_key_levels
+         if short_breakdown_trigger is not None and level > short_breakdown_trigger),
+        None,
+    )
     short_breakdown_targets = trade_targets(
         "SHORT", short_breakdown_trigger, short_breakdown_stop,
         structural_targets("SHORT", short_breakdown_trigger)
