@@ -261,8 +261,14 @@ def _format_trade_plan_message(parsed: dict, ai_result: dict) -> str:
     def render_route(payload: dict, title: str, emoji: str, default_action: str) -> list[str]:
         p = payload or {}
         trigger = p.get("trigger")
+        if trigger is None:
+            trigger = p.get("entry_reference", p.get("entry", p.get("zone_price")))
         stop = p.get("stop")
+        if stop is None:
+            stop = p.get("invalidation", p.get("stop_loss"))
         targets = list(p.get("targets") or [])
+        if not targets:
+            targets = [p.get(f"tp{i}") for i in range(1, 6)]
         targets.extend([None] * (5 - len(targets)))
         action = _text(p.get("action")) if p.get("action") else default_action
 
