@@ -396,6 +396,18 @@ def run():
     # replace deterministic CFD levels, history coverage, or the requirement
     # to emit a conditional trade roadmap.
     ai_result = normalize_analyst_output(parsed, hist_context, ai_result)
+    # Flow context is deterministic source-of-truth for customer narrative.
+    # Never let the LLM silently replace the observed path/nodes.
+    flow_context = (parsed.get("raw_series") or {}).get("market_flow") or {}
+    if flow_context.get("status") == "VALID":
+        ai_result["market_flow"] = {
+            "version": flow_context.get("version"),
+            "read": flow_context.get("market_read"),
+            "flow": flow_context.get("flow_read"),
+        }
+        ai_result["structural_path"] = flow_context.get("path") or {}
+        ai_result["price_memory"] = flow_context.get("price_memory") or {}
+        ai_result["structural_nodes"] = flow_context.get("nodes") or []
     print(
         f"    analyst guardrails: status={ai_result.get('analysis_status')} "
         f"trade_plan={((ai_result.get('trade_plan') or {}).get('status') or 'UNKNOWN')} "
