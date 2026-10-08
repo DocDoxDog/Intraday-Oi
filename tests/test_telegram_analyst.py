@@ -116,7 +116,8 @@ def test_telegram_renders_three_text_message_sections():
     assert "<b>TRADE PLAN</b>" in m5
     assert "🛑 SL" in m5
     assert "🎯 TP" in m5
-    assert "เข้าเมื่อ:" in m5
+    assert "โซน/Trigger:" in m5
+    assert "Entry: <b>หลัง Event + Confirmation เท่านั้น</b>" in m5
     assert "BUY 1 — เบรกแนวต้าน" in m5
     assert "BUY 2 — รับด้านล่าง" in m5
     assert "SELL 1 — ต้านไม่ผ่าน" in m5
