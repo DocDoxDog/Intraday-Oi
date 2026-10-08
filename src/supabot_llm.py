@@ -22,7 +22,7 @@ except ImportError:
 
 DEFAULT_GATEWAY_PATH = "/internal/v1/llm/generate"
 TASK = "market.narrative"
-PROMPT_VERSION = "intraday-oi-market-analyst-v8"
+PROMPT_VERSION = "intraday-oi-market-analyst-v9-price-memory"
 DATASET_VERSION = "quikstrike-oi-view-v2"
 CALCULATION_VERSION = "intraday-oi-calcs-v1"
 
@@ -386,6 +386,7 @@ def _summarize_input(parsed: dict[str, Any], history: dict[str, Any] | None) -> 
         "vol": parsed.get("vol"),
         "vol_chg": parsed.get("vol_chg"),
         "technical_context": parsed.get("technical_context") or {},
+        "price_memory": (parsed.get("technical_context") or {}).get("price_memory") or {},
         "raw_series": {
             "market_state": raw.get("market_state") or {},
             "totals": totals,
@@ -467,6 +468,7 @@ def _summarize_input(parsed: dict[str, Any], history: dict[str, Any] | None) -> 
     return {
         "current": _json_safe(current),
         "history": _json_safe(_compact_history(parsed, history)),
+        "stored_price_memory": _json_safe((history or {}).get("price_memory") or {}),
         "deterministic_levels": _level_candidates(parsed),
         "data_limitations": [
             "Open Interest is positioning data; it is not equivalent to traded intraday volume.",
@@ -545,7 +547,16 @@ regime transition และ GEX change
 ถ้า baseline ของ metric ใดไม่มี ให้ UNKNOWN เฉพาะ metric นั้น
 ห้ามทำให้ทั้ง history กลายเป็น UNKNOWN
 
-8) MACRO / NEWS INTELLIGENCE
+8) PRICE MEMORY / OHLC FLOW
+ใช้ OHLC ที่เก็บจาก Twelve Data เป็น "ความจำของราคา" ไม่ใช่เพียง indicator:
+- เล่าว่าราคามาจากไหน → เคลื่อนผ่านโซนใด → เคยถูกปฏิเสธ/ยอมรับตรงไหน → ตอนนี้กำลังทดสอบอะไร
+- ใช้ stored_price_memory เพื่อเชื่อมหลายรอบเวลาเข้ากับ current price
+- swing high/low, prior high/low และราคาปิดเป็น observed structure; ห้ามยกระดับเป็น support/resistance เพียงเพราะเป็น swing
+- ระดับจาก Options และระดับจาก OHLC ต้องมีบทบาทต่างกัน แต่สามารถยืนยันกันได้
+- ถ้า price memory ขัดกับ Gamma/OI ให้เปิดเผย conflict แทนการเลือก metric ใด metric หนึ่ง
+- ห้ามสร้างเส้นทางราคาที่ไม่มีหลักฐานจาก OHLC
+
+9) MACRO / NEWS INTELLIGENCE
 ข่าวทุกชิ้นต้องผ่าน:
 FRESHNESS → RELEVANCE → CATEGORY → MARKET CHANNEL → PRICING IMPACT
 
