@@ -15,8 +15,10 @@ import re
 from datetime import datetime, timezone, timedelta
 try:
     from .supabase_client import get_client
+    from .price_memory import build_price_memory
 except ImportError:
     from supabase_client import get_client
+    from price_memory import build_price_memory
 
 BANGKOK_TZ = timezone(timedelta(hours=7))
 
@@ -210,6 +212,50 @@ def get_oi_baseline(contract: str | None = None) -> dict | None:
     return result.data[0] if result.data else None
 
 
+def get_price_memory(instrument: str = "XAU/USD") -> dict:
+    """Read persisted Twelve Data OHLC bars for cross-run price memory."""
+    client = get_client()
+    output = {}
+    for timeframe in ("h4", "h1", "m15", "m5", "m1"):
+        try:
+            result = (
+                client.table("market_bars")
+                .select("bar_time,open,high,low,close,volume")
+                .eq("source", "twelve_data")
+                .eq("instrument", instrument)
+                .eq("timeframe", timeframe)
+                .order("bar_time", desc=False)
+                .limit(160)
+                .execute()
+            )
+            bars = [
+                {
+                    "datetime": row.get("bar_time"),
+                    "open": row.get("open"),
+                    "high": row.get("high"),
+                    "low": row.get("low"),
+                    "close": row.get("close"),
+                    "volume": row.get("volume"),
+                }
+                for row in (result.data or [])
+            ]
+            output[timeframe] = bars
+        except Exception as exc:
+            output[timeframe] = []
+            print(f"⚠️  ดึง OHLC price memory {timeframe} ไม่สำเร็จ: {exc}")
+    return {
+        "version": "price-memory-v1",
+        "source": "twelve_data",
+        "stored": True,
+        "timeframes": {
+            tf: summary
+            for tf, summary in (
+                build_price_memory(output).get("timeframes") or {}
+            ).items()
+        },
+    }
+
+
 def get_context(contract: str | None = None) -> dict:
     """เรียกใช้ตัวเดียวจาก main.py — คืนทั้งสองก้อนพร้อม fail-safe
     ถ้า query history พังไม่ควรทำให้ pipeline หลักล่ม แค่ analyze แบบไม่มี context ย้อนหลัง"""
@@ -238,9 +284,15 @@ def get_context(contract: str | None = None) -> dict:
         print(f"⚠️  ดึง yesterday summary ไม่สำเร็จ: {e}")
 
     try:
+        price_memory = get_price_memory()
+    except Exception as e:
+        price_memory = {"version": "price-memory-v1", "status": "UNKNOWN", "timeframes": {}}
+        print(f"⚠️  ดึง persisted price memory ไม่สำเร็จ: {e}")
+
+    try:
         oi_baseline = get_oi_baseline(contract)
     except Exception as e:
         oi_baseline = None
         print(f"⚠️  ดึง OI baseline ไม่สำเร็จ: {e}")
 
-    return {"hour_ago": hour_ago, "two_hours_ago": two_hours_ago, "today": today, "yesterday": yesterday, "oi_baseline": oi_baseline}
+    return {"hour_ago": hour_ago, "two_hours_ago": two_hours_ago, "today": today, "yesterday": yesterday, "price_memory": price_memory, "oi_baseline": oi_baseline}
