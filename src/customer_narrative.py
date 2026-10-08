@@ -317,6 +317,26 @@ def _confirmation_read(parsed: dict[str, Any]) -> str:
     return details
 
 
+def _decision_market_read(parsed: dict[str, Any]) -> str:
+    state = (parsed.get("raw_series") or {}).get("market_state") or {}
+    decision = state.get("decision") or {}
+    structural = str(decision.get("structural_bias") or "MIXED").upper()
+    tactical = str(decision.get("tactical_direction") or "NEUTRAL").upper()
+    confirmation = str(decision.get("confirmation_state") or "NOT_CONFIRMED").upper()
+
+    if confirmation == "CONFIRMED":
+        side = "ขาขึ้น" if structural == "BULLISH" else "ขาลง" if structural == "BEARISH" else "ตาม setup ที่ยืนยัน"
+        return f"โครงสร้างหลักและ price confirmation สอดคล้องกันแล้ว จึงมีทิศทาง{side}ที่ยืนยันจากข้อมูลราคา"
+    if structural == "MIXED":
+        return f"โครงสร้างหลักยังขัดกัน ขณะที่ระยะสั้นเป็น {tactical}; ตอนนี้ยังอยู่ในช่วงเปลี่ยนผ่านและยังไม่ยืนยันทาง"
+    if tactical.endswith("_AGAINST_STRUCTURE"):
+        side = "ขาลง" if structural == "BEARISH" else "ขาขึ้น"
+        recovery = "กำลังฟื้นตัวระยะสั้น" if tactical.startswith("BULLISH") else "กำลังอ่อนตัวสวนแนวโน้มหลัก"
+        return f"ภาพหลักยังเป็น{side} แต่ {recovery}; ยังไม่ใช่การกลับทิศที่ยืนยันแล้ว"
+    side = "ขาขึ้น" if structural == "BULLISH" else "ขาลง"
+    return f"โครงสร้างหลักยังเป็น{side} แต่ยังไม่มี price confirmation จึงรอ trigger/การยืนยันก่อน"
+
+
 def build_customer_narrative(parsed: dict[str, Any], ai_result: dict[str, Any]) -> dict[str, str]:
     """Return concise customer-facing sections in plain Thai."""
     raw = parsed.get("raw_series") or {}
@@ -324,13 +344,9 @@ def build_customer_narrative(parsed: dict[str, Any], ai_result: dict[str, Any]) 
     volatility = state.get("volatility") or {}
     technical = state.get("technical") or {}
 
-    market_read = _friendly_text(
-        ai_result.get("market_overview")
-        or ai_result.get("what")
-        or "ยังไม่มี market read ที่ยืนยันได้"
-    )
-    if not market_read:
-        market_read = "ยังไม่มี market read ที่ยืนยันได้"
+    # Deterministic decision state is the source of truth for Market Read.
+    # The LLM may add thesis details elsewhere, but it cannot override state.
+    market_read = _decision_market_read(parsed)
 
     technical_llm = _friendly_text(ai_result.get("market_microstructure"))
     h4 = _clean_text((technical.get("h4") or {}).get("trend"))
