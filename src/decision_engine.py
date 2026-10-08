@@ -317,7 +317,6 @@ def build_decision_context(state: dict[str, Any]) -> dict[str, Any]:
         "confirmation_state": confirmation_state,
         "confirmation": {
             "LONG": long_conf,
-            "BEARISH": short_conf,
             "SHORT": short_conf,
         },
         "decision_state": decision_state,
