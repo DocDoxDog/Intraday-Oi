@@ -288,33 +288,15 @@ def _format_trade_plan_message(parsed: dict, ai_result: dict) -> str:
             lines.append(warning)
         return lines
 
-    primary = execution.get("primary_setup") if isinstance(execution.get("primary_setup"), dict) else None
-    alternative = execution.get("alternative_setup") if isinstance(execution.get("alternative_setup"), dict) else None
-
-    if primary is not None:
-        primary_side = str(primary.get("side") or "").upper()
-        alternative_side = str(alternative.get("side") or "").upper() if alternative else ""
-        routes = [
-            (
-                "primary_setup",
-                "🔴" if primary_side.startswith("SHORT") else "🟢",
-                "SELL — แผนหลัก" if primary_side.startswith("SHORT") else "BUY — แผนหลัก",
-                str(primary.get("action") or ""),
-            ),
-            (
-                "alternative_setup",
-                "🟢" if alternative_side.startswith("LONG") else "🔴",
-                "BUY — แผนสำรอง" if alternative_side.startswith("LONG") else "SELL — แผนสำรอง",
-                str(alternative.get("action") or ""),
-            ),
-        ]
-    else:
-        routes = [
-            ("long_reclaim", "🟢", "BUY 1 — เบรกแนวต้าน", "เบรกและยืนเหนือโซน → รีเทสต์ไม่หลุด → BUY"),
-            ("long_support", "🟢", "BUY 2 — รับด้านล่าง", "แตะโซนรับ → reaction → M5 BOS ขึ้น → BUY"),
-            ("short_rejection", "🔴", "SELL 1 — ต้านไม่ผ่าน", "เด้งกลับต้าน → rejection → M5 BOS ลง → SELL"),
-            ("short_breakdown", "🔴", "SELL 2 — หลุดแนวรับ", "หลุดแนวรับ → รีเทสต์ไม่ผ่าน → SELL"),
-        ]
+    # Customer Telegram keeps the four conditional routes explicit.
+    # Primary/alternative remain metadata for preference, not a reason to hide
+    # the other conditional paths.
+    routes = [
+        ("long_reclaim", "🟢", "BUY 1 — เบรกแนวต้าน", "เบรกและยืนเหนือโซน → รีเทสต์ไม่หลุด → BUY"),
+        ("long_support", "🟢", "BUY 2 — รับด้านล่าง", "แตะโซนรับ → มีแรงตอบสนองราคา → M5 BOS ขึ้น → BUY"),
+        ("short_rejection", "🔴", "SELL 1 — ต้านไม่ผ่าน", "เด้งกลับต้าน → rejection → M5 BOS ลง → SELL"),
+        ("short_breakdown", "🔴", "SELL 2 — หลุดแนวรับ", "หลุดแนวรับ → รีเทสต์ไม่ผ่าน → SELL"),
+    ]
 
     bias = str((state := (parsed.get("raw_series") or {}).get("market_state") or {}).get("decision", {}).get("structural_bias") or ai_result.get("bias") or trade.get("direction") or "WAIT").upper()
     preferred_key = execution.get("preferred_setup")
