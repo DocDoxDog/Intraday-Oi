@@ -1147,6 +1147,8 @@ def normalize_analyst_output(
     short_key_levels = deterministic.get("short_key_levels") or []
     ai["market_map"] = {
         # R/S are structural key levels, not automatic trade targets.
+        "structural_resistance_nodes": list(long_key_levels),
+        "structural_support_nodes": list(short_key_levels),
         "R1": long_key_levels[0] if len(long_key_levels) > 0 else None,
         "R2": long_key_levels[1] if len(long_key_levels) > 1 else None,
         "R3": long_key_levels[2] if len(long_key_levels) > 2 else None,
