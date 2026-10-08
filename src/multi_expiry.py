@@ -158,6 +158,7 @@ def select_structural_nodes(
     current: float | None,
     side: str,
     limit: int = 5,
+    grid_strikes: list[float] | None = None,
 ) -> list[float]:
     """Select significant real strikes; never manufacture +5/+10 ladders.
 
@@ -169,7 +170,10 @@ def select_structural_nodes(
     if not concentrations:
         return []
 
-    strike_values = sorted(strike for strike, _ in concentrations)
+    # Strike spacing must come from the complete observed option-chain grid.
+    # Using only the top concentration list would make the spacing look wider
+    # than it really is and could suppress valid nearby structural nodes.
+    strike_values = sorted(grid_strikes or [strike for strike, _ in concentrations])
     min_gap = max(10.0, 2.0 * _median_spacing(strike_values))
     peak = max(abs(value) for _, value in concentrations)
     threshold = peak * 0.20
@@ -226,11 +230,15 @@ def summarize_gamma_zones(gamma_matrix: dict[str, Any]) -> dict[str, Any]:
         reverse=True,
     )
 
+    observed_strikes = [
+        float(row["strike"]) for row in matrix
+        if _num(row.get("strike")) is not None
+    ]
     resistance_nodes = select_structural_nodes(
-        positive, current=current, side="UP"
+        positive, current=current, side="UP", grid_strikes=observed_strikes
     )
     support_nodes = select_structural_nodes(
-        negative, current=current, side="DOWN"
+        negative, current=current, side="DOWN", grid_strikes=observed_strikes
     )
 
     return {
