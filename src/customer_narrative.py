@@ -221,13 +221,22 @@ def _flow_statement(parsed: dict[str, Any], ai_result: dict[str, Any]) -> str:
     elif current is not None:
         parts.append(f"ราคาปัจจุบันอยู่ที่ {_show(current)} แต่ยังมีระดับโครงสร้างไม่ครบ")
 
-    parts.append(_oi_read(flow))
+    decision = state.get("decision") or {}
+    oi_activity = str(((decision.get("options_context") or {}).get("oi") or {}).get("activity") or "UNKNOWN").upper()
+    if oi_activity == "TWO_SIDED_BUILD":
+        parts.append("สถานะกำลังเพิ่มทั้งสองฝั่ง จึงยังไม่ใช่หลักฐานว่าผู้เล่นกำลังไล่ทางใด")
+    elif oi_activity == "TWO_SIDED_REDUCTION":
+        parts.append("สถานะทั้งสองฝั่งกำลังลดลง จึงยังไม่มี directional flow ที่ยืนยันได้")
+    elif oi_activity == "MIXED_ACTIVITY":
+        parts.append("การเปลี่ยนแปลงสถานะยังผสมกัน และไม่สามารถระบุ aggressor จากข้อมูลนี้ได้")
+    else:
+        parts.append("ข้อมูลสถานะยังไม่พอสำหรับระบุ directional flow")
 
     iv_change = _num(volatility.get("iv_change_1h"))
     if iv_change is not None and iv_change > 0:
-        parts.append("IV ที่เพิ่มขึ้นบอกว่าตลาดกำลังเผื่อการแกว่งมากขึ้น แต่ยังไม่ใช่หลักฐานว่าราคาจะขึ้นหรือลง")
+        parts.append("ความผันผวนระยะสั้นกำลังขยาย แต่ยังไม่ใช่หลักฐานว่าราคาจะขึ้นหรือลง")
     elif iv_change is not None and iv_change < 0:
-        parts.append("IV ที่ลดลงบอกว่าความกังวลเรื่องการแกว่งลดลงเมื่อเทียบกับช่วงก่อนหน้า")
+        parts.append("ความผันผวนระยะสั้นกำลังลดลง ทำให้แรงผลักจาก volatility อ่อนลง")
 
     h4 = _clean_text((technical.get("h4") or {}).get("trend")).lower()
     h1 = _clean_text((technical.get("h1") or {}).get("trend")).lower()
