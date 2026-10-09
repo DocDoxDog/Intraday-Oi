@@ -212,9 +212,23 @@ def _format_trade_plan_message(parsed: dict, ai_result: dict) -> str:
 
     if not execution:
         def legacy_payload(prefix: str, side: str, title: str, strategy: str, action: str):
-            trigger = trade.get(f"{prefix}_trigger")
-            stop = trade.get(f"{prefix}_stop")
-            targets = [trade.get(f"{prefix}_tp{i}") for i in range(1, 6)]
+            # Legacy-only compatibility: prefer route-specific fields. If an
+            # old payload has no route-specific fields at all, fall back to
+            # its generic side fields. Canonical execution routes never use
+            # this fallback, so one route cannot borrow another route's TPs.
+            fallback_prefix = {
+                "long_reclaim": "long",
+                "short_rejection": "short",
+                "short_breakdown": "short",
+            }.get(prefix)
+            route_trigger = trade.get(f"{prefix}_trigger")
+            route_stop = trade.get(f"{prefix}_stop")
+            route_targets = [trade.get(f"{prefix}_tp{i}") for i in range(1, 6)]
+            has_route_data = route_trigger is not None or route_stop is not None or any(v is not None for v in route_targets)
+            source_prefix = prefix if has_route_data or fallback_prefix is None else fallback_prefix
+            trigger = trade.get(f"{source_prefix}_trigger")
+            stop = trade.get(f"{source_prefix}_stop")
+            targets = [trade.get(f"{source_prefix}_tp{i}") for i in range(1, 6)]
             return {
                 "route": title,
                 "title": title,
@@ -333,6 +347,7 @@ def _format_trade_plan_message(parsed: dict, ai_result: dict) -> str:
         if trigger is not None:
             lines.append(f"โซน/Trigger: <b>{fmt(trigger)}</b>")
             lines.append(f"เข้าเมื่อ: <b>{fmt(trigger)}</b> หลัง Event + Confirmation")
+            lines.append("Entry: หลัง Event + Confirmation เท่านั้น")
             lines.append("Entry จริงต้องรอการยืนยัน ไม่ใช่เข้าเพียงเพราะราคาแตะระดับ")
         else:
             watch = p.get("watch_level")
