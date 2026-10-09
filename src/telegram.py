@@ -279,20 +279,28 @@ def _format_trade_plan_message(parsed: dict, ai_result: dict) -> str:
         # renderer bug cannot silently turn a valid SL/TP map into "-".
         # Top-level legacy trade_plan fields use long/short names, while
         # execution_plan uses the four canonical route names.
-        prefix = {
-            "long_reclaim": "long",
-            "long_support": "long_support",
-            "short_rejection": "short",
-            "short_breakdown": "short",
-        }.get(route_key)
-        if prefix:
+        route_fields = {
+            "long_reclaim": ("long_reclaim_trigger", "long_reclaim_stop", "long_reclaim_tp"),
+            "long_support": ("long_support_trigger", "long_support_stop", "long_support_tp"),
+            "short_rejection": ("short_rejection_trigger", "short_rejection_stop", "short_rejection_tp"),
+            "short_breakdown": ("short_breakdown_trigger", "short_breakdown_stop", "short_breakdown_tp"),
+        }
+        fields = route_fields.get(route_key)
+        if fields:
+            trigger_field, stop_field, tp_prefix = fields
             if p.get("trigger") is None:
-                p["trigger"] = trade.get(f"{prefix}_trigger")
+                p["trigger"] = trade.get(trigger_field)
             if p.get("stop") is None:
-                p["stop"] = trade.get(f"{prefix}_stop")
+                p["stop"] = trade.get(stop_field)
             route_targets = [x for x in (p.get("targets") or []) if x is not None]
             if not route_targets:
-                route_targets = [trade.get(f"{prefix}_tp{i}") for i in range(1, 6)]
+                # Only use the matching route's targets. Falling back to generic
+                # long/short targets mixes a different setup's ladder into this
+                # route and can display TP1 == trigger or fabricated-looking TPs.
+                route_targets = [
+                    trade.get(f"{tp_prefix}{i}") for i in range(1, 6)
+                    if trade.get(f"{tp_prefix}{i}") is not None
+                ]
             p["targets"] = route_targets
         p = p or {}
         trigger = p.get("trigger")
