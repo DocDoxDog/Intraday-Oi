@@ -218,7 +218,8 @@ def persist_flow_intelligence(parsed: dict, ai_result: dict, snapshot_id: int | 
             "tier": node.get("tier"),
             "direction": node.get("direction"),
             "source": node.get("source"),
-            "expiry_scope": node.get("expiry_scope"),
+            # The database requires a scope; preserve uncertainty explicitly instead of failing the whole node batch.
+            "expiry_scope": node.get("expiry_scope") or "UNKNOWN",
             "oi_context": node.get("oi_context"),
             "risk_context": node.get("risk_context"),
             "local_prominence": node.get("local_prominence"),
