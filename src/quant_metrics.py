@@ -64,6 +64,10 @@ def enrich_quant_metrics(parsed: dict[str, Any], history: dict[str, Any] | None 
     call_chg = _n(flow.get("oi_change_call"))
     gex = _n(gamma.get("net_gex"))
     iv = _n(vol.get("iv"))
+    if iv is None:
+        # Standalone callers and degraded payloads may only carry the parser's
+        # top-level IV. Preserve UNKNOWN when neither source has a value.
+        iv = _n(parsed.get("vol", parsed.get("iv")))
     dte = _n(parsed.get("dte"))
 
     hour = history.get("hour_ago") or {}
