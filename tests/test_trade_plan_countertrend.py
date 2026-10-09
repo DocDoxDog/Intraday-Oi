@@ -61,6 +61,9 @@ def test_countertrend_confirmation_cannot_be_global_confirmation():
 
     plan = build_trade_execution_plan(state)
 
-    assert plan["long"]["state"] == "COUNTERTREND_CONFIRMED"
+    # The local countertrend route may confirm, but it must not become the
+    # global decision or execution permission against bearish H4/H1 structure.
+    assert plan["long_reclaim"]["state"] == "COUNTERTREND_CONFIRMED"
     assert plan["state"] == "COUNTERTREND_ROUTE_CONFIRMED"
-    assert plan["preferred_setup"] is None
+    assert plan["execution_ready"] is False
+    assert plan["trade_permission"] != "ENTER_CONDITION_SATISFIED"
