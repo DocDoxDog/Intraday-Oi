@@ -365,7 +365,7 @@ def test_trade_execution_plan_exposes_primary_alternative_and_non_fill_trigger()
     assert plan["alternative_setup"]["targets"] == [4175.0]
 
 
-def test_telegram_execution_route_falls_back_to_top_level_trade_targets():
+def test_telegram_does_not_borrow_generic_targets_for_a_route_without_tp():
     from src import telegram
 
     ai = {
@@ -391,8 +391,34 @@ def test_telegram_execution_route_falls_back_to_top_level_trade_targets():
     message = telegram._format_trade_plan_message({}, ai)
     assert "BUY 1 — เบรกแนวต้าน" in message
     assert "🛑 SL: <b>4,114.86</b>" in message
-    assert "🎯 TP1: <b>4,119.86</b>" in message
-    assert "🎯 TP5: <b>4,139.86</b>" in message
+    assert "🎯 TP1: <b>-</b>" in message
+    assert "🎯 TP5: <b>-</b>" in message
+    assert "🎯 TP1: <b>4,119.86</b>" not in message
+    assert "🎯 TP5: <b>4,139.86</b>" not in message
+
+
+def test_telegram_uses_route_specific_targets_not_the_generic_side_ladder():
+    from src import telegram
+
+    ai = {
+        "trade_plan": {
+            "long_tp1": 4200,
+            "long_support_tp1": 4150,
+            "short_tp1": 4100,
+            "short_breakdown_tp1": 4050,
+            "execution_plan": {
+                "long_reclaim": {"state": "ARMED", "trigger": 4190, "stop": 4180, "targets": []},
+                "long_support": {"state": "ARMED", "trigger": 4140, "stop": 4130, "targets": []},
+                "short_rejection": {"state": "ARMED", "trigger": 4160, "stop": 4170, "targets": []},
+                "short_breakdown": {"state": "ARMED", "trigger": 4090, "stop": 4100, "targets": []},
+            },
+        },
+    }
+    message = telegram._format_trade_plan_message({}, ai)
+    assert "🎯 TP1: <b>4,200.00</b>" in message
+    assert "🎯 TP1: <b>4,150.00</b>" in message
+    assert "🎯 TP1: <b>4,100.00</b>" in message
+    assert "🎯 TP1: <b>4,050.00</b>" in message
 
 
 def test_telegram_four_route_plan_renders_tp1_to_tp5():
