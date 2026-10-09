@@ -306,16 +306,17 @@ def _format_trade_plan_message(parsed: dict, ai_result: dict) -> str:
                 p["trigger"] = trade.get(trigger_field)
             if p.get("stop") is None:
                 p["stop"] = trade.get(stop_field)
-            route_targets = [x for x in (p.get("targets") or []) if x is not None]
-            if not route_targets:
-                # Only use the matching route's targets. Falling back to generic
-                # long/short targets mixes a different setup's ladder into this
-                # route and can display TP1 == trigger or fabricated-looking TPs.
-                route_targets = [
+            # The canonical execution route owns its target list, including
+            # an intentionally empty list after risk/side validation. Do not
+            # refill it from a stale legacy trade_plan: that can resurrect a
+            # TP equal to the trigger or a target rejected by the risk gate.
+            if "targets" not in p:
+                p["targets"] = [
                     trade.get(f"{tp_prefix}{i}") for i in range(1, 6)
                     if trade.get(f"{tp_prefix}{i}") is not None
                 ]
-            p["targets"] = route_targets
+            else:
+                p["targets"] = [x for x in (p.get("targets") or []) if x is not None]
         p = p or {}
         trigger = p.get("trigger")
         if trigger is None:
@@ -326,17 +327,9 @@ def _format_trade_plan_message(parsed: dict, ai_result: dict) -> str:
         targets = list(p.get("targets") or [])
         if not targets:
             targets = [p.get(f"tp{i}") for i in range(1, 6)]
-        if not any(v is not None for v in targets):
-            market_map = ai_result.get("market_map") or {}
-            route_target_key = {
-                "long_reclaim": "long_reclaim_trade_targets",
-                "long_support": "long_support_trade_targets",
-                "short_rejection": "short_rejection_trade_targets",
-                "short_breakdown": "short_breakdown_trade_targets",
-            }.get(route_key)
-            source_targets = market_map.get(route_target_key) if route_target_key else None
-            if isinstance(source_targets, list):
-                targets = list(source_targets[:5])
+        # Never bypass the canonical execution/risk gate with raw market-map
+        # targets. Missing TP values remain UNKNOWN rather than being rebuilt
+        # in the renderer.
         targets.extend([None] * (5 - len(targets)))
         action = _text(p.get("action")) if p.get("action") else default_action
 
