@@ -77,3 +77,20 @@ class AnalystV3:
 
 def to_dict(value: Any) -> dict[str, Any]:
     return asdict(value)
+
+
+@dataclass(frozen=True)
+class MarketAnalysis:
+    """Compatibility contract for the deterministic analysis service."""
+    market_context: str
+    what_changed: str
+    why_it_matters: str
+    key_levels: tuple[float, ...] = ()
+    risk_factors: tuple[str, ...] = ()
+    uncertainties: tuple[str, ...] = ()
+    evidence: tuple[str, ...] = ()
+    confidence: float = 0.0
+    generated_at: str = ""
+    model_version: str = ""
+    dataset_version: str = ""
+    calculation_version: str = ""
