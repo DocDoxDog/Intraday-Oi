@@ -27,7 +27,9 @@ def test_structural_nodes_do_not_follow_every_five_dollars():
         side="UP",
     )
 
-    assert supports == [4050.0, 4075.0, 4100.0, 4125.0, 4150.0]
+    # Only source strikes present in this snapshot may be selected; the
+    # absent 4050/4075 levels must not be fabricated from a price ladder.
+    assert supports == [4100.0, 4125.0, 4150.0]
     assert 4160.0 in resistances
     assert 4200.0 in resistances
     assert 4225.0 in resistances
