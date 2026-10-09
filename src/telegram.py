@@ -96,10 +96,14 @@ def _format_analysis_message(parsed: dict, ai_result: dict) -> str:
     basis = parsed.get("basis_diff", parsed.get("basis"))
     iv = parsed.get("vol", parsed.get("iv"))
     dte = parsed.get("dte")
+    analysis_status = str(ai_result.get("analysis_status") or "UNKNOWN").upper()
+    status_label = "ยังไม่ยืนยัน" if analysis_status in {"DEGRADED", "REJECTED", "UNKNOWN", "NOT_CONFIRMED"} else "ผ่านการตรวจสอบ"
+
     lines = [
         "<b>🟡 GOLD MARKET</b>",
         _thai_datetime_str(),
-        f"CFD <b>{_show(cfd)}</b> | FUTURES <b>{_show(futures)}</b>",
+        f"สถานะการวิเคราะห์: <b>{status_label}</b> ({_escape(analysis_status)})",
+        f"ราคา <b>{_show(cfd)}</b> | Futures {_show(futures)} | CFD {_show(cfd)}",
         f"BASIS <b>{_show(basis)}</b> | IV <b>{_show(iv)}</b> | DTE <b>{_show(dte)}</b>",
         "",
         "<b>ตอนนี้เกิดอะไรขึ้น</b>",
