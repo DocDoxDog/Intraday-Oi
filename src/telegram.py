@@ -103,7 +103,7 @@ def _format_analysis_message(parsed: dict, ai_result: dict) -> str:
         "<b>🟡 GOLD MARKET</b>",
         _thai_datetime_str(),
         f"สถานะการวิเคราะห์: <b>{status_label}</b> ({_escape(analysis_status)})",
-        f"ราคา <b>{_show(cfd)}</b> | Futures {_show(futures)} | CFD {_show(cfd)}",
+        f"Futures {_show(futures)} | CFD {_show(cfd)}",
         f"BASIS <b>{_show(basis)}</b> | IV <b>{_show(iv)}</b> | DTE <b>{_show(dte)}</b>",
         "",
         "<b>ตอนนี้เกิดอะไรขึ้น</b>",
@@ -119,10 +119,12 @@ def _format_analysis_message(parsed: dict, ai_result: dict) -> str:
         "",
         "<b>ทำไมระดับนี้ถึงสำคัญ</b>",
         _escape(why),
-        *([_escape(flow_statement)] if flow_statement else []),
+        "<b>FLOW STATEMENT — ภาพรวมแรงที่กำลังเกิดขึ้น</b>",
+        *([_escape(flow_statement)] if flow_statement else ["ยังไม่มี flow statement ที่ยืนยันได้"]),
         "",
-        "<b>ความผันผวน / OI</b>",
+        "<b>VOLATILITY — ตลาดกำลังผันผวนแค่ไหน</b>",
         _escape(volatility_read),
+        "<b>OI POSITIONING — ผู้เล่นกำลังเพิ่ม/ลดสถานะอย่างไร</b>",
         _escape(oi_positioning),
         "",
         "<b>ข่าว / เศรษฐกิจ</b>",
@@ -322,7 +324,8 @@ def _format_trade_plan_message(parsed: dict, ai_result: dict) -> str:
         ]
         if trigger is not None:
             lines.append(f"โซน/Trigger: <b>{fmt(trigger)}</b>")
-            lines.append("Entry: <b>หลัง Event + Confirmation เท่านั้น</b>")
+            lines.append(f"เข้าเมื่อ: <b>{fmt(trigger)}</b> หลัง Event + Confirmation")
+            lines.append("Entry จริงต้องรอการยืนยัน ไม่ใช่เข้าเพียงเพราะราคาแตะระดับ")
         else:
             watch = p.get("watch_level")
             ref = "ยังไม่มีโซนใกล้ราคา"
