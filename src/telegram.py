@@ -327,8 +327,16 @@ def _format_trade_plan_message(parsed: dict, ai_result: dict) -> str:
                         if trade.get(f"{tp_prefix}{i}") is not None
                     ]
 
-            trigger_value = _n(p.get("trigger", trade.get(trigger_field)))
-            stop_value = _n(p.get("stop", trade.get(stop_field)))
+            def as_number(value):
+                if value is None or value == "":
+                    return None
+                try:
+                    return float(value)
+                except (TypeError, ValueError):
+                    return None
+
+            trigger_value = as_number(p.get("trigger", trade.get(trigger_field)))
+            stop_value = as_number(p.get("stop", trade.get(stop_field)))
             is_long = route_key.startswith("long_")
             risk_distance = (
                 trigger_value - stop_value if is_long
@@ -336,7 +344,7 @@ def _format_trade_plan_message(parsed: dict, ai_result: dict) -> str:
             ) if trigger_value is not None and stop_value is not None else None
             valid_route_targets = []
             for value in route_targets:
-                target_value = _n(value)
+                target_value = as_number(value)
                 if target_value is None or trigger_value is None:
                     continue
                 reward = target_value - trigger_value if is_long else trigger_value - target_value
