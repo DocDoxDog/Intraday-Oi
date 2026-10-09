@@ -22,7 +22,7 @@ except ImportError:
 
 DEFAULT_GATEWAY_PATH = "/internal/v1/llm/generate"
 TASK = "market.narrative"
-PROMPT_VERSION = "intraday-oi-market-analyst-v9-price-memory"
+PROMPT_VERSION = "intraday-oi-market-analyst-v8"
 DATASET_VERSION = "quikstrike-oi-view-v2"
 CALCULATION_VERSION = "intraday-oi-calcs-v1"
 
@@ -140,22 +140,6 @@ def _level_candidates(parsed: dict[str, Any]) -> list[dict[str, Any]]:
             "deterministic net GEX strike",
             "raw_series.gex.rows",
         )
-
-    # Observed OHLC structure is a first-class level source. These are
-    # evidence-backed candidates, not synthetic support/resistance values.
-    price_memory = (parsed.get("technical_context") or {}).get("price_memory") or {}
-    for tf, context in (price_memory.get("timeframes") or {}).items():
-        if not isinstance(context, dict):
-            continue
-        for key in ("swing_high", "swing_low"):
-            value = context.get(key)
-            if isinstance(value, (int, float)) and value > 0:
-                add(
-                    f"ohlc:{tf}:{key}",
-                    value,
-                    f"{tf.upper()} observed {key.replace('_', ' ')}",
-                    f"technical_context.price_memory.{tf}",
-                )
 
     # Market-state levels are already normalized to CFD coordinates and are
     # authoritative candidates for the analyst; do not force the model to
@@ -402,7 +386,6 @@ def _summarize_input(parsed: dict[str, Any], history: dict[str, Any] | None) -> 
         "vol": parsed.get("vol"),
         "vol_chg": parsed.get("vol_chg"),
         "technical_context": parsed.get("technical_context") or {},
-        "price_memory": (parsed.get("technical_context") or {}).get("price_memory") or {},
         "raw_series": {
             "market_state": raw.get("market_state") or {},
             "totals": totals,
@@ -484,7 +467,6 @@ def _summarize_input(parsed: dict[str, Any], history: dict[str, Any] | None) -> 
     return {
         "current": _json_safe(current),
         "history": _json_safe(_compact_history(parsed, history)),
-        "stored_price_memory": _json_safe((history or {}).get("price_memory") or {}),
         "deterministic_levels": _level_candidates(parsed),
         "data_limitations": [
             "Open Interest is positioning data; it is not equivalent to traded intraday volume.",
@@ -563,16 +545,7 @@ regime transition และ GEX change
 ถ้า baseline ของ metric ใดไม่มี ให้ UNKNOWN เฉพาะ metric นั้น
 ห้ามทำให้ทั้ง history กลายเป็น UNKNOWN
 
-8) PRICE MEMORY / OHLC FLOW
-ใช้ OHLC ที่เก็บจาก Twelve Data เป็น "ความจำของราคา" ไม่ใช่เพียง indicator:
-- เล่าว่าราคามาจากไหน → เคลื่อนผ่านโซนใด → เคยถูกปฏิเสธ/ยอมรับตรงไหน → ตอนนี้กำลังทดสอบอะไร
-- ใช้ stored_price_memory เพื่อเชื่อมหลายรอบเวลาเข้ากับ current price
-- swing high/low, prior high/low และราคาปิดเป็น observed structure; ห้ามยกระดับเป็น support/resistance เพียงเพราะเป็น swing
-- ระดับจาก Options และระดับจาก OHLC ต้องมีบทบาทต่างกัน แต่สามารถยืนยันกันได้
-- ถ้า price memory ขัดกับ Gamma/OI ให้เปิดเผย conflict แทนการเลือก metric ใด metric หนึ่ง
-- ห้ามสร้างเส้นทางราคาที่ไม่มีหลักฐานจาก OHLC
-
-9) MACRO / NEWS INTELLIGENCE
+8) MACRO / NEWS INTELLIGENCE
 ข่าวทุกชิ้นต้องผ่าน:
 FRESHNESS → RELEVANCE → CATEGORY → MARKET CHANNEL → PRICING IMPACT
 
@@ -589,7 +562,7 @@ PRICING = ตลาดกำลังตอบสนองหรือยัง
 ถ้าข่าวไม่มีผลต่อ current setup อย่างมีหลักฐาน ให้ลดน้ำหนัก
 ถ้าไม่มีข่าวที่เกี่ยวข้อง ให้ระบุว่าไม่มี catalyst สำคัญจากข้อมูลที่ได้รับ
 
-10) MICROSTRUCTURE / LIQUIDITY
+9) MICROSTRUCTURE / LIQUIDITY
 ใช้ Technical/flow evidence เพื่อแยก:
 LEVEL → EVENT → ACCEPTANCE/REJECTION → RETEST → TRIGGER
 
@@ -597,7 +570,7 @@ LEVEL → EVENT → ACCEPTANCE/REJECTION → RETEST → TRIGGER
 momentum, BOS, FVG, volume, VWAP และ stop/liquidity zones เมื่อมีข้อมูล
 ห้ามสร้าง order-flow claim ที่ไม่มี data
 
-11) PSYCHOLOGY / REFLEXIVITY
+10) PSYCHOLOGY / REFLEXIVITY
 ไม่เดาอารมณ์ผู้เล่น
 ให้ถามเชิงกลไก:
 WHO MAY BE TRAPPED?
@@ -610,7 +583,7 @@ WHAT LIQUIDITY COULD BE CONSUMED?
 PRICE → POSITIONING/HEDGE → LIQUIDITY → PRICE
 โดยเฉพาะ Negative Gamma + thin liquidity + break + volatility expansion
 
-12) CONFLICT ENGINE
+11) CONFLICT ENGINE
 ก่อนสรุป thesis ต้องหา evidence ที่ขัดกับ thesis อย่างน้อยหนึ่งครั้ง
 ถ้ามี:
 Gamma bearish แต่ support ยัง hold
@@ -619,14 +592,14 @@ OI ลด แต่ไม่มี evidence ของ fresh short
 Macro supportive แต่ price ไม่ respond
 ให้ระบุ conflict และลด conviction
 
-13) CONFIRMATION / INVALIDATION
+12) CONFIRMATION / INVALIDATION
 Confirmation ต้องเป็นเหตุการณ์ ไม่ใช่แค่ระดับราคา:
 Break → Acceptance → Retest → Hold/Failure → Flow/Momentum confirmation
 
 Invalidation = จุดที่ market thesis ผิด
 ไม่ใช่ arbitrary distance จาก entry
 
-13.1) DECISION GATES — บังคับคิดตามลำดับ
+12.1) DECISION GATES — บังคับคิดตามลำดับ
 ใช้ deterministic "decision_framework" ใน market_state เป็น control layer
 และห้ามข้ามขั้น:
 
@@ -680,12 +653,12 @@ GATE J — FINAL DECISION
 โดย "BUY/SELL" ใน bias เป็น market view เท่านั้น ไม่ใช่คำสั่ง execute
 ห้ามใช้ uncertainty score เป็นเหตุผลหลักในการตัดสินใจ
 
-14) SCENARIO ENGINE
+13) SCENARIO ENGINE
 สร้าง BULL / BEAR / SIDEWAY โดยใช้ conditional logic
 และใช้ BASE / ALT / INVALIDATION ใน schema เดิม
 ห้ามสร้าง probability ถ้าไม่มี statistical basis
 
-15) TRADE CONSTRUCTION
+14) TRADE CONSTRUCTION
 สร้าง LONG และ SHORT conditional plan จาก deterministic levels เท่านั้น
 แยก LEVEL / TRIGGER / ENTRY / INVALIDATION / TARGET
 ถ้า trigger ยังไม่เกิด Bias สามารถเป็น WAIT ได้
@@ -776,6 +749,11 @@ RULES
 - financial_engineering ต้องอธิบายผลของ Gamma/IV/DTE ต่อพฤติกรรมราคา ไม่ใช่แค่เรียงตัวเลข
 - history_comparison ต้องเล่า "อะไรเปลี่ยนจากช่วงก่อน" และใช้สัปดาห์/เซสชันปัจจุบันเป็นบริบทหลัก; อย่าใช้ข้อมูลเก่าเป็น baseline ของ intraday โดยไม่มีหลักฐานรองรับ
 - ห้ามสร้างบทสรุปว่าแรงใดเป็นผู้ชนะเพียงเพราะ Call/Put OI เพิ่มขึ้น
+- ห้ามใช้คำว่า IV "สูง" หรือ "ต่ำ" เว้นแต่ input มี baseline/percentile ที่ยืนยันได้; หากไม่มีให้รายงานเพียงระดับปัจจุบันและการเปลี่ยนแปลง
+- analysis_status ต้องไม่เป็น CONFIRMED จากการคาดการณ์ของโมเดล; ให้ถือว่า CONFIRMED ได้ต่อเมื่อ deterministic decision context ระบุว่ามี price confirmation แล้ว
+- แยก structural bias (H4/H1) ออกจาก tactical direction (M5/M15); tactical ที่สวนโครงสร้างให้รายงานเป็น transition/recovery ไม่ใช่ reversal ที่ยืนยันแล้ว
+- Positive GEX เป็นเพียงบริบทที่อาจช่วย dampen การแกว่ง; ห้ามสรุปว่า "ราคาจะติดกรอบ" จาก GEX เพียงอย่างเดียว
+- Flow Statement ต้องตอบ 3 เรื่อง: เกิดอะไรขึ้น → evidence หลายชั้นสอดคล้องกันหรือไม่ → อะไรจะยืนยันต่อ โดยไม่ทำซ้ำ raw OI/IV/GEX ทั้งหมด
 """
 
 

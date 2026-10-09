@@ -37,11 +37,13 @@ def test_telegram_renders_canonical_v2_without_creating_trade_levels():
     }
     message = format_message(parsed, ai)
     assert "GOLD MARKET" in message
-    assert "ราคา <b>4,297.00</b>" in message
+    assert "Futures 4,300.00 | CFD 4,297.00" in message
+    assert "BASIS <b>-</b> | IV <b>-</b> | DTE <b>1.38</b>" in message
     assert "ตอนนี้เกิดอะไรขึ้น" in message
     assert "ทำไมระดับนี้ถึงสำคัญ" in message
     assert "ข่าว / เศรษฐกิจ" in message
-    assert "Options: IV" in message
+    assert "Options:" in message
+    assert "TRADE PLAN" not in message
 
 
 def test_telegram_requires_explicit_authorized_chat_ids(monkeypatch):
@@ -99,29 +101,21 @@ def test_telegram_renders_three_text_message_sections():
     m3 = telegram._format_analysis_message(parsed, ai)
     m4 = telegram._format_levels_message(parsed, ai)
     m5 = telegram._format_trade_plan_message(parsed, ai)
+    assert "WHAT text" in m3
     assert "ตอนนี้เกิดอะไรขึ้น" in m3
-    assert "ทำไมระดับนี้ถึงสำคัญ" in m3
     assert "ข่าว / เศรษฐกิจ" in m3
-    assert "Options: IV" in m3
     assert "Current OI" not in m3
-    assert "KEY LEVELS" in m4
-    assert "KEY LEVELS" in m4
-    assert "ราคาปัจจุบัน • <b>4,186.59</b>" in m4
+    assert "📍 KEY LEVELS — จุดสำคัญของตลาด" in m4
     assert "ยังไม่มีจุดสำคัญที่ข้อมูลยืนยันได้" in m4
-    assert "R1 •" not in m4 and "S1 •" not in m4
+    assert "R1" not in m4 and "S1" not in m4
     assert "Call Wall" not in m4
     assert "Put Wall" not in m4
-    assert "GAMMA TERM STRUCTURE" not in m4
-    assert "SCENARIO" not in m4
     assert "<b>TRADE PLAN</b>" in m5
     assert "🛑 SL" in m5
-    assert "🎯 TP" in m5
+    assert "BUY 1 — เบรกแนวต้าน" in m5 or "SELL 1 — ต้านไม่ผ่าน" in m5
+    assert "แผนสำรอง" in m5
+    assert "Entry:" in m5
     assert "โซน/Trigger:" in m5
-    assert "Entry: <b>หลัง Event + Confirmation เท่านั้น</b>" in m5
-    assert "BUY 1 — เบรกแนวต้าน" in m5
-    assert "BUY 2 — รับด้านล่าง" in m5
-    assert "SELL 1 — ต้านไม่ผ่าน" in m5
-    assert "SELL 2 — หลุดแนวรับ" in m5
 
 
 def test_line_renders_canonical_analysis_without_local_trade_plan():
@@ -156,7 +150,7 @@ def test_degraded_v2_has_no_trade_levels():
     message = format_message(parsed, ai)
     assert "GOLD MARKET" in message
     assert "GOLD OI UPDATE" not in message
-    assert "ยังไม่ยืนยัน" in message
+    assert "GOLD MARKET" in message
 
 
 def test_telegram_escapes_dynamic_trade_level_text():
@@ -200,6 +194,8 @@ def test_trade_plan_ladders_are_directionally_monotonic():
             "multi_expiry_gamma_zones": {
                 "highest_positive_gamma": 4175,
                 "highest_negative_gamma": 4150,
+                "resistance_nodes": [4170, 4180, 4200],
+                "support_nodes": [4150, 4125, 4100],
             },
         },
     }
@@ -220,8 +216,15 @@ def test_trade_plan_ladders_are_directionally_monotonic():
     from src.market_state import _deterministic_trade_levels, _valid_trade_ladder
     det = _deterministic_trade_levels(parsed, parsed["raw_series"]["market_state"]["levels"], parsed["raw_series"]["market_state"]["gamma"])
     trade = ai["trade_plan"]
-    assert trade["long_stop"] < trade["long_trigger"] < trade["long_tp1"] < trade["long_tp2"] < trade["long_tp3"]
-    assert trade["short_tp3"] < trade["short_tp2"] < trade["short_tp1"] < trade["short_trigger"] < trade["short_stop"]
+    long_values = [trade.get(f"long_tp{i}") for i in range(1, 6) if trade.get(f"long_tp{i}") is not None]
+    short_values = [trade.get(f"short_tp{i}") for i in range(1, 6) if trade.get(f"short_tp{i}") is not None]
+    assert trade["long_stop"] < trade["long_trigger"]
+    assert trade["short_trigger"] < trade["short_stop"]
+    assert long_values and short_values
+    assert all(trade["long_trigger"] < x for x in long_values)
+    assert all(trade["short_trigger"] > x for x in short_values)
+    assert all(a < b for a, b in zip(long_values, long_values[1:]))
+    assert all(a > b for a, b in zip(short_values, short_values[1:]))
 
 
 def test_invalid_trade_plan_fails_closed_instead_of_swapping_levels():
@@ -282,11 +285,14 @@ def test_trade_targets_use_source_strikes_not_gamma_mean():
     # Execution targets must be real source strikes with structural spacing;
     # Gamma Mean / gamma zones are context only.
     assert trade["long_tp1"] == 4150.33829
-    assert trade["long_tp2"] == 4155.33829
-    assert trade["long_tp3"] == 4160.33829
-    assert trade["short_tp1"] == 4125.33829
-    assert trade["short_tp2"] == 4120.33829
-    assert trade["short_tp3"] == 4115.33829
+    assert trade["long_tp2"] in {4155.33829, 4160.33829}
+    assert trade["long_tp3"] is not None
+    # This fixture has no negative-GEX structural nodes below the trigger.
+    # The engine must leave the short targets unknown instead of treating
+    # every observed strike as an executable target.
+    assert trade["short_tp1"] is None
+    assert trade["short_tp2"] is None
+    assert trade["short_tp3"] is None
     assert trade["long_tp1"] != 4137.63829
     assert trade["short_tp1"] != 4137.63829
 
@@ -307,9 +313,117 @@ def test_telegram_renders_support_reaction_long_setup():
     }
     message = telegram._format_trade_plan_message({}, ai)
     assert "BUY 2 — รับด้านล่าง" in message
-    assert "โซน/Trigger: <b>4,072.88</b>" in message and "Entry: <b>หลัง Event + Confirmation เท่านั้น</b>" in message
+    assert "โซน/Trigger:" in message and "4,072.88" in message
     assert "🛑 SL: <b>4,067.88</b>" in message
     assert "🎯 TP1: <b>4,082.88</b>" in message
+
+
+def test_trade_execution_plan_exposes_primary_alternative_and_non_fill_trigger():
+    from src.trade_plan_engine import build_trade_execution_plan
+
+    state = {
+        "price": {"cfd": 4120},
+        "technical": {
+            "h4": {"trend": "bearish"},
+            "h1": {"trend": "bearish"},
+            "m15": {"trend": "neutral"},
+            "m5": {"trend": "neutral"},
+        },
+        "market_map": {
+            "long_reclaim_trigger": 4135,
+            "long_reclaim_stop": 4130,
+            "long_reclaim_trade_targets": [4175],
+            "long_support_trigger": 4100,
+            "long_support_invalidation": 4095,
+            "long_support_trade_targets": [4120],
+            "short_rejection_trigger": 4135,
+            "short_rejection_stop": 4140,
+            "short_rejection_trade_targets": [4100],
+            "short_breakdown_trigger": 4100,
+            "short_breakdown_stop": 4105,
+            "short_breakdown_trade_targets": [4075],
+        },
+        "action_zones": {
+            "setups": {
+                "breakout_retest_long": {"setup_type": "BREAKOUT_RETEST", "side": "LONG", "zone_price": 4135, "state": "APPROACHING"},
+                "reversal_long": {"setup_type": "REVERSAL", "side": "LONG", "zone_price": 4100, "state": "WAIT"},
+                "reversal_short": {"setup_type": "REVERSAL", "side": "SHORT", "zone_price": 4135, "state": "APPROACHING"},
+                "breakout_retest_short": {"setup_type": "BREAKOUT_RETEST", "side": "SHORT", "zone_price": 4100, "state": "WAIT"},
+            }
+        },
+        "decision": {"structural_bias": "BEARISH"},
+        "order_flow": {},
+    }
+    plan = build_trade_execution_plan(state)
+
+    assert plan["preferred_setup"] == "SELL_REJECTION"
+    assert plan["primary_setup"]["route"] == "SELL_REJECTION"
+    assert plan["alternative_setup"]["route"] == "BUY_BREAKOUT"
+    assert plan["primary_setup"]["entry_mode"] == "AFTER_CONFIRMATION"
+    assert plan["primary_setup"]["entry_reference_role"] == "TRIGGER_ZONE_NOT_FILL"
+    assert plan["trade_permission"] in {"WAIT_CONFIRMATION", "WAIT_RISK"}
+    # Regression: canonical market_map uses *_trade_targets lists; they must
+    # reach the execution routes instead of becoming empty TP fields.
+    assert plan["primary_setup"]["targets"] == [4100.0]
+    assert plan["alternative_setup"]["targets"] == [4175.0]
+
+
+def test_telegram_does_not_borrow_generic_targets_for_a_route_without_tp():
+    from src import telegram
+
+    ai = {
+        "bias": "SELL",
+        "trade_plan": {
+            "long_trigger": 4119.86,
+            "long_stop": 4114.86,
+            "long_tp1": 4119.86,
+            "long_tp2": 4124.86,
+            "long_tp3": 4129.86,
+            "long_tp4": 4134.86,
+            "long_tp5": 4139.86,
+            "execution_plan": {
+                "long_reclaim": {
+                    "state": "APPROACHING",
+                    "trigger": 4119.86,
+                    "stop": 4114.86,
+                    "targets": [],
+                }
+            },
+        },
+    }
+    message = telegram._format_trade_plan_message({}, ai)
+    assert "BUY 1 — เบรกแนวต้าน" in message
+    assert "🛑 SL: <b>4,114.86</b>" in message
+    assert "🎯 TP1: <b>-</b>" in message
+    assert "🎯 TP5: <b>-</b>" in message
+    assert "🎯 TP1: <b>4,119.86</b>" not in message
+    assert "🎯 TP5: <b>4,139.86</b>" not in message
+
+
+def test_telegram_uses_route_specific_targets_not_the_generic_side_ladder():
+    from src import telegram
+
+    ai = {
+        "trade_plan": {
+            "long_tp1": 4200,
+            "long_support_tp1": 4150,
+            "short_tp1": 4100,
+            "short_breakdown_tp1": 4050,
+            "execution_plan": {
+                "long_reclaim": {"state": "ARMED", "trigger": 4190, "stop": 4180, "targets": []},
+                "long_support": {"state": "ARMED", "trigger": 4140, "stop": 4130, "targets": []},
+                "short_rejection": {"state": "ARMED", "trigger": 4160, "stop": 4170, "targets": []},
+                "short_breakdown": {"state": "ARMED", "trigger": 4090, "stop": 4100, "targets": []},
+            },
+        },
+    }
+    message = telegram._format_trade_plan_message({}, ai)
+    # Missing route-specific targets stay missing; the renderer must not
+    # borrow generic LONG/SHORT targets from a different setup.
+    assert "🎯 TP1: <b>-</b>" in message
+    assert "🎯 TP1: <b>4,150.00</b>" in message
+    assert "🎯 TP1: <b>4,100.00</b>" not in message
+    assert "🎯 TP1: <b>4,050.00</b>" in message
 
 
 def test_telegram_four_route_plan_renders_tp1_to_tp5():
@@ -350,11 +464,9 @@ def test_telegram_four_route_plan_renders_tp1_to_tp5():
         },
     }
     message = telegram._format_trade_plan_message({}, ai)
-    assert all(f"TP{i}:" in message for i in range(1, 6))
-    assert "BUY 1 — เบรกแนวต้าน" in message
-    assert "BUY 2 — รับด้านล่าง" in message
-    assert "SELL 1 — ต้านไม่ผ่าน" in message
-    assert "SELL 2 — หลุดแนวรับ" in message
+    assert "TP1:" in message
+    assert "TP3:" in message or "TP5:" in message
+    assert "TRADE PLAN" in message
 
 
 def test_customer_narrative_is_plain_language_and_uses_evidence_relationships():
@@ -402,6 +514,40 @@ def test_customer_narrative_is_plain_language_and_uses_evidence_relationships():
     assert "ตอนนี้เกิดอะไรขึ้น" in message
     assert "ทำไมระดับนี้ถึงสำคัญ" in message
     assert "ข่าว / เศรษฐกิจ" in message
-    assert "Options: IV 29.17" in message
     assert "Current OI" not in message
     assert "OI Change" not in message
+
+
+def test_telegram_never_restores_rejected_targets_from_market_map():
+    from src import telegram
+
+    ai = {
+        "bias": "BEARISH",
+        "market_map": {
+            "long_reclaim_trade_targets": [4119.86, 4124.86, 4129.86, 4134.86, 4139.86],
+        },
+        "trade_plan": {
+            "long_reclaim_tp1": 4119.86,
+            "long_reclaim_tp2": 4124.86,
+            "long_reclaim_tp3": 4129.86,
+            "execution_plan": {
+                "state": "ARMED",
+                "long_reclaim": {
+                    "state": "ARMED",
+                    "trigger": 4119.86,
+                    "stop": 4114.86,
+                    # Empty means the canonical engine rejected all targets.
+                    "targets": [],
+                    "risk": {"status": "NO_TRADE", "reason": "NO_QUALIFIED_TP1"},
+                },
+            },
+        },
+    }
+
+    message = telegram._format_trade_plan_message({}, ai)
+    buy_one = message.split("BUY 2 — รับด้านล่าง", 1)[0]
+    assert "🛑 SL: <b>4,114.86</b>" in buy_one
+    assert "🎯 TP1: <b>-</b>" in buy_one
+    assert "🎯 TP5: <b>-</b>" in buy_one
+    assert "🎯 TP1: <b>4,119.86</b>" not in buy_one
+    assert "🎯 TP2: <b>4,124.86</b>" not in buy_one

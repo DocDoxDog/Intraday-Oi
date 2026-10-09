@@ -25,7 +25,6 @@ from src.technical_analysis import build_context
 from src.oi_positioning import enrich as enrich_oi_positioning
 from src.supabase_client import (
     insert_snapshot,
-    persist_market_bars,
     insert_oi_intelligence,
     insert_multi_expiry_options,
     upload_screenshot,
@@ -33,6 +32,8 @@ from src.supabase_client import (
     insert_news_announcements,
     can_notify,
     mark_notified,
+    upsert_market_bars,
+    persist_flow_intelligence,
 )
 from src.url_manager import UrlManager, UrlManagerError
 from src import history, telegram, line
@@ -124,16 +125,11 @@ def run():
     if os.environ.get("TWELVEDATA_API_KEY"):
         try:
             parsed["technical_context"] = build_context()
-            market_bars = parsed["technical_context"].pop("_market_bars", {})
             try:
-                persisted_bars = persist_market_bars(
-                    market_bars,
-                    instrument=parsed["technical_context"].get("symbol") or "XAU/USD",
-                )
-                print(f"    OHLC persisted to market_bars: {persisted_bars} bars")
-            except Exception as persist_error:
-                # OHLC persistence failure must not fabricate technical evidence.
-                print(f"⚠️  OHLC persistence failed; current technical analysis remains in-memory only: {persist_error}", file=sys.stderr)
+                persisted_bars = upsert_market_bars(parsed["technical_context"])
+                print(f"    persisted Twelve Data OHLC bars: {persisted_bars}")
+            except Exception as e:
+                print(f"⚠️  OHLC persistence failed (analysis continues): {e}", file=sys.stderr)
             confirmation = parsed["technical_context"].get("confirmation", {})
             print(
                 f"    bias={confirmation.get('bias')} "
@@ -363,22 +359,15 @@ def run():
     # reaches both the analyst and the Telegram/LINE renderers.
     parsed = enrich_market_state(parsed, hist_context)
     parsed = enrich_quant_metrics(parsed, hist_context)
-    # Deterministic flow layer: real OHLC + observed option nodes -> conditional path.
     try:
         flow_context = build_flow_context(parsed)
         parsed.setdefault("raw_series", {})["market_flow"] = flow_context
         parsed["raw_series"]["market_state"]["path"] = flow_context.get("path") or {}
         parsed["raw_series"]["market_state"]["price_memory"] = flow_context.get("price_memory") or {}
-        print(
-            "    market flow: status={} nodes={}".format(
-                flow_context.get("status"), len(flow_context.get("nodes") or [])
-            )
-        )
+        print("    market flow: status={} nodes={}".format(flow_context.get("status"), len(flow_context.get("nodes") or [])))
     except Exception as e:
-        parsed.setdefault("raw_series", {})["market_flow"] = {
-            "status": "UNKNOWN", "error": type(e).__name__
-        }
-        print(f"⚠️  Market flow engine failed (analysis continues): {e}", file=sys.stderr)
+        parsed.setdefault("raw_series", {})["market_flow"] = {"status": "UNKNOWN", "error": type(e).__name__}
+        print(f"⚠️  Market flow engine failed (continuing with canonical state): {e}", file=sys.stderr)
     market_state = (parsed.get("raw_series") or {}).get("market_state") or {}
     print(
         f"    market state: CFD={'OK' if market_state.get('cfd_complete') else 'UNKNOWN'} | "
@@ -414,7 +403,8 @@ def run():
     # replace deterministic CFD levels, history coverage, or the requirement
     # to emit a conditional trade roadmap.
     ai_result = normalize_analyst_output(parsed, hist_context, ai_result)
-    # Deterministic path is authoritative; LLM cannot replace observed nodes.
+    # Flow context is deterministic source-of-truth for customer narrative.
+    # Never let the LLM silently replace the observed path/nodes.
     flow_context = (parsed.get("raw_series") or {}).get("market_flow") or {}
     if flow_context.get("status") == "VALID":
         ai_result["market_flow"] = {
@@ -445,6 +435,18 @@ def run():
         gamma_table_full_url=gamma_table_full_url,
     )
     print(f"✅ Done. Row id={row.get('id')}")
+    try:
+        flow_persisted = persist_flow_intelligence(parsed, ai_result, snapshot_id=row.get("id"))
+        print(
+            "    ✅ Flow intelligence persisted: state={} nodes={} transitions={} event={}".format(
+                flow_persisted.get("state_id"),
+                flow_persisted.get("nodes"),
+                flow_persisted.get("transitions"),
+                flow_persisted.get("event"),
+            )
+        )
+    except Exception as e:
+        print(f"⚠️  Flow intelligence persistence failed (snapshot remains saved): {e}", file=sys.stderr)
     try:
         insert_oi_intelligence(parsed, snapshot_id=row.get("id"))
         print("    ✅ Structured OI intelligence persisted")

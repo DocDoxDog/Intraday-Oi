@@ -9,12 +9,19 @@ import os
 import re
 import time
 import uuid
+from src.event_outcome_engine import HORIZONS_SECONDS, measure_outcome
 from supabase import create_client, Client
 
 SCREENSHOT_BUCKET = os.environ.get("SUPABASE_STORAGE_BUCKET", "oi-screenshots")
 # bucket เป็น private — ใช้ signed URL อายุสั้น (แค่พอให้ Telegram ดึงรูปทัน)
 # เพราะ CME data ต้องใช้ส่วนตัวเท่านั้น ห้ามเปิด public (ดู README หัวข้อ "ข้อควรระวัง")
 SIGNED_URL_EXPIRY_SECONDS = 3600
+
+def _num(value):
+    try:
+        return None if value in (None, "") else float(value)
+    except (TypeError, ValueError):
+        return None
 
 # Keep the insert compatible with deployments that have the original schema.
 # New enrichment fields (spot_price, basis_diff, cfd_price, technical_context)
@@ -75,72 +82,254 @@ def get_signed_url(path: str, expiry_seconds: int = SIGNED_URL_EXPIRY_SECONDS) -
     return signed.get("signedURL") or signed.get("signedUrl")
 
 
-def persist_market_bars(
-    bars_by_timeframe: dict[str, list[dict]],
-    *,
-    instrument: str = "XAU/USD",
-    source: str = "twelve_data",
-) -> int:
-    """Persist canonical OHLC bars idempotently into public.market_bars."""
-    import hashlib
-    from datetime import datetime, timezone
-
-    if not bars_by_timeframe:
-        return 0
-
-    client = get_client()
-    rows = []
-    for timeframe, bars in bars_by_timeframe.items():
+def upsert_market_bars(technical_context: dict) -> int:
+    """Persist Twelve Data OHLCV as point-in-time bars for replay and path analysis."""
+    client=get_client()
+    rows=[]
+    for timeframe,bars in (technical_context.get("ohlcv") or {}).items():
         for bar in bars or []:
-            if not isinstance(bar, dict):
-                continue
-            raw_time = bar.get("datetime")
-            if not raw_time:
-                continue
-            try:
-                dt = datetime.fromisoformat(str(raw_time).replace("Z", "+00:00"))
-                if dt.tzinfo is None:
-                    dt = dt.replace(tzinfo=timezone.utc)
-                dt = dt.astimezone(timezone.utc)
-            except (TypeError, ValueError):
-                continue
-
-            identity = f"{source}|{instrument}|{timeframe}|{dt.isoformat()}"
-            # market_bars.id has no database default in the deployed schema.
-            digest = hashlib.sha256(identity.encode("utf-8")).hexdigest()
-            row_id = int(digest[:15], 16)
-
+            bar_time=bar.get("datetime") or bar.get("bar_time")
+            if not bar_time: continue
             rows.append({
-                "id": row_id,
-                "source": source,
-                "instrument": instrument,
-                "timeframe": timeframe,
-                "bar_time": dt.isoformat(),
-                "open": bar.get("open"),
-                "high": bar.get("high"),
-                "low": bar.get("low"),
-                "close": bar.get("close"),
-                "volume": bar.get("volume"),
-                "session": None,
-                "timezone": "UTC",
-                "is_final": True,
-                "provenance": {
-                    "provider": "twelve_data",
-                    "symbol": instrument,
-                    "interval": timeframe,
-                },
+                "source":"twelve_data",
+                "instrument":technical_context.get("symbol") or "XAU/USD",
+                "timeframe":timeframe,
+                "bar_time":bar_time,
+                "open":bar.get("open"),"high":bar.get("high"),
+                "low":bar.get("low"),"close":bar.get("close"),
+                "volume":bar.get("volume"),
+                "is_final":True,
+                "provenance":{"source":"twelve_data","symbol":technical_context.get("symbol") or "XAU/USD"},
             })
-
-    if not rows:
-        return 0
-
-    # The unique constraint is installed by the matching migration.
-    client.table("market_bars").upsert(
-        rows,
-        on_conflict="source,instrument,timeframe,bar_time",
-    ).execute()
+    if not rows: return 0
+    client.table("market_bars").upsert(rows,on_conflict="source,instrument,timeframe,bar_time").execute()
     return len(rows)
 
+
+
+def resolve_market_event_outcomes(client=None, instrument: str | None = None) -> int:
+    """Fill fixed-horizon outcomes for observed events using stored m5 bars."""
+    client = client or get_client()
+    query = (
+        client.table("market_events")
+        .select("id,event_time,detected_at,level,direction,evidence,path_before")
+        .eq("status", "OBSERVED")
+        .order("event_time", desc=True)
+        .limit(100)
+    )
+    if instrument:
+        query = query.eq("instrument", instrument)
+    events = query.execute().data or []
+    if not events:
+        return 0
+
+    bars_query = (
+        client.table("market_bars")
+        .select("bar_time,open,high,low,close,volume")
+        .eq("source", "twelve_data")
+        .eq("timeframe", "m5")
+        .order("bar_time", desc=False)
+        .limit(1000)
+    )
+    if instrument:
+        bars_query = bars_query.eq("instrument", instrument)
+    bars = bars_query.execute().data or []
+    if not bars:
+        return 0
+
+    written = 0
+    for event in events:
+        path_before = event.get("path_before") or {}
+        nodes = path_before.get("nodes") or []
+        for horizon in HORIZONS_SECONDS:
+            existing = (
+                client.table("market_event_outcomes")
+                .select("id")
+                .eq("event_id", event["id"])
+                .eq("horizon_seconds", horizon)
+                .limit(1)
+                .execute()
+            )
+            if existing.data:
+                continue
+            measured = measure_outcome(event, bars, nodes=nodes, horizon_seconds=horizon)
+            if measured is None:
+                continue
+            client.table("market_event_outcomes").insert({
+                "event_id": event["id"],
+                "horizon_seconds": horizon,
+                "observed_at": measured["observed_at"],
+                "forward_return": measured["forward_return"],
+                "forward_range": measured["forward_range"],
+                "mfe": measured["mfe"],
+                "mae": measured["mae"],
+                "next_node_hit": measured["next_node_hit"],
+                "next_node_id": measured["next_node_id"],
+                "time_to_next_node_seconds": measured["time_to_next_node_seconds"],
+                "outcome_state": measured["outcome_state"],
+                "metrics": measured["metrics"],
+            }).execute()
+            written += 1
+    return written
+
+
+def persist_flow_intelligence(parsed: dict, ai_result: dict, snapshot_id: int | None = None) -> dict:
+    """Persist deterministic state/path/event evidence for replay and audit."""
+    client = get_client()
+    raw = parsed.get("raw_series") or {}
+    state = raw.get("market_state") or {}
+    flow = raw.get("market_flow") or {}
+    path = flow.get("path") or ai_result.get("structural_path") or {}
+    observed_at = parsed.get("observed_at") or parsed.get("retrieved_at")
+    instrument = ((parsed.get("technical_context") or {}).get("symbol") or parsed.get("symbol") or "XAU/USD")
+
+    state_row = {
+        "as_of": observed_at,
+        "instrument": instrument,
+        "state_version": "market-state-v2",
+        "regime": state.get("regime"),
+        "price_state": state.get("price"),
+        "volatility_state": state.get("volatility"),
+        "options_state": state.get("gamma"),
+        "macro_state": raw.get("macro_state"),
+        "technical_state": state.get("technical"),
+        "path_state": path,
+        "evidence_refs": {"snapshot_id": snapshot_id, "market_flow_version": flow.get("version")},
+        "data_quality": {"flow_status": flow.get("status"), "cfd_complete": state.get("cfd_complete")},
+    }
+    state_result = client.table("market_state_snapshots").insert(state_row).execute()
+    state_id = (state_result.data or [{}])[0].get("id")
+
+    node_ids = {}
+    nodes = path.get("nodes") or flow.get("nodes") or []
+    node_rows = []
+    for node in nodes:
+        if not isinstance(node, dict) or node.get("level") is None:
+            continue
+        node_rows.append({
+            "snapshot_id": state_id,
+            "instrument": instrument,
+            "observed_at": observed_at,
+            "level": node.get("level"),
+            "futures_level": node.get("futures_level"),
+            "cfd_level": node.get("level"),
+            "node_type": node.get("node_type") or "STRUCTURAL_NODE",
+            "role": node.get("role"),
+            "tier": node.get("tier"),
+            "direction": node.get("direction"),
+            "source": node.get("source"),
+            "expiry_scope": node.get("expiry_scope"),
+            "oi_context": node.get("oi_context"),
+            "risk_context": node.get("risk_context"),
+            "local_prominence": node.get("local_prominence"),
+            "distance_from_price": node.get("distance_from_price"),
+            "volatility_distance": node.get("volatility_distance"),
+            "state": node.get("state"),
+            "evidence_refs": node.get("evidence_refs") or [],
+        })
+    if node_rows:
+        nr = client.table("structural_nodes").insert(node_rows).execute()
+        for row, node in zip(nr.data or [], node_rows):
+            node_ids[round(float(node["level"]), 5)] = row.get("id")
+
+    transition_rows = []
+    for transition in path.get("transitions") or []:
+        if not isinstance(transition, dict):
+            continue
+        from_level = transition.get("from")
+        to_level = transition.get("to")
+        if from_level in (None, "CURRENT") or to_level in (None, "CURRENT"):
+            continue
+        from_id = node_ids.get(round(float(from_level), 5)) if _num(from_level) is not None else None
+        to_id = node_ids.get(round(float(to_level), 5)) if _num(to_level) is not None else None
+        if from_id and to_id:
+            transition_rows.append({
+                "from_node_id": from_id,
+                "to_node_id": to_id,
+                "condition_type": transition.get("condition_type") or "UNKNOWN",
+                "condition": transition.get("condition") or {},
+                "mechanism": transition.get("mechanism"),
+                "priority": transition.get("priority"),
+                "state": transition.get("state"),
+                "evidence_refs": transition.get("evidence_refs") or [],
+            })
+    if transition_rows:
+        client.table("structural_transitions").upsert(
+            transition_rows,
+            on_conflict="from_node_id,to_node_id,condition_type",
+        ).execute()
+
+    event = path.get("observed_last_event") or "NONE"
+    event_id = None
+    event_time = path.get("observed_event_time") or observed_at
+    if event != "NONE" and event_time:
+        current = _num(path.get("current_price")) or _num(parsed.get("cfd_price"))
+        event_level = _num(path.get("observed_event_level")) or (path.get("upper_node") or path.get("lower_node") or {}).get("level")
+        observed_node = path.get("observed_event_node") or {}
+        observed_node_level = _num(observed_node.get("level"))
+        if event == "BREAK_ACCEPT":
+            direction = "UP" if observed_node_level is not None and current is not None and observed_node_level >= current else "DOWN"
+        elif event == "RECLAIM":
+            direction = "UP" if observed_node_level is not None and current is not None and observed_node_level <= current else "DOWN"
+        elif event == "REJECT":
+            upper_level = _num((path.get("upper_node") or {}).get("level"))
+            lower_level = _num((path.get("lower_node") or {}).get("level"))
+            if upper_level is not None and event_level is not None and abs(event_level - upper_level) < 1e-5:
+                direction = "DOWN"
+            elif lower_level is not None and event_level is not None and abs(event_level - lower_level) < 1e-5:
+                direction = "UP"
+            else:
+                direction = None
+        else:
+            direction = None
+
+        # Idempotency: the same bar/event/node must not become a new event every
+        # scheduler run. A later run can still create a new event after the bar
+        # timestamp changes.
+        existing = (
+            client.table("market_events")
+            .select("id")
+            .eq("instrument", instrument)
+            .eq("event_type", event)
+            .eq("event_time", event_time)
+            .eq("source_type", "conditional_path")
+            .limit(1)
+            .execute()
+        )
+        if existing.data:
+            event_id = existing.data[0].get("id")
+        else:
+            inserted = client.table("market_events").insert({
+                "event_time": event_time,
+                "detected_at": observed_at,
+                "instrument": instrument,
+                "event_type": event,
+                "source_type": "conditional_path",
+                "source_ref": str(snapshot_id or state_id or observed_at),
+                "level": event_level,
+                "direction": direction,
+                "magnitude": None,
+                "status": "OBSERVED",
+                "evidence": {"path": path, "current_price": current},
+                "state_before": state,
+                "state_after": state,
+                "path_before": path,
+                "path_after": path,
+            }).execute()
+            event_id = (inserted.data or [{}])[0].get("id")
+
+    # Resolve older observed events against persisted OHLC bars. Only bars
+    # strictly after event_time are eligible, so outcome measurement cannot
+    # leak the event bar into the result.
+    outcomes_written = resolve_market_event_outcomes(client, instrument=instrument)
+    return {
+        "state_id": state_id,
+        "nodes": len(node_rows),
+        "transitions": len(transition_rows),
+        "event": event,
+        "event_id": event_id,
+        "outcomes_written": outcomes_written,
+    }
 
 def insert_snapshot(
     parsed: dict,
@@ -169,83 +358,48 @@ def insert_snapshot(
 
 
 def insert_news_announcements(items: list[dict]) -> list[dict]:
-    """Insert unseen governed news items and return only newly created rows."""
+    """Upsert news/calendar facts and return only new or materially changed events.
+
+    Economic-calendar rows are mutable: an event is often stored before release
+    with no Actual, then the same source row gains Actual after release. Treat
+    that transition as an update to the same event instead of creating a
+    duplicate announcement.
+    """
     if not items:
         return []
+
     client = get_client()
-    keys = [(str(item.get("source") or "").strip(), str(item.get("external_id") or "").strip()) for item in items]
-    keys = [(source, external) for source, external in keys if source and external]
-    if not keys:
+    normalized_items: list[dict] = []
+    for item in items:
+        source = str(item.get("source") or "").strip()
+        external_id = str(item.get("external_id") or "").strip()
+        if source and external_id:
+            normalized_items.append(dict(item))
+    if not normalized_items:
         return []
 
-    existing_by_key: set[tuple[str, str]] = set()
+    keys = [
+        (str(item.get("source") or "").strip(), str(item.get("external_id") or "").strip())
+        for item in normalized_items
+    ]
+
+    existing_by_key: dict[tuple[str, str], dict] = {}
     for source, external_id in keys:
         result = (
             client.table("news_announcements")
-            .select("source,external_id")
+            .select(
+                "source,external_id,event_time,actual,forecast,previous,event_status,"
+                "calendar_data_status,actual_source,forecast_source,previous_source"
+            )
             .eq("source", source)
             .eq("external_id", external_id)
+            .limit(1)
             .execute()
         )
-        existing_by_key.update(
-            (str(row.get("source")), str(row.get("external_id")))
-            for row in (result.data or [])
-        )
+        if result.data:
+            row = result.data[0]
+            existing_by_key[(source, external_id)] = dict(row)
 
-    # Calendar values arrive after the initial announcement. Update existing
-    # records in place so RELEASED events acquire verified Actual/Forecast/
-    # Previous instead of remaining permanently as "—".
-    from datetime import datetime, timezone
-    now_iso = datetime.now(timezone.utc).isoformat()
-    for item in items:
-        key = (str(item.get("source") or "").strip(), str(item.get("external_id") or "").strip())
-        if key not in existing_by_key:
-            continue
-        calendar_update = {
-            key_name: item.get(key_name)
-            for key_name in ("event_time", "actual", "forecast", "previous",
-                             "actual_source", "forecast_source", "previous_source",
-                             "calendar_retrieved_at")
-            if item.get(key_name) is not None
-        }
-        if calendar_update:
-            actual = item.get("actual")
-            event_time = item.get("event_time")
-            if actual not in (None, ""):
-                calendar_update["event_status"] = "RELEASED"
-                calendar_update["calendar_data_status"] = (
-                    "COMPLETE" if item.get("forecast") not in (None, "") else "ACTUAL_ONLY"
-                )
-            elif event_time:
-                try:
-                    event_dt = datetime.fromisoformat(str(event_time).replace("Z", "+00:00"))
-                    calendar_update["event_status"] = (
-                        "UPCOMING" if event_dt.astimezone(timezone.utc) > datetime.now(timezone.utc)
-                        else "RELEASED"
-                    )
-                except (TypeError, ValueError):
-                    calendar_update["event_status"] = "UNKNOWN"
-            calendar_update.setdefault("calendar_data_status", "UNKNOWN")
-            calendar_update["calendar_retrieved_at"] = item.get("calendar_retrieved_at") or now_iso
-            (
-                client.table("news_announcements")
-                .update(calendar_update)
-                .eq("source", key[0])
-                .eq("external_id", key[1])
-                .execute()
-            )
-
-    new_items = [
-        item for item in items
-        if (str(item.get("source") or "").strip(), str(item.get("external_id") or "").strip())
-        not in existing_by_key
-    ]
-    if not new_items:
-        return []
-
-    # Keep persistence compatible with the deployed news_announcements schema.
-    # freshness/market_channels are derived analyst metadata and remain in the
-    # in-memory news_context; older deployments do not have those columns.
     persistable_keys = {
         "source",
         "external_id",
@@ -254,9 +408,6 @@ def insert_news_announcements(items: list[dict]) -> list[dict]:
         "url",
         "published_at",
         "detected_at",
-        "category",
-        "relevance",
-        "rights_status",
         "event_time",
         "actual",
         "forecast",
@@ -267,33 +418,91 @@ def insert_news_announcements(items: list[dict]) -> list[dict]:
         "forecast_source",
         "previous_source",
         "calendar_retrieved_at",
+        "category",
+        "relevance",
+        "rights_status",
     }
-    payload = [
-        {key: value for key, value in item.items() if key in persistable_keys}
-        for item in new_items
-    ]
-    result = client.table("news_announcements").insert(payload).execute()
-    inserted = result.data or []
 
-    # The persistence schema intentionally stays lean. Re-attach calendar
-    # fields to the in-memory rows returned to the delivery formatter so
-    # Actual/Forecast/Previous are not lost just because those fields are not
-    # persisted in the legacy announcement table.
-    by_key = {
-        (str(item.get("source") or ""), str(item.get("external_id") or "")): item
-        for item in new_items
-    }
-    enriched = []
-    for row in inserted:
-        source = str(row.get("source") or "")
-        external_id = str(row.get("external_id") or "")
-        original = by_key.get((source, external_id), {})
-        merged = dict(row)
-        for key in ("event_time", "actual", "forecast", "previous"):
-            if original.get(key) is not None:
-                merged[key] = original.get(key)
-        enriched.append(merged)
-    return enriched
+    # Build the payload after reading the existing row so a transient provider
+    # failure can never erase a previously verified Actual/Forecast/Previous.
+    # Calendar facts are monotonic from "unknown" to "known", except when the
+    # source explicitly supplies a new non-empty value (e.g. a revision).
+    payload: list[dict] = []
+    for item in normalized_items:
+        key = (
+            str(item.get("source") or "").strip(),
+            str(item.get("external_id") or "").strip(),
+        )
+        existing = existing_by_key.get(key) or {}
+        merged = {field: item.get(field) for field in persistable_keys if field in item}
+
+        for field in ("actual", "forecast", "previous"):
+            incoming = item.get(field)
+            previous_value = existing.get(field)
+            if incoming in (None, "") and previous_value not in (None, ""):
+                merged[field] = previous_value
+
+        for field in ("actual_source", "forecast_source", "previous_source"):
+            if not merged.get(field) and existing.get(field):
+                merged[field] = existing.get(field)
+
+        if merged.get("event_time") is None and existing.get("event_time") is not None:
+            merged["event_time"] = existing.get("event_time")
+        if not merged.get("calendar_retrieved_at") and existing.get("calendar_retrieved_at"):
+            merged["calendar_retrieved_at"] = existing.get("calendar_retrieved_at")
+        if merged.get("calendar_data_status") in (None, "", "UNKNOWN") and existing.get("calendar_data_status"):
+            merged["calendar_data_status"] = existing.get("calendar_data_status")
+
+        # Once an event is released, a later feed outage must not downgrade it
+        # back to UNKNOWN/UPCOMING.
+        effective_actual = merged.get("actual")
+        if effective_actual not in (None, ""):
+            merged["event_status"] = "RELEASED"
+        elif existing.get("event_status") == "RELEASED":
+            merged["event_status"] = "RELEASED"
+        elif not merged.get("event_status"):
+            merged["event_status"] = existing.get("event_status") or "UNKNOWN"
+
+        payload.append(merged)
+
+    # One database write for the batch. The unique(source, external_id)
+    # constraint makes this an idempotent event ledger.
+    client.table("news_announcements").upsert(
+        payload,
+        on_conflict="source,external_id",
+    ).execute()
+
+    changed: list[dict] = []
+    compare_fields = (
+        "event_time",
+        "actual",
+        "forecast",
+        "previous",
+        "event_status",
+        "calendar_data_status",
+        "actual_source",
+        "forecast_source",
+        "previous_source",
+    )
+
+    seen_keys: set[tuple[str, str]] = set()
+    for item in normalized_items:
+        key = (
+            str(item.get("source") or "").strip(),
+            str(item.get("external_id") or "").strip(),
+        )
+        if key in seen_keys:
+            continue
+        seen_keys.add(key)
+        previous = existing_by_key.get(key)
+        if previous is None or any(
+            previous.get(field) != item.get(field)
+            for field in compare_fields
+        ):
+            changed.append(dict(item))
+
+    return changed
+
 
 def can_notify(channel: str, cooldown_minutes: int = 30) -> tuple[bool, float | None]:
     """Return whether a channel is outside its notification cooldown."""

@@ -3,6 +3,16 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from enum import Enum
 
+def _event_status(actual: str | None, event_time: datetime | None, detected_at: datetime) -> str:
+    if actual:
+        return "RELEASED"
+    if event_time is not None:
+        event_utc = event_time.astimezone(timezone.utc)
+        detected_utc = detected_at.astimezone(timezone.utc)
+        return "UPCOMING" if event_utc > detected_utc else "UNKNOWN"
+    return "SCHEDULED"
+
+
 class NewsSeverity(str, Enum):
     CRITICAL="CRITICAL"; HIGH="HIGH"; MEDIUM="MEDIUM"; LOW="LOW"; IGNORE="IGNORE"
 
@@ -18,6 +28,11 @@ class NewsItem:
     actual: str | None = None
     forecast: str | None = None
     previous: str | None = None
+    calendar_data_status: str = "UNKNOWN"
+    actual_source: str | None = None
+    forecast_source: str | None = None
+    previous_source: str | None = None
+    calendar_retrieved_at: datetime | None = None
     language: str = "en"
     category: str = "UNKNOWN"
     entities: tuple[str,...] = ()
@@ -41,6 +56,7 @@ class NewsItem:
         else:
             relevance = "LOW"
         text_lower = self.headline.lower()
+        event_status = _event_status(self.actual, self.event_time, self.detected_at)
         channels = []
         if any(x in text_lower for x in ("nonfarm payroll", "payroll", "employment situation", "unemployment", "jobs report")):
             channels.append("LABOR")
@@ -60,6 +76,12 @@ class NewsItem:
             "actual": self.actual,
             "forecast": self.forecast,
             "previous": self.previous,
+            "event_status": event_status,
+            "calendar_data_status": self.calendar_data_status,
+            "actual_source": self.actual_source,
+            "forecast_source": self.forecast_source,
+            "previous_source": self.previous_source,
+            "calendar_retrieved_at": self.calendar_retrieved_at.isoformat() if self.calendar_retrieved_at else None,
             "category": self.category,
             "relevance": relevance,
             "rights_status": "SOURCE_POLICY_REVIEW",

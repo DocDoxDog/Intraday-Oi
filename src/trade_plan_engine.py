@@ -135,11 +135,20 @@ def build_trade_execution_plan(state: dict[str, Any]) -> dict[str, Any]:
         return fallback_confirmation(side, trigger)
 
     def target_list(prefix: str, legacy_prefix: str | None = None) -> list[float | None]:
+        # Canonical market_map stores route targets as a source-derived list
+        # (e.g. long_reclaim_trade_targets). Older payloads may expose tp1..tp5.
         values = [_n(market_map.get(f"{prefix}_tp{i}")) for i in range(1, 6)]
-        if not any(v is not None for v in values) and legacy_prefix:
-            legacy = market_map.get(legacy_prefix)
-            if isinstance(legacy, list):
-                values = [_n(x) for x in legacy[:5]]
+        if not any(v is not None for v in values):
+            candidates = [
+                market_map.get(f"{prefix}_trade_targets"),
+                market_map.get(f"{prefix}_targets"),
+                market_map.get(legacy_prefix) if legacy_prefix else None,
+            ]
+            for candidate in candidates:
+                if isinstance(candidate, list):
+                    values = [_n(x) for x in candidate[:5]]
+                    if any(v is not None for v in values):
+                        break
         return values
 
     def side_payload(
@@ -154,6 +163,23 @@ def build_trade_execution_plan(state: dict[str, Any]) -> dict[str, Any]:
         action: str,
         cancel_if: str,
     ) -> dict[str, Any]:
+        # Canonicalize route targets before risk checks and rendering.
+        # A stale/legacy payload may contain the trigger itself as TP1, targets
+        # on the wrong side, duplicates, or unsorted nodes. Never invent a
+        # replacement price: retain only valid source-derived nodes.
+        is_long = str(side).upper().startswith("LONG")
+        valid_targets = []
+        for value in targets or []:
+            target = _n(value)
+            if target is None or trigger is None:
+                continue
+            if is_long and target <= trigger:
+                continue
+            if not is_long and target >= trigger:
+                continue
+            if target not in valid_targets:
+                valid_targets.append(target)
+        targets = sorted(valid_targets, reverse=not is_long)
         rr = [_risk_reward(side, trigger, stop, x) for x in targets]
         risk_per_unit = abs(trigger - stop) if trigger is not None and stop is not None else None
         rr1_ok = bool(rr) and rr[0] is not None and rr[0] >= 1.0
@@ -234,10 +260,13 @@ def build_trade_execution_plan(state: dict[str, Any]) -> dict[str, Any]:
         long_support_conf.setdefault("conditions", []).append("waiting_support_reaction")
 
     target_map = {
+        # Read the route-specific canonical target arrays first. The previous
+        # implementation read only legacy scalar fields for three routes, so
+        # valid targets prepared by market_state were silently discarded.
         "long_reclaim": target_list("long_reclaim", "long_trade_targets"),
-        "long_support": [_n(market_map.get(f"long_support_tp{i}")) for i in range(1, 6)],
-        "short_rejection": [_n(market_map.get(f"short_rejection_tp{i}")) for i in range(1, 6)] or [_n(x) for x in (market_map.get("short_trade_targets") or [])[:5]],
-        "short_breakdown": [_n(market_map.get(f"short_breakdown_tp{i}")) for i in range(1, 6)],
+        "long_support": target_list("long_support"),
+        "short_rejection": target_list("short_rejection"),
+        "short_breakdown": target_list("short_breakdown"),
     }
 
     long_reclaim = side_payload(

@@ -1,102 +1,236 @@
 # GOLD MARKET INTELLIGENCE — KNOWLEDGE BASE
 
 ## Product thesis
-Intraday-Oi is evolving from an OI/GEX dashboard into a Gold Market Intelligence / Market Decision Engine.
-The differentiator is the chain: evidence → market state → map → action zone → confirmation → risk → explanation.
-The customer should quickly understand: จุดไหนต้องรอ และต้องรอให้ตลาดทำอะไร
 
-## Data semantics
-REALTIME: trades, bid/ask, spread, depth, MBO/MBP, order flow when a source actually supplies them.
-INTRADAY_DERIVED: delta, cumulative delta, OFI, absorption candidates, liquidity metrics, price-impact estimates.
-EOD_DELAYED: options OI, ΔOI, settlement, published positioning.
-SLOW_MACRO: FRED yields, Fed policy rate, broad USD, COT, ETF / central-bank demand.
-Derived metrics inherit the quality and clock of their inputs.
+Intraday-Oi is a Gold Market Intelligence / Flow Engineering system.
 
-## Options / Gamma
-Useful context: Call Wall, Put Wall, Gamma Mean / Flip, positive / negative gamma zones, IV term structure, skew, OI by strike / expiry.
-GEX is not a dealer-position oracle.
-Use language such as 'Observed GEX structure is consistent with …' or 'Evidence is insufficient to identify dealer inventory.'
+```text
+Evidence → Time-aligned State → Risk/Flow Mechanism → Structural Map → Event → Path → Outcome → Narrative
+```
 
-## Order flow
-Preferred evidence: explicit aggressor side, bid/ask quote test, trade price location, book changes, then derived hypotheses.
-Minimum semantics: aggression, delta, cumulative delta, depth, imbalance, absorption candidate, sweep when the source identifies it.
-Never infer direction from candle volume alone.
+It is an analysis/intelligence product, not a broker execution engine.
 
-## Auction / profile
-Context: POC, VAH, VAL, HVN, LVN, Initial Balance, Overnight High/Low, Session High/Low.
-MVP caveat: OHLCV bar profiles are approximations that allocate bar volume to representative price bins; they are not tick-by-tick executed-volume profiles.
+## Epistemic contract
 
-## Market regimes
-TREND: aligned higher-timeframe structure; prefer Pullback and Breakout + Retest.
-BALANCE: overlapping auction / mixed structure; mean reversion is permitted.
-TRANSITION: structure conflict, sweeps, failed breaks, changing value; reversal / failed breakout setups are permitted.
-EVENT: high-impact fresh catalyst or data uncertainty; WAIT until reaction is observable.
+Use explicit evidence semantics:
 
-## Four-route customer map
-The customer-facing product should answer “ต้องทำอะไรถึงเข้า?” with four routes:
-- BUY breakout/reclaim at resistance
-- BUY reaction at support
-- SELL rejection at resistance
-- SELL breakdown/retest below support
+- FACT
+- DERIVED
+- MODEL_ASSUMPTION
+- CONSISTENT_WITH
+- HYPOTHESIS
+- UNKNOWN
+- DEGRADED
+- WAIT
+- NO_TRADE
 
-For each route, render Entry reference + SL + TP1/TP2/TP3/TP4/TP5. The route is valid only when its setup event, confirmation, and risk gate are satisfied. A directional market bias changes the preferred route, but the dashboard/Telegram still exposes all four alternatives so a lower support reaction or opposite reversal is not silently discarded.
+Public OI does not identify dealer inventory. Dealer DEX/GEX are therefore modeled proxies unless actual inventory is known. Inventory/sign convention must be explicit and versioned.
 
-## Setup semantics
-PULLBACK: established trend + impulse + retracement + structural zone + reaction + lower-timeframe continuation.
-BREAKOUT + RETEST: break → acceptance → retest → hold/rejection → continuation. Breakout candle is not confirmation.
-REVERSAL: extreme → structural zone → liquidity interaction → rejection/absorption → structure shift → confirmation.
-These semantics solve the 'large lower volume but no BUY' issue without manufacturing a long setup.
+## Volatility
 
-## Risk
-A setup is tradable only after structural invalidation, target qualification, volatility sanity, and transaction-cost checks where available.
-Core values: entry reference, invalidation, target ladder, risk distance, gross RR, volatility, spread/slippage, cost-adjusted viability.
-A wide stop is not fixed by changing arithmetic. Unacceptable risk means NO_TRADE.
-Do not hard-code contract size or tick value into generic engines; obtain instrument specs from verified source.
+Volatility is a surface and time-series state, not one number.
 
-## Macro for Gold
-Useful slow variables: nominal 10Y yield, real 10Y yield, policy rate, broad USD, later inflation, COT, ETF flows, central-bank demand.
-First-pass context heuristic: real yield ↓ + broad USD ↓ → GOLD_SUPPORTIVE; real yield ↑ + broad USD ↑ → GOLD_HEADWIND; otherwise MIXED / UNKNOWN.
-This is context, not an intraday entry signal.
+Minimum state:
+- ATM IV
+- IV change by horizon
+- realized volatility
+- IV-RV
+- skew
+- term structure
+- event premium
+- expiry concentration
+- clock-normalized percentile/z-score
+- regime
 
-## Trend following
-Model trend following as regime + directional structure + momentum + volatility + breakout/pullback, not as one EMA crossover.
+Recommended regimes:
+VOL_COMPRESSION, VOL_STABLE, VOL_EXPANSION, VOL_DISLOCATION, VOL_EVENT_PREMIUM, VOL_CRUSH.
 
-## Mean reversion
-Regime-gated: TREND → do not fade blindly; BALANCE → mean reversion allowed; TRANSITION → reversal / failed breakout allowed; EVENT → WAIT.
+1σ/2σ/3σ are probability envelopes, not support/resistance.
 
-## Confirmation
-Long breakout/reclaim needs break + acceptance + retest + hold + lower-timeframe bullish structure.
-Short failed-retest needs failure + retest + rejection + bearish lower-timeframe structure.
-Long reversal needs support interaction + rejection/absorption + structure shift + bullish confirmation.
-Missing order-flow data remains UNKNOWN.
+## Options risk
 
-## Current repository reality
-Already present: deterministic OI/ΔOI separation, QuikStrike multi-expiry Gamma Matrix, technical context, evidence-first LLM verifier, risk-aware structural invalidation, support-reaction LONG, mobile Gamma Table / Action Zone dashboard, Supabase persistence, Telegram/LINE delivery.
-Next generation makes new engines explicit and composable rather than continuing to grow market_state.py.
+First-class exposures:
+- Delta
+- Gamma
+- Vega
+- Vanna
+- Charm
+- Volga/Vomma where validated
 
-## Research Lab
-Every new feature needs: hypothesis, source/clock, precise definition, event, horizon, benchmark, costs, OOS design, walk-forward, regime slices, failure modes, and shadow/production status.
-Do not promote a feature because of one attractive historical example.
+Core differential:
 
-## Evidence language
-Use: FACT, OBSERVED, DERIVED, CONSISTENT_WITH, CANDIDATE, HYPOTHESIS, UNKNOWN, DEGRADED, WAIT, NO_TRADE.
-Avoid categorical causal claims unless the source identifies causality.
+```text
+dDelta ≈ Gamma*dS + Vanna*dIV + dDelta/dt*dt + higher-order terms
+dHedge ≈ -dDelta   (under delta-hedging assumption)
+```
 
-## Licensing / customer delivery
-CME data rights are a product constraint. Keep internal research fields, customer display fields, derived analytics, source screenshots, and realtime/delayed data distinct.
-Before paid distribution of exchange data or derived data, perform an explicit rights review and preserve provenance on every customer-facing surface.
+### DEX
+Store observed portfolio DEX and modeled dealer DEX separately. Store underlying-unit and dollar units.
+
+### GEX
+Common convention:
+
+```text
+GEX = position_sign × Gamma × multiplier × S² × 0.01
+```
+
+Call-positive/put-negative is an inventory/sign assumption, not a mathematical property of option gamma.
+
+### Vanna
+Vanna = dDelta/dIV. Use it for volatility-driven delta/hedge changes.
+
+### Charm
+Charm represents time-driven delta drift and becomes especially important near expiry.
+
+## Gamma semantics
+
+Separate:
+- aggregate gamma regime
+- local gamma structure
+- Call Wall
+- Put Wall
+- gamma flip
+- gamma mean
+- expected-volatility envelope
+
+Positive modeled GEX can be consistent with stabilizing hedge behavior under a long-gamma dealer assumption; negative modeled GEX can be consistent with reinforcing hedge behavior. Neither is an unconditional direction signal.
+
+## Market makers
+
+Model:
+inventory + Greeks + balance sheet + liquidity + DTE + cross-hedging + hedge frequency.
+
+Avoid categorical claims about actual dealer buying/selling/hedging without direct evidence.
+
+## Fund traders
+
+Separate:
+- CTA / time-series momentum
+- volatility-target / risk-control
+- discretionary macro
+- relative-value / volatility
+- commercial/hedger
+- other reportable positioning
+
+COT is slow positioning context.
+
+## Macro
+
+Gold context:
+- policy expectations
+- nominal yields
+- real yields
+- USD
+- inflation/inflation expectations
+- energy
+- geopolitics
+- central-bank demand
+- ETF/physical demand
+- cross-asset risk
+
+Macro changes regime/context; it does not directly produce an intraday entry.
+
+## Microstructure
+
+True order flow requires real trades/quotes/depth/MBO/MBP/aggressor-side data.
+
+Never call candle-volume behavior CVD, absorption or sweep.
+
+## Technical analysis
+
+Prioritize H4/H1 → M15/M5 → M1.
+
+Core sequence:
+touch → response → acceptance/rejection → retest → continuation/failure.
+
+## Econophysics
+
+Use evidence on:
+- fat tails
+- volatility clustering
+- nonstationarity
+- intraday seasonality
+- nonlinear price impact
+
+Engineering implication:
+use rolling, conditional and clock-matched distributions rather than universal static thresholds.
+
+Hurst/scaling remains a research diagnostic unless independently validated.
+
+## Time / seasonality
+
+Persist:
+- session
+- timezone
+- minutes from open/close
+- weekday
+- week/month
+- DTE
+- minutes-to-expiry
+- macro windows
+- roll state
+
+Build clock/session-conditioned baselines for volatility and volume.
+
+## Structural path
+
+A current market state should map to a sequence of real structural nodes, never a synthetic fixed-price ladder.
+
+Node fields:
+level, semantic type, source, expiry scope, OI/IV/DEX/GEX context, local prominence, distance, role and state.
+
+## Events
+
+Use:
+TOUCH, REJECTION, ACCEPTANCE, BREAK, FAILED_BREAK, RETEST, RECLAIM, CONTINUATION, GAMMA_SIGN_CHANGE, GAMMA_FLIP_CROSS, IV_EXPANSION, IV_COMPRESSION, DEX_SHIFT, VANNA_SHIFT, CHARM_SHIFT, REGIME_CHANGE.
+
+A wick is not a break.
+
+## Research discipline
+
+Every feature:
+hypothesis → event → horizon → benchmark → controls → cost → OOS → walk-forward → regime slices → ablation → multiple-testing → shadow → production.
+
+One attractive example is not sufficient.
+
+## Required next data objects
+
+- market_bars
+- option_risk_snapshots
+- risk_surface_snapshots
+- structural_nodes
+- market_events
+- event_outcomes
+
+## Current main gaps
+
+1. Persistent OHLC timeline
+2. DEX
+3. Vanna
+4. Charm
+5. Local gamma prominence
+6. Structural event store
+7. Outcome tracking
+8. Realized-volatility/time-seasonality engine
+9. Synchronized macro time series
+10. True microstructure after source entitlement
 
 ## Research references
-CME Gold Futures: https://www.cmegroup.com/markets/metals/precious/gold.html
-CME market data / MBO-MBP: https://www.cmegroup.com/market-data.html
-CFTC COT: https://www.cftc.gov/MarketReports/CommitmentsofTraders/index.htm
-FRED DGS10: https://fred.stlouisfed.org/series/DGS10
-FRED DFII10: https://fred.stlouisfed.org/series/DFII10
-FRED DFF: https://fred.stlouisfed.org/series/DFF
-FRED DTWEXBGS: https://fred.stlouisfed.org/series/DTWEXBGS
-Cont/Kukanov/Stoikov OFI: https://arxiv.org/abs/1011.6402
-Andersen/Bondarenko VPIN: https://papers.ssrn.com/sol3/papers.cfm?abstract_id=2435904
-Almgren/Chriss execution framework: https://www.smallake.kr/wp-content/uploads/2016/03/optliquidation.pdf
-Probability of Backtest Overfitting: https://papers.ssrn.com/sol3/papers.cfm?abstract_id=2326253
 
-These references are design evidence, not proof that any specific feature is profitable.
+- CME Options Greeks: https://www.cmegroup.com/education/courses/option-greeks.html
+- CME Gamma: https://www.cmegroup.com/ko/education/courses/option-greeks/options-gamma-the-greeks.html
+- CME Expected Range: https://www.cmegroup.com/tools-information/quikstrike/quikstrike-vol2vol-expected-range-user-guide.html
+- CME Metals Options Reports: https://www.cmegroup.com/newsletters/metals-options-update.html
+- Cboe Options Institute: https://www.cboe.com/optionsinstitute/research
+- Cboe Volatility Term Structure: https://www.cboe.com/tradable-products/vix/term-structure
+- NBER Demand-Based Option Pricing: https://www.nber.org/papers/w11843
+- Cont/Kukanov/Stoikov OFI: https://arxiv.org/abs/1011.6402
+- Realized Volatility: https://www.nber.org/papers/w8160
+- HAR-RV: https://academic.oup.com/jfec/article-abstract/7/2/174/856522
+- Bouchaud Price Impact: https://arxiv.org/abs/0903.2428
+- Econophysics review: https://arxiv.org/abs/0909.1974
+- CFTC COT: https://www.cftc.gov/MarketReports/CommitmentsofTraders/index.htm
+- Volatility managed portfolios: https://www.nber.org/papers/w22208
+- CTA momentum: https://papers.ssrn.com/sol3/papers.cfm?abstract_id=1968996
+- Investor attention: https://www.nber.org/papers/w11400
+- 2026 GEX sign methodology: https://papers.ssrn.com/sol3/Delivery.cfm/7131778.pdf

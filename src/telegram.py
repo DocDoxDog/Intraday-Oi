@@ -93,13 +93,17 @@ def _format_analysis_message(parsed: dict, ai_result: dict) -> str:
 
     futures = parsed.get("future_price")
     cfd = parsed.get("cfd_price")
-    basis = parsed.get("basis_diff")
-    iv = parsed.get("vol")
+    basis = parsed.get("basis_diff", parsed.get("basis"))
+    iv = parsed.get("vol", parsed.get("iv"))
     dte = parsed.get("dte")
+    analysis_status = str(ai_result.get("analysis_status") or "UNKNOWN").upper()
+    status_label = "ยังไม่ยืนยัน" if analysis_status in {"DEGRADED", "REJECTED", "UNKNOWN", "NOT_CONFIRMED"} else "ผ่านการตรวจสอบ"
+
     lines = [
         "<b>🟡 GOLD MARKET</b>",
         _thai_datetime_str(),
-        f"CFD <b>{_show(cfd)}</b> | FUTURES <b>{_show(futures)}</b>",
+        f"สถานะการวิเคราะห์: <b>{status_label}</b> ({_escape(analysis_status)})",
+        f"Futures {_show(futures)} | CFD {_show(cfd)}",
         f"BASIS <b>{_show(basis)}</b> | IV <b>{_show(iv)}</b> | DTE <b>{_show(dte)}</b>",
         "",
         "<b>ตอนนี้เกิดอะไรขึ้น</b>",
@@ -108,10 +112,20 @@ def _format_analysis_message(parsed: dict, ai_result: dict) -> str:
 
     # Conditional path is rendered in its own message to avoid repeating
     # the same transition map twice in the customer bundle.
+    flow_statement = narrative.get("flow_statement") or ""
+    oi_positioning = narrative.get("oi_positioning") or ""
+    volatility_read = narrative.get("volatility") or ""
     lines += [
         "",
         "<b>ทำไมระดับนี้ถึงสำคัญ</b>",
         _escape(why),
+        "<b>FLOW STATEMENT — ภาพรวมแรงที่กำลังเกิดขึ้น</b>",
+        *([_escape(flow_statement)] if flow_statement else ["ยังไม่มี flow statement ที่ยืนยันได้"]),
+        "",
+        "<b>VOLATILITY — ตลาดกำลังผันผวนแค่ไหน</b>",
+        _escape(volatility_read),
+        "<b>OI POSITIONING — ผู้เล่นกำลังเพิ่ม/ลดสถานะอย่างไร</b>",
+        _escape(oi_positioning),
         "",
         "<b>ข่าว / เศรษฐกิจ</b>",
         _escape(macro),
@@ -198,9 +212,23 @@ def _format_trade_plan_message(parsed: dict, ai_result: dict) -> str:
 
     if not execution:
         def legacy_payload(prefix: str, side: str, title: str, strategy: str, action: str):
-            trigger = trade.get(f"{prefix}_trigger")
-            stop = trade.get(f"{prefix}_stop")
-            targets = [trade.get(f"{prefix}_tp{i}") for i in range(1, 6)]
+            # Legacy-only compatibility: prefer route-specific fields. If an
+            # old payload has no route-specific fields at all, fall back to
+            # its generic side fields. Canonical execution routes never use
+            # this fallback, so one route cannot borrow another route's TPs.
+            fallback_prefix = {
+                "long_reclaim": "long",
+                "short_rejection": "short",
+                "short_breakdown": "short",
+            }.get(prefix)
+            route_trigger = trade.get(f"{prefix}_trigger")
+            route_stop = trade.get(f"{prefix}_stop")
+            route_targets = [trade.get(f"{prefix}_tp{i}") for i in range(1, 6)]
+            has_route_data = route_trigger is not None or route_stop is not None or any(v is not None for v in route_targets)
+            source_prefix = prefix if has_route_data or fallback_prefix is None else fallback_prefix
+            trigger = trade.get(f"{source_prefix}_trigger")
+            stop = trade.get(f"{source_prefix}_stop")
+            targets = [trade.get(f"{source_prefix}_tp{i}") for i in range(1, 6)]
             return {
                 "route": title,
                 "title": title,
@@ -216,10 +244,10 @@ def _format_trade_plan_message(parsed: dict, ai_result: dict) -> str:
 
         execution = {
             "state": trade.get("execution_state") or trade.get("status") or "DATA_INSUFFICIENT",
-            "long_reclaim": legacy_payload("long", "LONG", "BUY — เบรกต้าน", "BREAKOUT_RETEST", "เบรกและยืนเหนือโซน → รีเทสต์ไม่หลุด → BUY"),
+            "long_reclaim": legacy_payload("long_reclaim", "LONG", "BUY — เบรกต้าน", "BREAKOUT_RETEST", "เบรกและยืนเหนือโซน → รีเทสต์ไม่หลุด → BUY"),
             "long_support": legacy_payload("long_support", "LONG_SUPPORT", "BUY — รับด้านล่าง", "REVERSAL", "แตะโซนรับ → reaction → M5 BOS ขึ้น → BUY"),
-            "short_rejection": legacy_payload("short", "SHORT", "SELL — ต้านไม่ผ่าน", "REVERSAL / FAILED_RETEST", "เด้งกลับต้าน → rejection → M5 BOS ลง → SELL"),
-            "short_breakdown": legacy_payload("short", "SHORT", "SELL — หลุดแนวรับ", "BREAKOUT_RETEST", "หลุดแนวรับ → รีเทสต์ไม่ผ่าน → SELL"),
+            "short_rejection": legacy_payload("short_rejection", "SHORT", "SELL — ต้านไม่ผ่าน", "REVERSAL / FAILED_RETEST", "เด้งกลับต้าน → rejection → M5 BOS ลง → SELL"),
+            "short_breakdown": legacy_payload("short_breakdown", "SHORT", "SELL — หลุดแนวรับ", "BREAKOUT_RETEST", "หลุดแนวรับ → รีเทสต์ไม่ผ่าน → SELL"),
         }
 
     def fmt(value):
@@ -260,20 +288,73 @@ def _format_trade_plan_message(parsed: dict, ai_result: dict) -> str:
 
     def render_route(payload: dict, title: str, emoji: str, default_action: str, route_key: str) -> list[str]:
         p = dict(payload or {})
-        # Preserve canonical route values when cached/legacy payloads omit them.
-        prefix = {
-            "long_reclaim": "long_reclaim",
-            "long_support": "long_support",
-            "short_rejection": "short_rejection",
-            "short_breakdown": "short_breakdown",
-        }.get(route_key)
-        if prefix:
+        # Canonical execution_plan is preferred, but older/cached analyst
+        # payloads may only have route fields on trade_plan. Merge them so a
+        # renderer bug cannot silently turn a valid SL/TP map into "-".
+        # Top-level legacy trade_plan fields use long/short names, while
+        # execution_plan uses the four canonical route names.
+        route_fields = {
+            "long_reclaim": ("long_reclaim_trigger", "long_reclaim_stop", "long_reclaim_tp"),
+            "long_support": ("long_support_trigger", "long_support_stop", "long_support_tp"),
+            "short_rejection": ("short_rejection_trigger", "short_rejection_stop", "short_rejection_tp"),
+            "short_breakdown": ("short_breakdown_trigger", "short_breakdown_stop", "short_breakdown_tp"),
+        }
+        fields = route_fields.get(route_key)
+        if fields:
+            trigger_field, stop_field, tp_prefix = fields
             if p.get("trigger") is None:
-                p["trigger"] = trade.get(f"{prefix}_trigger")
+                p["trigger"] = trade.get(trigger_field)
             if p.get("stop") is None:
-                p["stop"] = trade.get(f"{prefix}_stop")
-            if not p.get("targets"):
-                p["targets"] = [trade.get(f"{prefix}_tp{i}") for i in range(1, 6)]
+                p["stop"] = trade.get(stop_field)
+            # Canonical targets win. A route-specific legacy adapter is
+            # allowed only when the canonical route has no explicit risk
+            # rejection; generic long/short ladders are never borrowed.
+            if "targets" not in p:
+                route_targets = [
+                    trade.get(f"{tp_prefix}{i}") for i in range(1, 6)
+                    if trade.get(f"{tp_prefix}{i}") is not None
+                ]
+            else:
+                route_targets = [x for x in (p.get("targets") or []) if x is not None]
+                risk = p.get("risk") if isinstance(p.get("risk"), dict) else {}
+                risk_rejected = (
+                    p.get("risk_blocked") is True
+                    or str(risk.get("status") or "").upper() in {"NO_TRADE", "FAIL", "REJECTED"}
+                )
+                if not route_targets and not risk_rejected:
+                    route_targets = [
+                        trade.get(f"{tp_prefix}{i}") for i in range(1, 6)
+                        if trade.get(f"{tp_prefix}{i}") is not None
+                    ]
+
+            def as_number(value):
+                if value is None or value == "":
+                    return None
+                try:
+                    return float(value)
+                except (TypeError, ValueError):
+                    return None
+
+            trigger_value = as_number(p.get("trigger", trade.get(trigger_field)))
+            stop_value = as_number(p.get("stop", trade.get(stop_field)))
+            is_long = route_key.startswith("long_")
+            risk_distance = (
+                trigger_value - stop_value if is_long
+                else stop_value - trigger_value
+            ) if trigger_value is not None and stop_value is not None else None
+            valid_route_targets = []
+            for value in route_targets:
+                target_value = as_number(value)
+                if target_value is None or trigger_value is None:
+                    continue
+                reward = target_value - trigger_value if is_long else trigger_value - target_value
+                if reward <= 0:
+                    continue
+                if risk_distance is not None and (risk_distance <= 0 or reward / risk_distance < 1.0):
+                    continue
+                if target_value not in valid_route_targets:
+                    valid_route_targets.append(target_value)
+            p["targets"] = sorted(valid_route_targets, reverse=not is_long)
         p = p or {}
         trigger = p.get("trigger")
         if trigger is None:
@@ -284,6 +365,9 @@ def _format_trade_plan_message(parsed: dict, ai_result: dict) -> str:
         targets = list(p.get("targets") or [])
         if not targets:
             targets = [p.get(f"tp{i}") for i in range(1, 6)]
+        # Never bypass the canonical execution/risk gate with raw market-map
+        # targets. Missing TP values remain UNKNOWN rather than being rebuilt
+        # in the renderer.
         targets.extend([None] * (5 - len(targets)))
         action = _text(p.get("action")) if p.get("action") else default_action
 
@@ -293,7 +377,9 @@ def _format_trade_plan_message(parsed: dict, ai_result: dict) -> str:
         ]
         if trigger is not None:
             lines.append(f"โซน/Trigger: <b>{fmt(trigger)}</b>")
-            lines.append("Entry: <b>หลัง Event + Confirmation เท่านั้น</b>")
+            lines.append(f"เข้าเมื่อ: <b>{fmt(trigger)}</b> หลัง Event + Confirmation")
+            lines.append("Entry: หลัง Event + Confirmation เท่านั้น")
+            lines.append("Entry จริงต้องรอการยืนยัน ไม่ใช่เข้าเพียงเพราะราคาแตะระดับ")
         else:
             watch = p.get("watch_level")
             ref = "ยังไม่มีโซนใกล้ราคา"

@@ -720,20 +720,26 @@ def _deterministic_trade_levels(
     ) -> list[float]:
         if anchor is None or stop is None:
             return []
-        risk = abs(anchor - stop)
+        risk = anchor - stop if side == "LONG" else stop - anchor
         if risk <= 0:
             return []
-        # Targets must be real structural nodes beyond the trigger.
-        # Risk/reward is evaluated separately by risk_engine; it must not
-        # erase valid structural targets from the customer market map.
-        return [
-            level for level in structural
-            if (
-                level > anchor
-                if side == "LONG"
-                else level < anchor
-            )
-        ][:5]
+        try:
+            minimum_rr = max(0.0, float(os.environ.get("MIN_RR1", "1.0")))
+        except (TypeError, ValueError):
+            minimum_rr = 1.0
+
+        # Only significant structural nodes are candidates. A target must be
+        # beyond the trigger and offer the configured minimum reward/risk.
+        # Missing targets remain UNKNOWN; never synthesize a fixed-price ladder
+        # or fill gaps with adjacent option strikes.
+        qualified = []
+        for level in structural:
+            reward = level - anchor if side == "LONG" else anchor - level
+            if reward <= 0 or reward / risk < minimum_rr:
+                continue
+            qualified.append(level)
+        qualified = sorted(set(qualified), reverse=side == "SHORT")
+        return qualified[:5]
 
     long_candidates = source_candidates("LONG", long_trigger)
     short_candidates = source_candidates("SHORT", short_trigger)
@@ -810,30 +816,24 @@ def _deterministic_trade_levels(
     def structural_targets(side: str, anchor: float | None) -> list[float]:
         if anchor is None:
             return []
-        path_levels = []
+        # Combine valid nodes from the conditional path and the significant
+        # option-structure map. Do not stop at a nearby path node if it cannot
+        # meet minimum RR while a farther structural node can.
+        candidates = []
         for node in path_nodes:
             value = _num(node.get("level"))
             if value is None:
                 continue
             if side == "LONG" and value > anchor:
-                path_levels.append(value)
+                candidates.append(value)
             elif side == "SHORT" and value < anchor:
-                path_levels.append(value)
-        path_levels = _unique_sorted(path_levels, reverse=side == "SHORT")
-        if path_levels:
-            return path_levels[:5]
+                candidates.append(value)
         nodes = long_key_levels if side == "LONG" else short_key_levels
-        filtered = [
+        candidates.extend(
             value for value in nodes
             if (value > anchor if side == "LONG" else value < anchor)
-        ]
-        if filtered:
-            return filtered[:5]
-
-        # Final evidence-only fallback: use observed option-chain strikes
-        # beyond the trigger. This is deliberately not a fixed-price ladder.
-        observed = source_candidates(side, anchor)
-        return [item["level"] for item in observed[:5]]
+        )
+        return _unique_sorted(candidates, reverse=side == "SHORT")
 
     long_reclaim_trigger = local_action_resistance
     long_reclaim_stop = (

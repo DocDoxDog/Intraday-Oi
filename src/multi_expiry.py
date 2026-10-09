@@ -139,8 +139,72 @@ def build_gamma_matrix(
     }
 
 
+def _median_spacing(values: list[float]) -> float:
+    gaps = [
+        round(values[i] - values[i - 1], 8)
+        for i in range(1, len(values))
+        if values[i] > values[i - 1]
+    ]
+    if not gaps:
+        return 5.0
+    gaps.sort()
+    mid = len(gaps) // 2
+    return gaps[mid] if len(gaps) % 2 else (gaps[mid - 1] + gaps[mid]) / 2.0
+
+
+def select_structural_nodes(
+    concentrations: list[tuple[float, float]],
+    *,
+    current: float | None,
+    side: str,
+    limit: int = 5,
+    grid_strikes: list[float] | None = None,
+) -> list[float]:
+    """Select real structural strikes using local prominence, not a global 20% cutoff.
+
+    A large distant concentration must not erase a smaller but locally important
+    node near current price. The function still never creates synthetic prices.
+    """
+    if not concentrations:
+        return []
+    observed=sorted(set(float(x) for x in (grid_strikes or [s for s,_ in concentrations])))
+    spacing=_median_spacing(observed)
+    min_gap=max(5.0, 1.5*spacing)
+    values=[abs(float(v)) for _,v in concentrations if v is not None]
+    if not values: return []
+    # Robust global noise floor. MAD is deliberately soft; it ranks candidates
+    # rather than hard-filtering them.
+    med=sorted(values)[len(values)//2]
+    deviations=sorted(abs(v-med) for v in values)
+    mad=deviations[len(deviations)//2] if deviations else 0.0
+    floor=max(0.0, med + 2.0*mad)
+    candidates=[]
+    for strike,value in concentrations:
+        strike=float(strike); magnitude=abs(float(value))
+        if current is not None and ((side=="UP" and strike<=current) or (side!="UP" and strike>=current)):
+            continue
+        local=[]
+        for s,v in concentrations:
+            s=float(s)
+            if abs(s-strike) <= max(spacing*2.0,10.0):
+                local.append(abs(float(v)))
+        local_peak=max(local,default=magnitude)
+        prominence=(magnitude/(local_peak or 1.0))
+        # Preserve strong local barriers even when they are below the largest
+        # global concentration. Tier is based on evidence strength.
+        tier=0 if magnitude >= max(floor, 0.50*max(values)) else (1 if prominence>=0.80 else 2)
+        candidates.append((tier,-prominence,-magnitude,abs(strike-(current or strike)),strike))
+    candidates.sort()
+    selected=[]
+    for _,_,_,_,strike in candidates:
+        if all(abs(strike-picked)>=min_gap for picked in selected):
+            selected.append(strike)
+        if len(selected)>=limit: break
+    return sorted(selected)
+
+
 def summarize_gamma_zones(gamma_matrix: dict[str, Any]) -> dict[str, Any]:
-    """Extract deterministic concentration zones without inventing levels."""
+    """Extract deterministic structural concentration nodes from real strikes."""
 
     matrix = gamma_matrix.get("matrix") or []
     columns = gamma_matrix.get("columns") or []
@@ -167,16 +231,30 @@ def summarize_gamma_zones(gamma_matrix: dict[str, Any]) -> dict[str, Any]:
         reverse=True,
     )
 
+    observed_strikes = [
+        float(row["strike"]) for row in matrix
+        if _num(row.get("strike")) is not None
+    ]
+    resistance_nodes = select_structural_nodes(
+        positive, current=current, side="UP", grid_strikes=observed_strikes
+    )
+    support_nodes = select_structural_nodes(
+        negative, current=current, side="DOWN", grid_strikes=observed_strikes
+    )
+
     return {
         "current_price": current,
         "highest_positive_gamma": positive[0][0] if positive else None,
         "highest_negative_gamma": negative[0][0] if negative else None,
+        "resistance_nodes": resistance_nodes,
+        "support_nodes": support_nodes,
         "positive_concentrations": [
             {"strike": strike, "aggregate_gex": value} for strike, value in positive[:10]
         ],
         "negative_concentrations": [
             {"strike": strike, "aggregate_gex": value} for strike, value in negative[:10]
         ],
+        "selection_method": "local_prominence_tiered_selection_with_robust_noise_floor_and_spacing",
         "status": "VALID" if aggregate else "UNKNOWN",
     }
 
