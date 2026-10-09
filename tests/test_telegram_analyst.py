@@ -516,3 +516,38 @@ def test_customer_narrative_is_plain_language_and_uses_evidence_relationships():
     assert "ข่าว / เศรษฐกิจ" in message
     assert "Current OI" not in message
     assert "OI Change" not in message
+
+
+def test_telegram_never_restores_rejected_targets_from_market_map():
+    from src import telegram
+
+    ai = {
+        "bias": "BEARISH",
+        "market_map": {
+            "long_reclaim_trade_targets": [4119.86, 4124.86, 4129.86, 4134.86, 4139.86],
+        },
+        "trade_plan": {
+            "long_reclaim_tp1": 4119.86,
+            "long_reclaim_tp2": 4124.86,
+            "long_reclaim_tp3": 4129.86,
+            "execution_plan": {
+                "state": "ARMED",
+                "long_reclaim": {
+                    "state": "ARMED",
+                    "trigger": 4119.86,
+                    "stop": 4114.86,
+                    # Empty means the canonical engine rejected all targets.
+                    "targets": [],
+                    "risk": {"status": "NO_TRADE", "reason": "NO_QUALIFIED_TP1"},
+                },
+            },
+        },
+    }
+
+    message = telegram._format_trade_plan_message({}, ai)
+    buy_one = message.split("BUY 2 — รับด้านล่าง", 1)[0]
+    assert "🛑 SL: <b>4,114.86</b>" in buy_one
+    assert "🎯 TP1: <b>-</b>" in buy_one
+    assert "🎯 TP5: <b>-</b>" in buy_one
+    assert "🎯 TP1: <b>4,119.86</b>" not in buy_one
+    assert "🎯 TP2: <b>4,124.86</b>" not in buy_one
