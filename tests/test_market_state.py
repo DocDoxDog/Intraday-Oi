@@ -110,9 +110,11 @@ def test_trade_plan_accepts_sparse_source_targets_but_needs_tp1():
     assert market_map["R1"] is not None
     assert market_map["S1"] is not None
     assert market_map["R2"] is None or market_map["R3"] is None
-    # R/S describe structural context; sparse executable targets are tracked separately.
-    assert market_map["S2"] is not None
-    assert market_map["S3"] is not None
+    # R/S describe significant structural context, not a nearest-strike
+    # ladder. This fixture has only one significant downside node, so missing
+    # S2/S3 must remain UNKNOWN instead of being filled from adjacent strikes.
+    assert market_map["S2"] is None
+    assert market_map["S3"] is None
 
 
 def test_trade_plan_keeps_trigger_roadmap_without_source_tp1():
