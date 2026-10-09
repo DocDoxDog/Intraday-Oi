@@ -37,7 +37,7 @@ def test_telegram_renders_canonical_v2_without_creating_trade_levels():
     }
     message = format_message(parsed, ai)
     assert "GOLD MARKET" in message
-    assert "CFD <b>4,297.00</b> | FUTURES <b>4,300.00</b>" in message
+    assert "FUTURES <b>4,300.00</b> | CFD <b>4,297.00</b>" in message
     assert "BASIS <b>-</b> | IV <b>-</b> | DTE <b>1.38</b>" in message
     assert "ตอนนี้เกิดอะไรขึ้น" in message
     assert "ทำไมระดับนี้ถึงสำคัญ" in message
@@ -287,9 +287,12 @@ def test_trade_targets_use_source_strikes_not_gamma_mean():
     assert trade["long_tp1"] == 4150.33829
     assert trade["long_tp2"] in {4155.33829, 4160.33829}
     assert trade["long_tp3"] is not None
-    assert trade["short_tp1"] == 4125.33829
-    assert trade["short_tp2"] in {4120.33829, 4115.33829}
-    assert trade["short_tp3"] is not None
+    # This fixture has no negative-GEX structural nodes below the trigger.
+    # The engine must leave the short targets unknown instead of treating
+    # every observed strike as an executable target.
+    assert trade["short_tp1"] is None
+    assert trade["short_tp2"] is None
+    assert trade["short_tp3"] is None
     assert trade["long_tp1"] != 4137.63829
     assert trade["short_tp1"] != 4137.63829
 
@@ -415,9 +418,11 @@ def test_telegram_uses_route_specific_targets_not_the_generic_side_ladder():
         },
     }
     message = telegram._format_trade_plan_message({}, ai)
-    assert "🎯 TP1: <b>4,200.00</b>" in message
+    # Missing route-specific targets stay missing; the renderer must not
+    # borrow generic LONG/SHORT targets from a different setup.
+    assert "🎯 TP1: <b>-</b>" in message
     assert "🎯 TP1: <b>4,150.00</b>" in message
-    assert "🎯 TP1: <b>4,100.00</b>" in message
+    assert "🎯 TP1: <b>4,100.00</b>" not in message
     assert "🎯 TP1: <b>4,050.00</b>" in message
 
 
