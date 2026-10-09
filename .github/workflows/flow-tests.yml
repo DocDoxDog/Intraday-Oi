@@ -21,4 +21,4 @@ jobs:
           pip install -r requirements.txt
           pip install pytest
       - name: Run flow regression tests
-        run: PYTHONPATH=. pytest -q tests/test_event_outcome_engine.py tests/test_flow_llm_contract.py tests/test_telegram_analyst.py
+        run: PYTHONPATH=. pytest -q tests/test_event_outcome_engine.py tests/test_flow_llm_contract.py tests/test_telegram_analyst.py tests/test_trade_map.py tests/test_trade_plan_countertrend.py tests/test_trade_plan_targets.py
