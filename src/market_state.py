@@ -816,29 +816,24 @@ def _deterministic_trade_levels(
     def structural_targets(side: str, anchor: float | None) -> list[float]:
         if anchor is None:
             return []
-        path_levels = []
+        # Combine valid nodes from the conditional path and the significant
+        # option-structure map. Do not stop at a nearby path node if it cannot
+        # meet minimum RR while a farther structural node can.
+        candidates = []
         for node in path_nodes:
             value = _num(node.get("level"))
             if value is None:
                 continue
             if side == "LONG" and value > anchor:
-                path_levels.append(value)
+                candidates.append(value)
             elif side == "SHORT" and value < anchor:
-                path_levels.append(value)
-        path_levels = _unique_sorted(path_levels, reverse=side == "SHORT")
-        if path_levels:
-            return path_levels[:5]
+                candidates.append(value)
         nodes = long_key_levels if side == "LONG" else short_key_levels
-        filtered = [
+        candidates.extend(
             value for value in nodes
             if (value > anchor if side == "LONG" else value < anchor)
-        ]
-        if filtered:
-            return filtered[:5]
-
-        # No significant structural node means no executable TP. Observed
-        # strikes alone are not automatically meaningful targets.
-        return []
+        )
+        return _unique_sorted(candidates, reverse=side == "SHORT")
 
     long_reclaim_trigger = local_action_resistance
     long_reclaim_stop = (
