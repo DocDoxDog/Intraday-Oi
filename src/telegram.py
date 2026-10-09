@@ -306,17 +306,47 @@ def _format_trade_plan_message(parsed: dict, ai_result: dict) -> str:
                 p["trigger"] = trade.get(trigger_field)
             if p.get("stop") is None:
                 p["stop"] = trade.get(stop_field)
-            # The canonical execution route owns its target list, including
-            # an intentionally empty list after risk/side validation. Do not
-            # refill it from a stale legacy trade_plan: that can resurrect a
-            # TP equal to the trigger or a target rejected by the risk gate.
+            # Canonical targets win. A route-specific legacy adapter is
+            # allowed only when the canonical route has no explicit risk
+            # rejection; generic long/short ladders are never borrowed.
             if "targets" not in p:
-                p["targets"] = [
+                route_targets = [
                     trade.get(f"{tp_prefix}{i}") for i in range(1, 6)
                     if trade.get(f"{tp_prefix}{i}") is not None
                 ]
             else:
-                p["targets"] = [x for x in (p.get("targets") or []) if x is not None]
+                route_targets = [x for x in (p.get("targets") or []) if x is not None]
+                risk = p.get("risk") if isinstance(p.get("risk"), dict) else {}
+                risk_rejected = (
+                    p.get("risk_blocked") is True
+                    or str(risk.get("status") or "").upper() in {"NO_TRADE", "FAIL", "REJECTED"}
+                )
+                if not route_targets and not risk_rejected:
+                    route_targets = [
+                        trade.get(f"{tp_prefix}{i}") for i in range(1, 6)
+                        if trade.get(f"{tp_prefix}{i}") is not None
+                    ]
+
+            trigger_value = _n(p.get("trigger", trade.get(trigger_field)))
+            stop_value = _n(p.get("stop", trade.get(stop_field)))
+            is_long = route_key.startswith("long_")
+            risk_distance = (
+                trigger_value - stop_value if is_long
+                else stop_value - trigger_value
+            ) if trigger_value is not None and stop_value is not None else None
+            valid_route_targets = []
+            for value in route_targets:
+                target_value = _n(value)
+                if target_value is None or trigger_value is None:
+                    continue
+                reward = target_value - trigger_value if is_long else trigger_value - target_value
+                if reward <= 0:
+                    continue
+                if risk_distance is not None and (risk_distance <= 0 or reward / risk_distance < 1.0):
+                    continue
+                if target_value not in valid_route_targets:
+                    valid_route_targets.append(target_value)
+            p["targets"] = sorted(valid_route_targets, reverse=not is_long)
         p = p or {}
         trigger = p.get("trigger")
         if trigger is None:
