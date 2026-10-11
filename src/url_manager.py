@@ -99,44 +99,65 @@ class UrlManager:
                     context_options["storage_state"] = SESSION_STATE_PATH
                 context = browser.new_context(**context_options)
                 page = context.new_page()
-                page.goto(url, wait_until="domcontentloaded", timeout=60000)
+                # QuikStrike is a long-lived application page. Some deployments
+                # keep sub-resources open indefinitely, so waiting for DOMContentLoaded
+                # can time out even though the document has already committed and the
+                # chart/XHR surface is usable. Use "commit" for navigation and validate
+                # readiness from the actual data surface that scraper.py consumes.
+                try:
+                    response = page.goto(url, wait_until="commit", timeout=30_000)
+                except PlaywrightTimeoutError as exc:
+                    print(f"⚠️  validate() navigation timeout; probing rendered page: {exc}")
+                    response = None
 
-                # QuikStrike loads Chart.aspx asynchronously; waiting for
-                # networkidle is unreliable because the page keeps timers/XHRs.
+                if response is not None and response.status >= 400:
+                    print(f"⚠️  validate() QuikStrike HTTP status={response.status}")
+                    browser.close()
+                    return False
+
                 try:
                     page.wait_for_function(
                         """() => document.querySelectorAll('map area[fields]').length > 0 ||
                         (typeof Highcharts !== 'undefined' && Highcharts.charts && Highcharts.charts.some(c => c)) ||
-                        !!document.querySelector('img.chart, [dataobjectid]')""",
-                        timeout=35000,
+                        !!document.querySelector('img.chart') ||
+                        !!document.querySelector('[dataobjectid]')""",
+                        timeout=45_000,
                     )
                 except Exception:
-                    page.wait_for_timeout(3000)
+                    pass
+
+                page.wait_for_timeout(1_500)
 
                 has_chart = page.evaluate(
                     "() => typeof Highcharts !== 'undefined' "
                     "&& Highcharts.charts && Highcharts.charts.some(c => c)"
                 )
                 has_image_map = page.locator("map area[fields]").count() > 0
-                has_oi_surface = page.locator("img.chart, [dataobjectid]").count() > 0
+                has_chart_image = page.locator("img.chart").count() > 0
+                has_data_object = page.locator("[dataobjectid]").count() > 0
                 page_text = (page.evaluate("() => document.body.innerText") or "").lower()
-                browser.close()
 
-            has_error_text = any(
-                kw in page_text
-                for kw in ("session expired", "session has expired", "not found", "an error occurred")
-            )
-            # NOTE: scraper.py no longer clicks the Intraday tab and no longer requires
-            # genuine Vol2Vol "Expected Range" content — CME's free QuikStrike tier stopped
-            # serving that data, so scraper.py already pivoted to reading whatever
-            # image-map the default Open Interest/EOD view returns (mode: 'open_interest',
-            # see scraper.py's module docstring). Requiring "expected range"/"vol2vol"/
-            # "intraday" text here is a stale check from before that pivot — it can never
-            # pass anymore, which is why get_url() was raising UrlManagerError even though
-            # discover() was finding perfectly usable qsid/insid pairs. Match scraper.py's
-            # actual requirement instead: a chart or image-map is present, and the page
-            # isn't showing a session/lookup error.
-            return bool(has_chart or has_image_map or has_oi_surface) and not has_error_text
+                has_error_text = any(
+                    kw in page_text
+                    for kw in (
+                        "session expired",
+                        "session has expired",
+                        "not found",
+                        "an error occurred",
+                    )
+                )
+
+                # Match scraper.py's real requirement. Do not require
+                # Expected Range/Intraday text; the free Open Interest/EOD
+                # surface is the canonical scrape target.
+                usable = (
+                    has_image_map
+                    or has_chart
+                    or (has_chart_image and has_data_object)
+                )
+
+                browser.close()
+                return usable and not has_error_text
         except Exception as e:
             print(f"⚠️  validate() เปิด URL ไม่สำเร็จ: {e}")
             return False
@@ -207,7 +228,12 @@ class UrlManager:
                 urls.append(url)
 
         page.on("request", capture)
-        page.goto(entry_url, wait_until="domcontentloaded", timeout=120000)
+        try:
+            # Bootstrap can keep DOMContentLoaded open while already emitting
+            # the qsid/insid request. "commit" is sufficient for network sniffing.
+            page.goto(entry_url, wait_until="commit", timeout=30_000)
+        except PlaywrightTimeoutError as exc:
+            print(f"⚠️  [discover/network] bootstrap navigation timeout; continue sniffing: {exc}")
         page.wait_for_timeout(wait_ms)
 
         qsid = None
