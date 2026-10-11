@@ -19,6 +19,7 @@ Retry ladder (เรียงตามลำดับที่ get_url() ลอ�
 import os
 import re
 from pathlib import Path
+from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
 from playwright.sync_api import sync_playwright
 
 from .supabase_client import get_client
