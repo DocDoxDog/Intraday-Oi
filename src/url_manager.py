@@ -282,7 +282,13 @@ class UrlManager:
                 page = context.new_page()
 
                 print("    [discover] เปิด QuikStrike bootstrap entry point...")
-                page.goto(entry_url, wait_until="domcontentloaded", timeout=120000)
+                try:
+                    # Do not wait for DOMContentLoaded on this application page.
+                    # The session identifiers are emitted by HTML/window/network
+                    # independently of the document lifecycle.
+                    page.goto(entry_url, wait_until="commit", timeout=30_000)
+                except PlaywrightTimeoutError as exc:
+                    print(f"⚠️  [discover] bootstrap navigation timeout; continue probing: {exc}")
                 page.wait_for_timeout(5000)
 
                 # ลำดับ 1: HTML regex (เร็วสุด ไม่มีปัญหาเรื่อง timing)
