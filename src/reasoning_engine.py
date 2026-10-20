@@ -17,7 +17,7 @@ def _fact(fid: str, label: str, value: Any, meaning: str, refs: list[str]) -> di
             "evidence_refs": refs, "kind": "FACT"}
 
 def _direction(state: dict[str, Any]) -> str:
-    ms = state.get("market_state") or {}
+    raw = state.get("raw_series") or {}\n    ms = raw.get("market_state") or {}
     decision = ms.get("decision_framework") or {}
     for key in ("structural_bias", "bias", "direction"):
         v = _status(decision.get(key) or ms.get(key))
