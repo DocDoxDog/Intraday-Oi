@@ -140,6 +140,7 @@ export async function GET() {
   const technical = parseJson(row.technical_context);
   const reasoning = parseJson(raw.reasoning_v5);
   const evidenceFusion = parseJson(raw.evidence_fusion_v52);
+  const v6 = parseJson(raw.v6_intelligence);
   const marketMap = parseJson(ai.market_map);
   const tradePlan = parseJson(ai.trade_plan);
   const rawExecution = parseJson(tradePlan.execution_plan);
@@ -272,6 +273,14 @@ export async function GET() {
       conflicts: Array.isArray(evidenceFusion.conflicts) ? evidenceFusion.conflicts.slice(0, 8) : [],
       coverage: evidenceFusion.coverage ?? {},
       marketContext: evidenceFusion.market_context ?? {},
+    },
+    v6: {
+      version: v6.version ?? "UNKNOWN",
+      status: v6.status ?? "DATA_INSUFFICIENT",
+      executionAuthority: v6.execution_authority ?? "NONE",
+      regime: v6.regime_fingerprint ?? {},
+      memory: v6.memory ?? {},
+      researchPolicy: v6.research_policy ?? {},
     },
     reasoning: {
       version: reasoning.version ?? "UNKNOWN",
