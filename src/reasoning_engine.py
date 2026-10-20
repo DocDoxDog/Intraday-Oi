@@ -17,7 +17,8 @@ def _fact(fid: str, label: str, value: Any, meaning: str, refs: list[str]) -> di
             "evidence_refs": refs, "kind": "FACT"}
 
 def _direction(state: dict[str, Any]) -> str:
-    raw = state.get("raw_series") or {}\n    ms = raw.get("market_state") or {}
+    raw = state.get("raw_series") or {}
+    ms = raw.get("market_state") or {}
     decision = ms.get("decision_framework") or {}
     for key in ("structural_bias", "bias", "direction"):
         v = _status(decision.get(key) or ms.get(key))
@@ -31,9 +32,10 @@ def _price(state: dict[str, Any]) -> float | None:
     return _num(state.get("cfd_price", state.get("future_price")))
 
 def _levels(state: dict[str, Any]) -> dict[str, Any]:
-    ms = state.get("market_state") or {}
+    raw = state.get("raw_series") or {}
+    ms = raw.get("market_state") or {}
     levels = ms.get("levels") or {}
-    gex = (state.get("raw_series") or {}).get("gex") or {}
+    gex = raw.get("gex") or {}
     return {"current": _price(state),
             "resistance": levels.get("resistance_current", levels.get("resistance")),
             "support": levels.get("support_current", levels.get("support")),
