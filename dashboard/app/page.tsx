@@ -147,6 +147,24 @@ function EvidenceFusionPanel({ fusion }: { fusion: any }) {
   );
 }
 
+function V6Panel({ v6 }: { v6: any }) {
+  const r=v6?.regime ?? {};
+  const p=v6?.researchPolicy ?? {};
+  const m=v6?.memory ?? {};
+  const fields=[["Trend",r.trend],["Volatility",r.volatility],["Gamma",r.gamma],["Auction",r.auction],["Flow",r.flow],["Event",r.event],["Location",r.location]];
+  return (
+    <section className="panel reasoning-panel" id="v6">
+      <div className="panel-head"><div><span className="eyebrow">V6 MARKET INTELLIGENCE</span><h2>Regime → Memory → Research</h2></div><StatePill value={v6?.status}/></div>
+      <div className="reasoning-grid">
+        {fields.map(([k,val]) => <article className="reasoning-card" key={k}><span className="eyebrow">{k}</span><strong>{String(val ?? "UNKNOWN")}</strong><small>point-in-time state</small></article>)}
+      </div>
+      <div className="context-line">Fingerprint: {r.fingerprint_id ?? "UNKNOWN"} · Episodes: {Array.isArray(m.episodes) ? m.episodes.length : 0}</div>
+      <div className="context-line">Research gates: PIT {p.point_in_time ? "✓" : "—"} · Purge/Embargo {p.purged_embargoed ? "✓" : "—"} · OOS {p.oos_required ? "✓" : "—"} · Cost {p.cost_adjusted ? "✓" : "—"} · Calibration {p.calibration_required ? "✓" : "—"}</div>
+      <div className="context-line">Execution authority: {v6?.executionAuthority ?? "NONE"} · Auto-promotion: {p.auto_promotion ? "ON" : "OFF"}</div>
+    </section>
+  );
+}
+
 function DataClockPanel({ clock }: { clock: any }) {
   const entries = Array.isArray(clock?.entries) ? clock.entries : [];
   return (
@@ -371,10 +389,11 @@ export default function Dashboard() {
         </div>
       </section>
 
-      <nav className="quick-nav"><a href="#reasoning">Reasoning</a><a href="#evidence">Evidence</a><a href="#action">Action</a><a href="#gamma">Gamma</a><a href="#levels">Levels</a><a href="#plan">Plan</a></nav>
+      <nav className="quick-nav"><a href="#reasoning">Reasoning</a><a href="#evidence">Evidence</a><a href="#v6">V6</a><a href="#action">Action</a><a href="#gamma">Gamma</a><a href="#levels">Levels</a><a href="#plan">Plan</a></nav>
 
       <ReasoningPanel reasoning={data.reasoning}/>
       <EvidenceFusionPanel fusion={data.evidenceFusion}/>
+      <V6Panel v6={data.v6}/>
 
       <section className="panel action-panel" id="action">
         <div className="panel-head"><div><span className="eyebrow">DECISION LAYER</span><h2>Nearby Action</h2></div><span className="source-tag">{levels.localDistanceMode === "ATR" ? `ATR × ${levels.localMaxAtr ?? "—"}` : "Fallback distance"} • ไม่ไล่ราคา</span></div>
