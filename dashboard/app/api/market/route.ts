@@ -139,6 +139,7 @@ export async function GET() {
   const ai = parseJson(row.ai_summary);
   const technical = parseJson(row.technical_context);
   const reasoning = parseJson(raw.reasoning_v5);
+  const evidenceFusion = parseJson(raw.evidence_fusion_v52);
   const marketMap = parseJson(ai.market_map);
   const tradePlan = parseJson(ai.trade_plan);
   const rawExecution = parseJson(tradePlan.execution_plan);
@@ -262,6 +263,15 @@ export async function GET() {
       spot: num(row.spot_price),
       basis: num(row.basis_diff),
       cfd: num(row.cfd_price),
+    },
+    evidenceFusion: {
+      version: evidenceFusion.version ?? "UNKNOWN",
+      status: evidenceFusion.status ?? "DATA_INSUFFICIENT",
+      evidence: Array.isArray(evidenceFusion.evidence) ? evidenceFusion.evidence.slice(0, 12) : [],
+      relationships: Array.isArray(evidenceFusion.relationships) ? evidenceFusion.relationships.slice(0, 8) : [],
+      conflicts: Array.isArray(evidenceFusion.conflicts) ? evidenceFusion.conflicts.slice(0, 8) : [],
+      coverage: evidenceFusion.coverage ?? {},
+      marketContext: evidenceFusion.market_context ?? {},
     },
     reasoning: {
       version: reasoning.version ?? "UNKNOWN",
