@@ -266,7 +266,7 @@ def _compact_history(parsed: dict[str, Any], history: dict[str, Any] | None) -> 
     current_raw = parsed.get("raw_series") or {}
     current_totals = current_raw.get("totals") or {}
     current_gex = current_raw.get("gex") or {}
-    reasoning_v5 = raw.get("reasoning_v5") or {}
+    reasoning_v5 = current_raw.get("reasoning_v5") or {}
 
     current = {
         "future_price": parsed.get("future_price"),
