@@ -339,7 +339,9 @@ export default function Dashboard() {
 
       <nav className="quick-nav"><a href="#reasoning">Reasoning</a><a href="#action">Action</a><a href="#gamma">Gamma</a><a href="#levels">Levels</a><a href="#plan">Plan</a></nav>
 
-      <ReasoningPanel reasoning={data.reasoning}/>\n\n      <section className="panel action-panel" id="action">
+      <ReasoningPanel reasoning={data.reasoning}/>
+
+      <section className="panel action-panel" id="action">
         <div className="panel-head"><div><span className="eyebrow">DECISION LAYER</span><h2>Nearby Action</h2></div><span className="source-tag">{levels.localDistanceMode === "ATR" ? `ATR × ${levels.localMaxAtr ?? "—"}` : "Fallback distance"} • ไม่ไล่ราคา</span></div>
         <div className="action-grid">
           <div className="action-zone long"><span>🟢 BUY — เบรกต้าน</span><strong>{price(levels.localActionResistance)}</strong><small>Break → Hold → Retest → Buy</small></div>
