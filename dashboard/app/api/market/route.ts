@@ -272,7 +272,8 @@ export async function GET() {
       conflicts: Array.isArray(reasoning.conflicts) ? reasoning.conflicts.slice(0, 4) : [],
       scenarios: Array.isArray(reasoning.scenarios) ? reasoning.scenarios : [],
     },
-    regime: {      bias: ai.bias ?? tradePlan.direction ?? "WAIT",
+    regime: {
+      bias: ai.bias ?? tradePlan.direction ?? "WAIT",
       status: ai.analysis_status ?? tradePlan.status ?? "UNKNOWN",
       marketRegime: ai.market_regime ?? tradePlan.market_condition ?? "UNKNOWN",
       overview: ai.market_overview ?? "",
