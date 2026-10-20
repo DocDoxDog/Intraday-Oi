@@ -46,6 +46,7 @@ from src.quant_metrics import enrich_quant_metrics
 from src.market_flow_engine import build_flow_context
 from intelligence.news.free_feed import collect_free_news
 from src.reasoning_engine import build_reasoning_pack
+from src.evidence_fusion import build_evidence_fusion
 
 
 def run():
@@ -369,6 +370,28 @@ def run():
     except Exception as e:
         parsed.setdefault("raw_series", {})["market_flow"] = {"status": "UNKNOWN", "error": type(e).__name__}
         print(f"⚠️  Market flow engine failed (continuing with canonical state): {e}", file=sys.stderr)
+    # V5.2 evidence graph runs after all deterministic market-state enrichment.
+    # It is additive: V3/V4/V5 decision/execution paths remain unchanged.
+    try:
+        parsed.setdefault("raw_series", {})["evidence_fusion_v52"] = build_evidence_fusion(parsed)
+        fusion = parsed["raw_series"]["evidence_fusion_v52"]
+        print(
+            f"    evidence fusion v5.2: status={fusion.get('status')} "
+            f"evidence={len(fusion.get('evidence') or [])} "
+            f"relationships={len(fusion.get('relationships') or [])} "
+            f"conflicts={len(fusion.get('conflicts') or [])}"
+        )
+    except Exception as e:
+        parsed.setdefault("raw_series", {})["evidence_fusion_v52"] = {
+            "version": "evidence-fusion-v5.2",
+            "status": "DATA_INSUFFICIENT",
+            "error": type(e).__name__,
+            "evidence": [],
+            "relationships": [],
+            "conflicts": [],
+            "scenarios": [],
+        }
+        print(f"⚠️  Evidence Fusion V5.2 failed (analysis continues): {e}", file=sys.stderr)
     # V5 reasoning ledger runs after all deterministic state/flow enrichment so the
     # LLM and dashboard receive one consistent evidence snapshot.
     try:
