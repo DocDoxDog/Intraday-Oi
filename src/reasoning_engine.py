@@ -4,7 +4,7 @@ FACT -> WHY -> CONFLICT -> NEXT EVENT -> INVALIDATION -> ACTION.
 """
 from __future__ import annotations
 from typing import Any
-VERSION = "reasoning-v5.1"
+VERSION = "reasoning-v5.2"
 
 def _num(x: Any) -> float | None:
     return float(x) if isinstance(x, (int, float)) else None
@@ -76,10 +76,16 @@ def _evidence(state: dict[str, Any], history: dict[str, Any] | None) -> list[dic
                          ["itb:oi:history"]))
     return out
 
-def build_reasoning_pack(state: dict[str, Any], history: dict[str, Any] | None = None) -> dict[str, Any]:
+def build_reasoning_pack(
+    state: dict[str, Any],
+    history: dict[str, Any] | None = None,
+    evidence_fusion: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     direction = _direction(state)
     levels = _levels(state)
-    evidence = _evidence(state, history)
+    raw = state.get("raw_series") or {}
+    fusion = evidence_fusion or raw.get("evidence_fusion_v52") or {}
+    evidence = fusion.get("evidence") if fusion.get("evidence") else _evidence(state, history)
     conflicts: list[dict[str, Any]] = []
     gex = (state.get("raw_series") or {}).get("gex") or {}
     gex_net = _num(gex.get("net_gex"))
@@ -93,6 +99,14 @@ def build_reasoning_pack(state: dict[str, Any], history: dict[str, Any] | None =
     if direction != "UNKNOWN" and _status(conf.get("bias")) not in {"UNKNOWN", direction}:
         conflicts.append({"id": "technical-conflict", "severity": "HIGH",
                           "text": "โครงสร้างหลักกับ timing ระยะสั้นยังไม่ตรงกัน"})
+    for conflict in fusion.get("conflicts") or []:
+        conflicts.append({
+            "id": conflict.get("conflict_id"),
+            "severity": conflict.get("severity", "MEDIUM"),
+            "text": conflict.get("interpretation") or conflict.get("resolution_hint"),
+            "evidence_refs": conflict.get("evidence_refs") or [],
+        })
+
     current = levels["current"]
     resistance = _num(levels["resistance"] or levels["call_wall"])
     support = _num(levels["support"] or levels["put_wall"])
@@ -126,7 +140,8 @@ def build_reasoning_pack(state: dict[str, Any], history: dict[str, Any] | None =
             {"step": 5, "name": "INVALIDATION", "answer": "กำหนดเหตุการณ์ที่ทำให้ thesis ผิด"},
             {"step": 6, "name": "ACTION", "answer": "เลือก LONG/SHORT/WAIT แบบมีเงื่อนไข"},
         ],
-        "evidence": evidence, "conflicts": conflicts, "levels": levels,
+        "evidence": evidence, "relationships": fusion.get("relationships") or [], "conflicts": conflicts, "levels": levels,
+        "evidence_fusion_version": fusion.get("version"),
         "scenarios": scenarios,
         "guardrails": [
             "OI ไม่เท่ากับ traded volume", "OI/GEX ไม่ใช่ directional oracle",
