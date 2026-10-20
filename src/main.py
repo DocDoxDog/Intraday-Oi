@@ -45,6 +45,7 @@ from src.macro_state import build_macro_state
 from src.quant_metrics import enrich_quant_metrics
 from src.market_flow_engine import build_flow_context
 from intelligence.news.free_feed import collect_free_news
+from src.reasoning_engine import build_reasoning_pack
 
 
 def run():
@@ -357,6 +358,15 @@ def run():
 
     # Deterministic state is prepared AFTER news so the same governed input
     # reaches both the analyst and the Telegram/LINE renderers.
+    # V5 reasoning ledger: deterministic, concise and persisted for every view.
+    try:
+        parsed.setdefault("raw_series", {})["reasoning_v5"] = build_reasoning_pack(parsed, hist_context)
+        reasoning_v5 = parsed["raw_series"]["reasoning_v5"]
+        print(f"    reasoning v5: status={reasoning_v5.get('status')} conflicts={len(reasoning_v5.get('conflicts') or [])}")
+    except Exception as e:
+        parsed.setdefault("raw_series", {})["reasoning_v5"] = {"version": "reasoning-v5.1", "status": "DATA_INSUFFICIENT", "directional_context": "UNKNOWN", "error": type(e).__name__}
+        print(f"⚠️  Reasoning V5 failed (analysis continues): {e}", file=sys.stderr)
+
     parsed = enrich_market_state(parsed, hist_context)
     parsed = enrich_quant_metrics(parsed, hist_context)
     try:
