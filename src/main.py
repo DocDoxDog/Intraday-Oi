@@ -47,6 +47,7 @@ from src.market_flow_engine import build_flow_context
 from intelligence.news.free_feed import collect_free_news
 from src.reasoning_engine import build_reasoning_pack
 from src.evidence_fusion import build_evidence_fusion
+from src.v6_intelligence import build_v6_intelligence
 
 
 def run():
@@ -392,6 +393,20 @@ def run():
             "scenarios": [],
         }
         print(f"⚠️  Evidence Fusion V5.2 failed (analysis continues): {e}", file=sys.stderr)
+    # V6 intelligence layer: regime fingerprint + point-in-time memory + research governance.
+    # Observational only: it cannot change execution authority.
+    try:
+        v6 = build_v6_intelligence(parsed)
+        parsed.setdefault("raw_series", {})["v6_intelligence"] = v6
+        parsed["raw_series"]["regime_fingerprint"] = v6.get("regime_fingerprint") or {}
+        parsed["raw_series"]["episodic_memory_v6"] = v6.get("memory") or {}
+        print(f"    V6 intelligence: status={v6.get('status')} episodes={len((v6.get('memory') or {}).get('episodes') or [])}")
+    except Exception as e:
+        parsed.setdefault("raw_series", {})["v6_intelligence"] = {
+            "version": "market-intelligence-v6.0", "status": "DATA_INSUFFICIENT",
+            "execution_authority": "NONE", "error": type(e).__name__,
+        }
+        print(f"⚠️  V6 intelligence failed (analysis continues): {e}", file=sys.stderr)
     # V5 reasoning ledger runs after all deterministic state/flow enrichment so the
     # LLM and dashboard receive one consistent evidence snapshot.
     try:
