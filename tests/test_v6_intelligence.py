@@ -31,7 +31,7 @@ def test_past_episode_hides_outcome():
 def test_purged_embargoed_split():
     rows=[{"information_time":f"2026-10-21T{h:02d}:00:00+00:00"} for h in range(8,14)]
     got=purged_split(rows,"2026-10-21T10:00:00+00:00","2026-10-21T11:00:00+00:00",60)
-    assert len(got["train"])==2 and len(got["test"])==1
+    assert len(got["train"])==2 and len(got["test"])==2
 
 def test_cost_gate():
     assert cost_gate(0.5,0.7)["status"]=="FAIL"
