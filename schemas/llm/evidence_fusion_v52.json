@@ -1,0 +1,17 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Intraday-Oi Evidence Fusion V5.2",
+  "type": "object",
+  "required": ["version", "status", "design", "market_context", "evidence", "relationships", "conflicts", "scenarios", "coverage"],
+  "properties": {
+    "version": {"const": "evidence-fusion-v5.2"},
+    "status": {"enum": ["READY", "DATA_INSUFFICIENT"]},
+    "design": {"type": "object"},
+    "market_context": {"type": "object"},
+    "evidence": {"type": "array"},
+    "relationships": {"type": "array"},
+    "conflicts": {"type": "array"},
+    "scenarios": {"type": "array"},
+    "coverage": {"type": "object"}
+  }
+}
