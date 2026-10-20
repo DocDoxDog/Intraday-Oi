@@ -388,6 +388,7 @@ def _summarize_input(parsed: dict[str, Any], history: dict[str, Any] | None) -> 
         "vol": parsed.get("vol"),
         "vol_chg": parsed.get("vol_chg"),
         "technical_context": parsed.get("technical_context") or {},
+        "reasoning_v5": reasoning_v5,
         "raw_series": {
             "market_state": raw.get("market_state") or {},
             "totals": totals,
