@@ -138,6 +138,7 @@ export async function GET() {
   const raw = parseJson(row.raw_series);
   const ai = parseJson(row.ai_summary);
   const technical = parseJson(row.technical_context);
+  const reasoning = parseJson(raw.reasoning_v5);
   const marketMap = parseJson(ai.market_map);
   const tradePlan = parseJson(ai.trade_plan);
   const rawExecution = parseJson(tradePlan.execution_plan);
@@ -262,8 +263,16 @@ export async function GET() {
       basis: num(row.basis_diff),
       cfd: num(row.cfd_price),
     },
-    regime: {
-      bias: ai.bias ?? tradePlan.direction ?? "WAIT",
+    reasoning: {
+      version: reasoning.version ?? "UNKNOWN",
+      status: reasoning.status ?? "DATA_INSUFFICIENT",
+      direction: reasoning.directional_context ?? "UNKNOWN",
+      oneLine: reasoning.one_line ?? "",
+      evidence: Array.isArray(reasoning.evidence) ? reasoning.evidence.slice(0, 4) : [],
+      conflicts: Array.isArray(reasoning.conflicts) ? reasoning.conflicts.slice(0, 4) : [],
+      scenarios: Array.isArray(reasoning.scenarios) ? reasoning.scenarios : [],
+    },
+    regime: {      bias: ai.bias ?? tradePlan.direction ?? "WAIT",
       status: ai.analysis_status ?? tradePlan.status ?? "UNKNOWN",
       marketRegime: ai.market_regime ?? tradePlan.market_condition ?? "UNKNOWN",
       overview: ai.market_overview ?? "",
