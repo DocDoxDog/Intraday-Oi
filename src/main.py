@@ -359,15 +359,6 @@ def run():
     # Deterministic state is prepared AFTER news so the same governed input
     # reaches both the analyst and the Telegram/LINE renderers.
     parsed = enrich_market_state(parsed, hist_context)
-    # V5 reasoning ledger: deterministic, concise and persisted for every view.
-    try:
-        parsed.setdefault("raw_series", {})["reasoning_v5"] = build_reasoning_pack(parsed, hist_context)
-        reasoning_v5 = parsed["raw_series"]["reasoning_v5"]
-        print(f"    reasoning v5: status={reasoning_v5.get('status')} conflicts={len(reasoning_v5.get('conflicts') or [])}")
-    except Exception as e:
-        parsed.setdefault("raw_series", {})["reasoning_v5"] = {"version": "reasoning-v5.1", "status": "DATA_INSUFFICIENT", "directional_context": "UNKNOWN", "error": type(e).__name__}
-        print(f"⚠️  Reasoning V5 failed (analysis continues): {e}", file=sys.stderr)
-
     parsed = enrich_quant_metrics(parsed, hist_context)
     try:
         flow_context = build_flow_context(parsed)
@@ -378,6 +369,16 @@ def run():
     except Exception as e:
         parsed.setdefault("raw_series", {})["market_flow"] = {"status": "UNKNOWN", "error": type(e).__name__}
         print(f"⚠️  Market flow engine failed (continuing with canonical state): {e}", file=sys.stderr)
+    # V5 reasoning ledger runs after all deterministic state/flow enrichment so the
+    # LLM and dashboard receive one consistent evidence snapshot.
+    try:
+        parsed.setdefault("raw_series", {})["reasoning_v5"] = build_reasoning_pack(parsed, hist_context)
+        reasoning_v5 = parsed["raw_series"]["reasoning_v5"]
+        print(f"    reasoning v5: status={reasoning_v5.get('status')} conflicts={len(reasoning_v5.get('conflicts') or [])}")
+    except Exception as e:
+        parsed.setdefault("raw_series", {})["reasoning_v5"] = {"version": "reasoning-v5.1", "status": "DATA_INSUFFICIENT", "directional_context": "UNKNOWN", "error": type(e).__name__}
+        print(f"⚠️  Reasoning V5 failed (analysis continues): {e}", file=sys.stderr)
+
     market_state = (parsed.get("raw_series") or {}).get("market_state") or {}
     print(
         f"    market state: CFD={'OK' if market_state.get('cfd_complete') else 'UNKNOWN'} | "
