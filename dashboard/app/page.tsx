@@ -113,6 +113,40 @@ function ReasoningPanel({ reasoning }: { reasoning: any }) {
   );
 }
 
+function EvidenceFusionPanel({ fusion }: { fusion: any }) {
+  const evidence = Array.isArray(fusion?.evidence) ? fusion.evidence : [];
+  const relationships = Array.isArray(fusion?.relationships) ? fusion.relationships : [];
+  const conflicts = Array.isArray(fusion?.conflicts) ? fusion.conflicts : [];
+  return (
+    <section className="panel reasoning-panel" id="evidence">
+      <div className="panel-head">
+        <div><span className="eyebrow">V5.2 EVIDENCE GRAPH</span><h2>Evidence → Relationship → Conflict</h2></div>
+        <StatePill value={fusion?.status}/>
+      </div>
+      <div className="reasoning-grid">
+        {evidence.slice(0, 6).map((item: any) => (
+          <article className="reasoning-card" key={item.evidence_id}>
+            <span className="eyebrow">{item.family}</span>
+            <strong>{item.label}</strong>
+            <small>{item.interpretation}</small>
+          </article>
+        ))}
+      </div>
+      {relationships.length > 0 && (
+        <div className="context-line">
+          Relations: {relationships.slice(0, 4).map((x: any) => x.relation_type).join(" • ")}
+        </div>
+      )}
+      {conflicts.length > 0 && (
+        <div className="reasoning-conflict">
+          <b>⚠ Evidence conflicts</b>
+          {conflicts.slice(0, 3).map((item: any) => <span key={item.conflict_id}>{item.interpretation}</span>)}
+        </div>
+      )}
+    </section>
+  );
+}
+
 function DataClockPanel({ clock }: { clock: any }) {
   const entries = Array.isArray(clock?.entries) ? clock.entries : [];
   return (
@@ -337,9 +371,10 @@ export default function Dashboard() {
         </div>
       </section>
 
-      <nav className="quick-nav"><a href="#reasoning">Reasoning</a><a href="#action">Action</a><a href="#gamma">Gamma</a><a href="#levels">Levels</a><a href="#plan">Plan</a></nav>
+      <nav className="quick-nav"><a href="#reasoning">Reasoning</a><a href="#evidence">Evidence</a><a href="#action">Action</a><a href="#gamma">Gamma</a><a href="#levels">Levels</a><a href="#plan">Plan</a></nav>
 
       <ReasoningPanel reasoning={data.reasoning}/>
+      <EvidenceFusionPanel fusion={data.evidenceFusion}/>
 
       <section className="panel action-panel" id="action">
         <div className="panel-head"><div><span className="eyebrow">DECISION LAYER</span><h2>Nearby Action</h2></div><span className="source-tag">{levels.localDistanceMode === "ATR" ? `ATR × ${levels.localMaxAtr ?? "—"}` : "Fallback distance"} • ไม่ไล่ราคา</span></div>
