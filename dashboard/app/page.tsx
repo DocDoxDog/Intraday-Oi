@@ -86,6 +86,33 @@ function MacroPanel({ macro }: { macro: any }) {
   );
 }
 
+function ReasoningPanel({ reasoning }: { reasoning: any }) {
+  const evidence = Array.isArray(reasoning?.evidence) ? reasoning.evidence : [];
+  const conflicts = Array.isArray(reasoning?.conflicts) ? reasoning.conflicts : [];
+  const scenarios = Array.isArray(reasoning?.scenarios) ? reasoning.scenarios : [];
+  return (
+    <section className="panel reasoning-panel" id="reasoning">
+      <div className="panel-head"><div><span className="eyebrow">V5 REASONING SPINE</span><h2>What → Why → Next</h2></div><StatePill value={reasoning?.status}/></div>
+      <p className="read-text">{reasoning?.oneLine || "ยังไม่มี reasoning ledger"}</p>
+      <div className="reasoning-grid">
+        {evidence.slice(0, 3).map((item: any) => (
+          <article className="reasoning-card" key={item.id}><span className="eyebrow">{item.label}</span><strong>{typeof item.value === "object" ? JSON.stringify(item.value) : String(item.value ?? "UNKNOWN")}</strong><small>{item.meaning}</small></article>
+        ))}
+      </div>
+      {conflicts.length > 0 && <div className="reasoning-conflict"><b>⚠ Conflict</b>{conflicts.map((item: any) => <span key={item.id}>{item.text}</span>)}</div>}
+      <div className="scenario-mini-grid">
+        {scenarios.map((scenario: any) => (
+          <article className={"scenario-mini " + String(scenario.id).toLowerCase()} key={scenario.id}>
+            <span className="eyebrow">{scenario.id}</span><strong>{scenario.action}</strong>
+            <small>Trigger: {price(scenario.trigger)} · Invalidation: {price(scenario.invalidation)}</small>
+            <small>{Array.isArray(scenario.when) ? scenario.when.join(" → ") : "รอ confirmation"}</small>
+          </article>
+        ))}
+      </div>
+    </section>
+  );
+}
+
 function DataClockPanel({ clock }: { clock: any }) {
   const entries = Array.isArray(clock?.entries) ? clock.entries : [];
   return (
@@ -310,9 +337,9 @@ export default function Dashboard() {
         </div>
       </section>
 
-      <nav className="quick-nav"><a href="#action">Action</a><a href="#gamma">Gamma</a><a href="#levels">Levels</a><a href="#plan">Plan</a></nav>
+      <nav className="quick-nav"><a href="#reasoning">Reasoning</a><a href="#action">Action</a><a href="#gamma">Gamma</a><a href="#levels">Levels</a><a href="#plan">Plan</a></nav>
 
-      <section className="panel action-panel" id="action">
+      <ReasoningPanel reasoning={data.reasoning}/>\n\n      <section className="panel action-panel" id="action">
         <div className="panel-head"><div><span className="eyebrow">DECISION LAYER</span><h2>Nearby Action</h2></div><span className="source-tag">{levels.localDistanceMode === "ATR" ? `ATR × ${levels.localMaxAtr ?? "—"}` : "Fallback distance"} • ไม่ไล่ราคา</span></div>
         <div className="action-grid">
           <div className="action-zone long"><span>🟢 BUY — เบรกต้าน</span><strong>{price(levels.localActionResistance)}</strong><small>Break → Hold → Retest → Buy</small></div>
