@@ -56,8 +56,12 @@ jobs:
         run: python -c "from src.research_gate import promotion_decision; x=promotion_decision(measurement_pass=True, association_pass=True, oos_pass=True, cost_pass=True, calibration_pass=True); assert x['status'] == 'PROMOTE'"
       - name: Test promotion execution lock
         run: python -c "from src.research_gate import promotion_decision; x=promotion_decision(measurement_pass=True, association_pass=True, oos_pass=True, cost_pass=True, calibration_pass=True); assert x['production_change_allowed'] is False"
-      - name: Test V6 bundle
-        run: pytest -q tests/test_v6_intelligence.py::test_v6_bundle_contains_governance
+      - name: Test V6 bundle version
+        run: python -c "from tests.test_v6_intelligence import state; from src.v6_intelligence import build_v6_intelligence; x=build_v6_intelligence(state()); assert x['version'] == 'market-intelligence-v6.0'"
+      - name: Test V6 bundle research policy
+        run: python -c "from tests.test_v6_intelligence import state; from src.v6_intelligence import build_v6_intelligence; x=build_v6_intelligence(state()); assert x['research_policy']['oos_required'] is True"
+      - name: Test V6 execution authority
+        run: python -c "from tests.test_v6_intelligence import state; from src.v6_intelligence import build_v6_intelligence; x=build_v6_intelligence(state()); assert x['execution_authority'] == 'NONE'"
 
   v6-dashboard:
     runs-on: ubuntu-latest
