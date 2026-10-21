@@ -46,8 +46,12 @@ jobs:
         run: python -c "from src.research_gate import purged_split; rows=[{'information_time':f'2026-10-21T{h:02d}:00:00+00:00'} for h in range(8,14)]; x=purged_split(rows,'2026-10-21T10:00:00+00:00','2026-10-21T11:00:00+00:00',60); assert len(x['test'])==2"
       - name: Test embargo boundary rejection
         run: python -c "from src.research_gate import purged_split; rows=[{'information_time':f'2026-10-21T{h:02d}:00:00+00:00'} for h in range(8,14)]; x=purged_split(rows,'2026-10-21T10:00:00+00:00','2026-10-21T11:00:00+00:00',60); assert len(x['rejected'])==2"
-      - name: Test cost gate
-        run: pytest -q tests/test_v6_intelligence.py::test_cost_gate
+      - name: Test cost gate insufficient
+        run: python -c "from src.research_gate import cost_gate; assert cost_gate(None, 0.7)['status'] == 'DATA_INSUFFICIENT'"
+      - name: Test cost gate fail
+        run: python -c "from src.research_gate import cost_gate; assert cost_gate(0.5, 0.7)['status'] == 'FAIL'"
+      - name: Test cost gate pass
+        run: python -c "from src.research_gate import cost_gate; assert cost_gate(1.0, 0.7)['status'] == 'PASS'"
       - name: Test promotion governance
         run: pytest -q tests/test_v6_intelligence.py::test_promotion_never_authorizes_production
       - name: Test V6 bundle
