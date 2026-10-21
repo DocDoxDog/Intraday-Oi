@@ -360,6 +360,9 @@ def _summarize_input(parsed: dict[str, Any], history: dict[str, Any] | None) -> 
     rows = raw.get("strike_rows") or []
     gex = raw.get("gex") or {}
     totals = raw.get("totals") or {}
+    reasoning_v5 = raw.get("reasoning_v5") or {}
+    evidence_fusion_v52 = raw.get("evidence_fusion_v52") or {}
+    v6_intelligence = raw.get("v6_intelligence") or {}
     top_gex = sorted(
         (
             {
