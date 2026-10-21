@@ -20,15 +20,20 @@ jobs:
           pip install pytest
       - name: Compile V6 modules
         run: python -m py_compile src/regime_fingerprint.py src/episodic_memory.py src/research_gate.py src/v6_intelligence.py src/main.py src/supabot_llm.py
-      - name: Run V6 governance tests
-        run: |
-          pytest -q tests/test_v6_intelligence.py::test_regime_fingerprint_is_deterministic
-          pytest -q tests/test_v6_intelligence.py::test_future_episode_is_rejected
-          pytest -q tests/test_v6_intelligence.py::test_past_episode_hides_outcome
-          pytest -q tests/test_v6_intelligence.py::test_purged_embargoed_split
-          pytest -q tests/test_v6_intelligence.py::test_cost_gate
-          pytest -q tests/test_v6_intelligence.py::test_promotion_never_authorizes_production
-          pytest -q tests/test_v6_intelligence.py::test_v6_bundle_contains_governance
+      - name: Test fingerprint
+        run: pytest -q tests/test_v6_intelligence.py::test_regime_fingerprint_is_deterministic
+      - name: Test future episode gate
+        run: pytest -q tests/test_v6_intelligence.py::test_future_episode_is_rejected
+      - name: Test outcome quarantine
+        run: pytest -q tests/test_v6_intelligence.py::test_past_episode_hides_outcome
+      - name: Test purge embargo
+        run: pytest -q tests/test_v6_intelligence.py::test_purged_embargoed_split
+      - name: Test cost gate
+        run: pytest -q tests/test_v6_intelligence.py::test_cost_gate
+      - name: Test promotion governance
+        run: pytest -q tests/test_v6_intelligence.py::test_promotion_never_authorizes_production
+      - name: Test V6 bundle
+        run: pytest -q tests/test_v6_intelligence.py::test_v6_bundle_contains_governance
 
   v6-dashboard:
     runs-on: ubuntu-latest
