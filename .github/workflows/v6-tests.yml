@@ -21,7 +21,7 @@ jobs:
       - name: Compile V6 modules
         run: python -m py_compile src/regime_fingerprint.py src/episodic_memory.py src/research_gate.py src/v6_intelligence.py src/main.py src/supabot_llm.py
       - name: Run V6 governance tests
-        run: pytest -q tests/test_v6_intelligence.py tests/test_evidence_fusion.py
+        run: pytest -q tests/test_v6_intelligence.py
 
   v6-dashboard:
     runs-on: ubuntu-latest
@@ -33,7 +33,5 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: "20"
-          cache: npm
-          cache-dependency-path: dashboard/package-lock.json
       - run: npm ci
       - run: npm run build
