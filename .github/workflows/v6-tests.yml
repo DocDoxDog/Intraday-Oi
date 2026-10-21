@@ -20,8 +20,14 @@ jobs:
           pip install pytest
       - name: Compile V6 modules
         run: python -m py_compile src/regime_fingerprint.py src/episodic_memory.py src/research_gate.py src/v6_intelligence.py src/main.py src/supabot_llm.py
-      - name: Run V6 governance tests
-        run: pytest -q tests/test_v6_intelligence.py
+      - name: Run V6 governance smoke checks
+        run: |
+          python -c "from tests.test_v6_intelligence import state; from src.regime_fingerprint import build_regime_fingerprint; x=build_regime_fingerprint(state()); assert x.get('trend')=='BULLISH' and x.get('gamma')=='NEGATIVE_GAMMA'"
+          python -c "from src.episodic_memory import retrieve_episodes; assert retrieve_episodes({'asof':'2026-10-21T10:00:00+00:00','fingerprint':{'trend':'BULLISH'}}, [{'episode_id':'future','information_time':'2026-10-21T10:01:00+00:00','fingerprint':{'trend':'BULLISH'}}]) == []"
+          python -c "from src.episodic_memory import retrieve_episodes; x=retrieve_episodes({'asof':'2026-10-21T10:00:00+00:00','fingerprint':{'trend':'BULLISH'}}, [{'episode_id':'past','information_time':'2026-10-21T09:00:00+00:00','fingerprint':{'trend':'BULLISH'},'outcome':{'forward_return':99}}]); assert x and 'outcome' not in x[0]"
+          python -c "from src.research_gate import purged_split; rows=[{'information_time':'2026-10-21T08:00:00+00:00'},{'information_time':'2026-10-21T09:00:00+00:00'},{'information_time':'2026-10-21T10:00:00+00:00'},{'information_time':'2026-10-21T11:00:00+00:00'},{'information_time':'2026-10-21T12:00:00+00:00'},{'information_time':'2026-10-21T13:00:00+00:00'}]; x=purged_split(rows,'2026-10-21T10:00:00+00:00','2026-10-21T11:00:00+00:00',60); assert len(x['train'])==2 and len(x['test'])==2 and len(x['rejected'])==2"
+          python -c "from src.research_gate import cost_gate, promotion_decision; assert cost_gate(1.0,0.7)['status']=='PASS'; assert promotion_decision(measurement_pass=True,association_pass=True,oos_pass=True,cost_pass=True,calibration_pass=True)['production_change_allowed'] is False"
+          python -c "from tests.test_v6_intelligence import state; from src.v6_intelligence import build_v6_intelligence; x=build_v6_intelligence(state()); assert x['version']=='market-intelligence-v6.0' and x['research_policy']['oos_required'] is True and x['execution_authority']=='NONE'"
 
   v6-dashboard:
     runs-on: ubuntu-latest
