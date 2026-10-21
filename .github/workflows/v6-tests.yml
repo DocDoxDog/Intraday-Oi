@@ -28,8 +28,12 @@ jobs:
         run: python -c "from tests.test_v6_intelligence import state; from src.regime_fingerprint import build_regime_fingerprint; x=build_regime_fingerprint(state()); assert x.get('gamma') == 'NEGATIVE_GAMMA'"
       - name: Test fingerprint deterministic hash
         run: python -c "from tests.test_v6_intelligence import state; from src.regime_fingerprint import build_regime_fingerprint; a=build_regime_fingerprint(state()); b=build_regime_fingerprint(state()); assert a.get('fingerprint_id') == b.get('fingerprint_id')"
-      - name: Test future episode gate
-        run: pytest -q tests/test_v6_intelligence.py::test_future_episode_is_rejected
+      - name: Test episode parser
+        run: python -c "from src.episodic_memory import _parse; a=_parse('2026-10-21T10:00:00+00:00'); e=_parse('2026-10-21T10:01:00+00:00'); assert a and e and e > a"
+      - name: Test future episode eligibility
+        run: python -c "from src.episodic_memory import _eligible; assert _eligible('2026-10-21T10:00:00+00:00', {'information_time':'2026-10-21T10:01:00+00:00'}) is False"
+      - name: Test future episode retrieval
+        run: python -c "from src.episodic_memory import retrieve_episodes; x=retrieve_episodes({'asof':'2026-10-21T10:00:00+00:00','fingerprint':{'trend':'BULLISH'}}, [{'episode_id':'future','information_time':'2026-10-21T10:01:00+00:00','fingerprint':{'trend':'BULLISH'}}]); assert x == []"
       - name: Test outcome quarantine
         run: pytest -q tests/test_v6_intelligence.py::test_past_episode_hides_outcome
       - name: Test purge embargo
