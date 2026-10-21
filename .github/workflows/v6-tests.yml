@@ -52,8 +52,10 @@ jobs:
         run: python -c "from src.research_gate import cost_gate; assert cost_gate(0.5, 0.7)['status'] == 'FAIL'"
       - name: Test cost gate pass
         run: python -c "from src.research_gate import cost_gate; assert cost_gate(1.0, 0.7)['status'] == 'PASS'"
-      - name: Test promotion governance
-        run: pytest -q tests/test_v6_intelligence.py::test_promotion_never_authorizes_production
+      - name: Test promotion status
+        run: python -c "from src.research_gate import promotion_decision; x=promotion_decision(measurement_pass=True, association_pass=True, oos_pass=True, cost_pass=True, calibration_pass=True); assert x['status'] == 'PROMOTE'"
+      - name: Test promotion execution lock
+        run: python -c "from src.research_gate import promotion_decision; x=promotion_decision(measurement_pass=True, association_pass=True, oos_pass=True, cost_pass=True, calibration_pass=True); assert x['production_change_allowed'] is False"
       - name: Test V6 bundle
         run: pytest -q tests/test_v6_intelligence.py::test_v6_bundle_contains_governance
 
