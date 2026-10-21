@@ -20,8 +20,14 @@ jobs:
           pip install pytest
       - name: Compile V6 modules
         run: python -m py_compile src/regime_fingerprint.py src/episodic_memory.py src/research_gate.py src/v6_intelligence.py src/main.py src/supabot_llm.py
-      - name: Test fingerprint
-        run: pytest -q tests/test_v6_intelligence.py::test_regime_fingerprint_is_deterministic
+      - name: Test fingerprint import
+        run: python -c "from tests.test_v6_intelligence import state; from src.regime_fingerprint import build_regime_fingerprint; x=build_regime_fingerprint(state()); assert isinstance(x, dict)"
+      - name: Test fingerprint trend
+        run: python -c "from tests.test_v6_intelligence import state; from src.regime_fingerprint import build_regime_fingerprint; x=build_regime_fingerprint(state()); assert x.get('trend') == 'BULLISH'"
+      - name: Test fingerprint gamma
+        run: python -c "from tests.test_v6_intelligence import state; from src.regime_fingerprint import build_regime_fingerprint; x=build_regime_fingerprint(state()); assert x.get('gamma') == 'NEGATIVE_GAMMA'"
+      - name: Test fingerprint deterministic hash
+        run: python -c "from tests.test_v6_intelligence import state; from src.regime_fingerprint import build_regime_fingerprint; a=build_regime_fingerprint(state()); b=build_regime_fingerprint(state()); assert a.get('fingerprint_id') == b.get('fingerprint_id')"
       - name: Test future episode gate
         run: pytest -q tests/test_v6_intelligence.py::test_future_episode_is_rejected
       - name: Test outcome quarantine
