@@ -40,8 +40,12 @@ jobs:
         run: python -c "from src.episodic_memory import retrieve_episodes; x=retrieve_episodes({'asof':'2026-10-21T10:00:00+00:00','fingerprint':{'trend':'BULLISH'}}, [{'episode_id':'past','information_time':'2026-10-21T09:00:00+00:00','fingerprint':{'trend':'BULLISH'},'outcome':{'forward_return':99}}]); assert len(x)==1"
       - name: Test outcome hidden
         run: python -c "from src.episodic_memory import retrieve_episodes; x=retrieve_episodes({'asof':'2026-10-21T10:00:00+00:00','fingerprint':{'trend':'BULLISH'}}, [{'episode_id':'past','information_time':'2026-10-21T09:00:00+00:00','fingerprint':{'trend':'BULLISH'},'outcome':{'forward_return':99}}]); assert 'outcome' not in x[0]"
-      - name: Test purge embargo
-        run: pytest -q tests/test_v6_intelligence.py::test_purged_embargoed_split
+      - name: Test purge counts
+        run: python -c "from src.research_gate import purged_split; rows=[{'information_time':f'2026-10-21T{h:02d}:00:00+00:00'} for h in range(8,14)]; x=purged_split(rows,'2026-10-21T10:00:00+00:00','2026-10-21T11:00:00+00:00',60); assert len(x['train'])==2"
+      - name: Test embargo counts
+        run: python -c "from src.research_gate import purged_split; rows=[{'information_time':f'2026-10-21T{h:02d}:00:00+00:00'} for h in range(8,14)]; x=purged_split(rows,'2026-10-21T10:00:00+00:00','2026-10-21T11:00:00+00:00',60); assert len(x['test'])==2"
+      - name: Test embargo boundary rejection
+        run: python -c "from src.research_gate import purged_split; rows=[{'information_time':f'2026-10-21T{h:02d}:00:00+00:00'} for h in range(8,14)]; x=purged_split(rows,'2026-10-21T10:00:00+00:00','2026-10-21T11:00:00+00:00',60); assert len(x['rejected'])==2"
       - name: Test cost gate
         run: pytest -q tests/test_v6_intelligence.py::test_cost_gate
       - name: Test promotion governance
