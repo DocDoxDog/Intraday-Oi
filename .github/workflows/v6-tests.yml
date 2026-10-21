@@ -20,48 +20,8 @@ jobs:
           pip install pytest
       - name: Compile V6 modules
         run: python -m py_compile src/regime_fingerprint.py src/episodic_memory.py src/research_gate.py src/v6_intelligence.py src/main.py src/supabot_llm.py
-      - name: Test fingerprint import
-        run: python -c "from tests.test_v6_intelligence import state; from src.regime_fingerprint import build_regime_fingerprint; x=build_regime_fingerprint(state()); assert isinstance(x, dict)"
-      - name: Test fingerprint trend
-        run: python -c "from tests.test_v6_intelligence import state; from src.regime_fingerprint import build_regime_fingerprint; x=build_regime_fingerprint(state()); assert x.get('trend') == 'BULLISH'"
-      - name: Test fingerprint gamma
-        run: python -c "from tests.test_v6_intelligence import state; from src.regime_fingerprint import build_regime_fingerprint; x=build_regime_fingerprint(state()); assert x.get('gamma') == 'NEGATIVE_GAMMA'"
-      - name: Test fingerprint deterministic hash
-        run: python -c "from tests.test_v6_intelligence import state; from src.regime_fingerprint import build_regime_fingerprint; a=build_regime_fingerprint(state()); b=build_regime_fingerprint(state()); assert a.get('fingerprint_id') == b.get('fingerprint_id')"
-      - name: Test episode parser
-        run: python -c "from src.episodic_memory import _parse; a=_parse('2026-10-21T10:00:00+00:00'); e=_parse('2026-10-21T10:01:00+00:00'); assert a and e and e > a"
-      - name: Test future episode eligibility
-        run: python -c "from src.episodic_memory import _eligible; assert _eligible('2026-10-21T10:00:00+00:00', {'information_time':'2026-10-21T10:01:00+00:00'}) is False"
-      - name: Test future episode retrieval
-        run: python -c "from src.episodic_memory import retrieve_episodes; x=retrieve_episodes({'asof':'2026-10-21T10:00:00+00:00','fingerprint':{'trend':'BULLISH'}}, [{'episode_id':'future','information_time':'2026-10-21T10:01:00+00:00','fingerprint':{'trend':'BULLISH'}}]); assert x == []"
-      - name: Test past episode eligibility
-        run: python -c "from src.episodic_memory import _eligible; assert _eligible('2026-10-21T10:00:00+00:00', {'information_time':'2026-10-21T09:00:00+00:00'}) is True"
-      - name: Test past episode retrieval
-        run: python -c "from src.episodic_memory import retrieve_episodes; x=retrieve_episodes({'asof':'2026-10-21T10:00:00+00:00','fingerprint':{'trend':'BULLISH'}}, [{'episode_id':'past','information_time':'2026-10-21T09:00:00+00:00','fingerprint':{'trend':'BULLISH'},'outcome':{'forward_return':99}}]); assert len(x)==1"
-      - name: Test outcome hidden
-        run: python -c "from src.episodic_memory import retrieve_episodes; x=retrieve_episodes({'asof':'2026-10-21T10:00:00+00:00','fingerprint':{'trend':'BULLISH'}}, [{'episode_id':'past','information_time':'2026-10-21T09:00:00+00:00','fingerprint':{'trend':'BULLISH'},'outcome':{'forward_return':99}}]); assert 'outcome' not in x[0]"
-      - name: Test purge counts
-        run: python -c "from src.research_gate import purged_split; rows=[{'information_time':f'2026-10-21T{h:02d}:00:00+00:00'} for h in range(8,14)]; x=purged_split(rows,'2026-10-21T10:00:00+00:00','2026-10-21T11:00:00+00:00',60); assert len(x['train'])==2"
-      - name: Test embargo counts
-        run: python -c "from src.research_gate import purged_split; rows=[{'information_time':f'2026-10-21T{h:02d}:00:00+00:00'} for h in range(8,14)]; x=purged_split(rows,'2026-10-21T10:00:00+00:00','2026-10-21T11:00:00+00:00',60); assert len(x['test'])==2"
-      - name: Test embargo boundary rejection
-        run: python -c "from src.research_gate import purged_split; rows=[{'information_time':f'2026-10-21T{h:02d}:00:00+00:00'} for h in range(8,14)]; x=purged_split(rows,'2026-10-21T10:00:00+00:00','2026-10-21T11:00:00+00:00',60); assert len(x['rejected'])==2"
-      - name: Test cost gate insufficient
-        run: python -c "from src.research_gate import cost_gate; assert cost_gate(None, 0.7)['status'] == 'DATA_INSUFFICIENT'"
-      - name: Test cost gate fail
-        run: python -c "from src.research_gate import cost_gate; assert cost_gate(0.5, 0.7)['status'] == 'FAIL'"
-      - name: Test cost gate pass
-        run: python -c "from src.research_gate import cost_gate; assert cost_gate(1.0, 0.7)['status'] == 'PASS'"
-      - name: Test promotion status
-        run: python -c "from src.research_gate import promotion_decision; x=promotion_decision(measurement_pass=True, association_pass=True, oos_pass=True, cost_pass=True, calibration_pass=True); assert x['status'] == 'PROMOTE'"
-      - name: Test promotion execution lock
-        run: python -c "from src.research_gate import promotion_decision; x=promotion_decision(measurement_pass=True, association_pass=True, oos_pass=True, cost_pass=True, calibration_pass=True); assert x['production_change_allowed'] is False"
-      - name: Test V6 bundle version
-        run: python -c "from tests.test_v6_intelligence import state; from src.v6_intelligence import build_v6_intelligence; x=build_v6_intelligence(state()); assert x['version'] == 'market-intelligence-v6.0'"
-      - name: Test V6 bundle research policy
-        run: python -c "from tests.test_v6_intelligence import state; from src.v6_intelligence import build_v6_intelligence; x=build_v6_intelligence(state()); assert x['research_policy']['oos_required'] is True"
-      - name: Test V6 execution authority
-        run: python -c "from tests.test_v6_intelligence import state; from src.v6_intelligence import build_v6_intelligence; x=build_v6_intelligence(state()); assert x['execution_authority'] == 'NONE'"
+      - name: Run V6 governance tests
+        run: pytest -q tests/test_v6_intelligence.py
 
   v6-dashboard:
     runs-on: ubuntu-latest
