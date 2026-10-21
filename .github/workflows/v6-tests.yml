@@ -34,8 +34,12 @@ jobs:
         run: python -c "from src.episodic_memory import _eligible; assert _eligible('2026-10-21T10:00:00+00:00', {'information_time':'2026-10-21T10:01:00+00:00'}) is False"
       - name: Test future episode retrieval
         run: python -c "from src.episodic_memory import retrieve_episodes; x=retrieve_episodes({'asof':'2026-10-21T10:00:00+00:00','fingerprint':{'trend':'BULLISH'}}, [{'episode_id':'future','information_time':'2026-10-21T10:01:00+00:00','fingerprint':{'trend':'BULLISH'}}]); assert x == []"
-      - name: Test outcome quarantine
-        run: pytest -q tests/test_v6_intelligence.py::test_past_episode_hides_outcome
+      - name: Test past episode eligibility
+        run: python -c "from src.episodic_memory import _eligible; assert _eligible('2026-10-21T10:00:00+00:00', {'information_time':'2026-10-21T09:00:00+00:00'}) is True"
+      - name: Test past episode retrieval
+        run: python -c "from src.episodic_memory import retrieve_episodes; x=retrieve_episodes({'asof':'2026-10-21T10:00:00+00:00','fingerprint':{'trend':'BULLISH'}}, [{'episode_id':'past','information_time':'2026-10-21T09:00:00+00:00','fingerprint':{'trend':'BULLISH'},'outcome':{'forward_return':99}}]); assert len(x)==1"
+      - name: Test outcome hidden
+        run: python -c "from src.episodic_memory import retrieve_episodes; x=retrieve_episodes({'asof':'2026-10-21T10:00:00+00:00','fingerprint':{'trend':'BULLISH'}}, [{'episode_id':'past','information_time':'2026-10-21T09:00:00+00:00','fingerprint':{'trend':'BULLISH'},'outcome':{'forward_return':99}}]); assert 'outcome' not in x[0]"
       - name: Test purge embargo
         run: pytest -q tests/test_v6_intelligence.py::test_purged_embargoed_split
       - name: Test cost gate
