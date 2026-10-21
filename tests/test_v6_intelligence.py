@@ -13,9 +13,13 @@ def state():
     }}}
 
 def test_regime_fingerprint_is_deterministic():
-    a=build_regime_fingerprint(state()); b=build_regime_fingerprint(state())
-    assert a["fingerprint_id"]==b["fingerprint_id"]
-    assert a["trend"]=="BULLISH" and a["gamma"]=="NEGATIVE_GAMMA"
+    a = build_regime_fingerprint(state())
+    b = build_regime_fingerprint(state())
+    assert isinstance(a, dict)
+    assert isinstance(b, dict)
+    assert a.get("fingerprint_id") == b.get("fingerprint_id")
+    assert a.get("trend") == "BULLISH"
+    assert a.get("gamma") == "NEGATIVE_GAMMA"
 
 def test_future_episode_is_rejected():
     current={"asof":"2026-10-21T10:00:00+00:00","fingerprint":{"trend":"BULLISH"}}
