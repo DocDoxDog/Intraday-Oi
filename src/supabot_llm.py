@@ -22,7 +22,7 @@ except ImportError:
 
 DEFAULT_GATEWAY_PATH = "/internal/v1/llm/generate"
 TASK = "market.narrative"
-PROMPT_VERSION = "intraday-oi-market-analyst-v8"
+PROMPT_VERSION = "intraday-oi-market-analyst-v11-v6-market-intelligence"
 DATASET_VERSION = "quikstrike-oi-view-v2"
 CALCULATION_VERSION = "intraday-oi-calcs-v1"
 
@@ -266,6 +266,10 @@ def _compact_history(parsed: dict[str, Any], history: dict[str, Any] | None) -> 
     current_raw = parsed.get("raw_series") or {}
     current_totals = current_raw.get("totals") or {}
     current_gex = current_raw.get("gex") or {}
+    reasoning_v5 = current_raw.get("reasoning_v5") or {}
+    evidence_fusion_v52 = current_raw.get("evidence_fusion_v52") or {}
+    v6_intelligence = current_raw.get("v6_intelligence") or {}
+
     current = {
         "future_price": parsed.get("future_price"),
         "vol": parsed.get("vol"),
@@ -356,6 +360,10 @@ def _summarize_input(parsed: dict[str, Any], history: dict[str, Any] | None) -> 
     rows = raw.get("strike_rows") or []
     gex = raw.get("gex") or {}
     totals = raw.get("totals") or {}
+    reasoning_v5 = raw.get("reasoning_v5") or {}
+    evidence_fusion_v52 = raw.get("evidence_fusion_v52") or {}
+    v6_intelligence = raw.get("v6_intelligence") or {}
+    human_narrative_context = raw.get("human_narrative_context") or {}
     top_gex = sorted(
         (
             {
@@ -386,6 +394,10 @@ def _summarize_input(parsed: dict[str, Any], history: dict[str, Any] | None) -> 
         "vol": parsed.get("vol"),
         "vol_chg": parsed.get("vol_chg"),
         "technical_context": parsed.get("technical_context") or {},
+        "reasoning_v5": reasoning_v5,
+        "evidence_fusion_v52": evidence_fusion_v52,
+        "v6_intelligence": v6_intelligence,
+        "human_narrative_context": human_narrative_context,
         "raw_series": {
             "market_state": raw.get("market_state") or {},
             "totals": totals,
@@ -828,6 +840,12 @@ def analyze_with_supabot(parsed: dict[str, Any], history: dict[str, Any] | None 
             dynamic={
                 "format": "human_analyst_thai",
                 "priority": ["MARKET_READ","WHY_NOW","CONFLICT","LEVELS","SCENARIO","CONFIRMATION","INVALIDATION","TRADE_PLAN"],
+                "reasoning_spine": payload["current"].get("reasoning_v5") or {},
+                "evidence_graph": payload["current"].get("evidence_fusion_v52") or {},
+                "v6_intelligence": payload["current"].get("v6_intelligence") or {},
+                "v6_policy": "Use regime/memory as context only; never use historical outcomes as current evidence and never grant execution authority.",
+                "human_narrative_context": payload["current"].get("human_narrative_context") or {},
+                "narrative_style_policy": "Use the deterministic human narrative as a writing scaffold: one coherent Thai story, then the conditional path. Do not restate every metric or use pipe-separated evidence lists.",
                 "numeric_level_policy": "PRICE CLAIMS MAY USE ONLY VALUES PRESENT IN deterministic_levels OR current market snapshot. Do not invent, interpolate, calculate, or introduce any new price number.",
                 "derived_numeric_policy": "Do not calculate or emit new RR/R-multiple, percentages, ratios, probabilities, distances, expected-move values, or other derived numbers. The deterministic execution layer owns those calculations.",
                 "allowed_price_levels": payload["deterministic_levels"],

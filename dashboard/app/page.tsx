@@ -86,6 +86,85 @@ function MacroPanel({ macro }: { macro: any }) {
   );
 }
 
+function ReasoningPanel({ reasoning }: { reasoning: any }) {
+  const evidence = Array.isArray(reasoning?.evidence) ? reasoning.evidence : [];
+  const conflicts = Array.isArray(reasoning?.conflicts) ? reasoning.conflicts : [];
+  const scenarios = Array.isArray(reasoning?.scenarios) ? reasoning.scenarios : [];
+  return (
+    <section className="panel reasoning-panel" id="reasoning">
+      <div className="panel-head"><div><span className="eyebrow">V5 REASONING SPINE</span><h2>What → Why → Next</h2></div><StatePill value={reasoning?.status}/></div>
+      <p className="read-text">{reasoning?.oneLine || "ยังไม่มี reasoning ledger"}</p>
+      <div className="reasoning-grid">
+        {evidence.slice(0, 3).map((item: any) => (
+          <article className="reasoning-card" key={item.id}><span className="eyebrow">{item.label}</span><strong>{typeof item.value === "object" ? JSON.stringify(item.value) : String(item.value ?? "UNKNOWN")}</strong><small>{item.meaning}</small></article>
+        ))}
+      </div>
+      {conflicts.length > 0 && <div className="reasoning-conflict"><b>⚠ Conflict</b>{conflicts.map((item: any) => <span key={item.id}>{item.text}</span>)}</div>}
+      <div className="scenario-mini-grid">
+        {scenarios.map((scenario: any) => (
+          <article className={"scenario-mini " + String(scenario.id).toLowerCase()} key={scenario.id}>
+            <span className="eyebrow">{scenario.id}</span><strong>{scenario.action}</strong>
+            <small>Trigger: {price(scenario.trigger)} · Invalidation: {price(scenario.invalidation)}</small>
+            <small>{Array.isArray(scenario.when) ? scenario.when.join(" → ") : "รอ confirmation"}</small>
+          </article>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function EvidenceFusionPanel({ fusion }: { fusion: any }) {
+  const evidence = Array.isArray(fusion?.evidence) ? fusion.evidence : [];
+  const relationships = Array.isArray(fusion?.relationships) ? fusion.relationships : [];
+  const conflicts = Array.isArray(fusion?.conflicts) ? fusion.conflicts : [];
+  return (
+    <section className="panel reasoning-panel" id="evidence">
+      <div className="panel-head">
+        <div><span className="eyebrow">V5.2 EVIDENCE GRAPH</span><h2>Evidence → Relationship → Conflict</h2></div>
+        <StatePill value={fusion?.status}/>
+      </div>
+      <div className="reasoning-grid">
+        {evidence.slice(0, 6).map((item: any) => (
+          <article className="reasoning-card" key={item.evidence_id}>
+            <span className="eyebrow">{item.family}</span>
+            <strong>{item.label}</strong>
+            <small>{item.interpretation}</small>
+          </article>
+        ))}
+      </div>
+      {relationships.length > 0 && (
+        <div className="context-line">
+          Relations: {relationships.slice(0, 4).map((x: any) => x.relation_type).join(" • ")}
+        </div>
+      )}
+      {conflicts.length > 0 && (
+        <div className="reasoning-conflict">
+          <b>⚠ Evidence conflicts</b>
+          {conflicts.slice(0, 3).map((item: any) => <span key={item.conflict_id}>{item.interpretation}</span>)}
+        </div>
+      )}
+    </section>
+  );
+}
+
+function V6Panel({ v6 }: { v6: any }) {
+  const r=v6?.regime ?? {};
+  const p=v6?.researchPolicy ?? {};
+  const m=v6?.memory ?? {};
+  const fields=[["Trend",r.trend],["Volatility",r.volatility],["Gamma",r.gamma],["Auction",r.auction],["Flow",r.flow],["Event",r.event],["Location",r.location]];
+  return (
+    <section className="panel reasoning-panel" id="v6">
+      <div className="panel-head"><div><span className="eyebrow">V6 MARKET INTELLIGENCE</span><h2>Regime → Memory → Research</h2></div><StatePill value={v6?.status}/></div>
+      <div className="reasoning-grid">
+        {fields.map(([k,val]) => <article className="reasoning-card" key={k}><span className="eyebrow">{k}</span><strong>{String(val ?? "UNKNOWN")}</strong><small>point-in-time state</small></article>)}
+      </div>
+      <div className="context-line">Fingerprint: {r.fingerprint_id ?? "UNKNOWN"} · Episodes: {Array.isArray(m.episodes) ? m.episodes.length : 0}</div>
+      <div className="context-line">Research gates: PIT {p.point_in_time ? "✓" : "—"} · Purge/Embargo {p.purged_embargoed ? "✓" : "—"} · OOS {p.oos_required ? "✓" : "—"} · Cost {p.cost_adjusted ? "✓" : "—"} · Calibration {p.calibration_required ? "✓" : "—"}</div>
+      <div className="context-line">Execution authority: {v6?.executionAuthority ?? "NONE"} · Auto-promotion: {p.auto_promotion ? "ON" : "OFF"}</div>
+    </section>
+  );
+}
+
 function DataClockPanel({ clock }: { clock: any }) {
   const entries = Array.isArray(clock?.entries) ? clock.entries : [];
   return (
@@ -310,7 +389,11 @@ export default function Dashboard() {
         </div>
       </section>
 
-      <nav className="quick-nav"><a href="#action">Action</a><a href="#gamma">Gamma</a><a href="#levels">Levels</a><a href="#plan">Plan</a></nav>
+      <nav className="quick-nav"><a href="#reasoning">Reasoning</a><a href="#evidence">Evidence</a><a href="#v6">V6</a><a href="#action">Action</a><a href="#gamma">Gamma</a><a href="#levels">Levels</a><a href="#plan">Plan</a></nav>
+
+      <ReasoningPanel reasoning={data.reasoning}/>
+      <EvidenceFusionPanel fusion={data.evidenceFusion}/>
+      <V6Panel v6={data.v6}/>
 
       <section className="panel action-panel" id="action">
         <div className="panel-head"><div><span className="eyebrow">DECISION LAYER</span><h2>Nearby Action</h2></div><span className="source-tag">{levels.localDistanceMode === "ATR" ? `ATR × ${levels.localMaxAtr ?? "—"}` : "Fallback distance"} • ไม่ไล่ราคา</span></div>

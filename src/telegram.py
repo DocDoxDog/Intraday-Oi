@@ -65,73 +65,60 @@ def _chunk(text: str, limit: int = MAX_MESSAGE_LEN) -> list[str]:
 
 
 def _format_analysis_message(parsed: dict, ai_result: dict) -> str:
-    """Customer-facing Gold Market message: tell the price story, not the data dump."""
+    """Customer-facing Gold Market message: one coherent story, then the path."""
     raw = parsed.get("raw_series") or {}
     state = raw.get("market_state") or {}
     flow = raw.get("market_flow") or {}
-    path = ai_result.get("structural_path") or flow.get("path") or state.get("path") or {}
     narrative = build_customer_narrative(parsed, ai_result)
-    current = path.get("current_price") or parsed.get("cfd_price")
-    bias = str((state.get("decision") or {}).get("structural_bias") or ai_result.get("bias") or "WAIT").upper()
-    confirmation = str((state.get("decision") or {}).get("confirmation_state") or "NOT_CONFIRMED").upper()
 
-    def node(level_key: str, fallback_key: str):
-        x = path.get(level_key) or path.get(fallback_key) or {}
-        return x if isinstance(x, dict) else {}
-
-    upper = node("upper_node", "next_up")
-    lower = node("lower_node", "next_down")
-    next_up = path.get("next_up") or {}
-    next_down = path.get("next_down") or {}
-
-    direction = "ขาลง" if bias in {"BEARISH", "SELL"} else "ขาขึ้น" if bias in {"BULLISH", "BUY"} else "ยังรอยืนยัน"
-    confirm = "ยืนยันแล้ว" if confirmation == "CONFIRMED" else "ยังไม่ยืนยัน"
-
-    read = flow.get("read") or narrative.get("market_read") or "ยังไม่มีภาพตลาดที่ยืนยันได้"
-    why = narrative.get("why_now") or "ยังไม่มีเหตุผลเพิ่มเติมที่ผ่านการตรวจสอบ"
-    macro = narrative.get("macro_news") or "ยังไม่มีข่าวที่มี Actual ยืนยัน"
+    analysis_status = str(ai_result.get("analysis_status") or "UNKNOWN").upper()
+    status_label = (
+        "ยังไม่ยืนยัน"
+        if analysis_status in {"DEGRADED", "REJECTED", "UNKNOWN", "NOT_CONFIRMED"}
+        else "ผ่านการตรวจสอบ"
+    )
 
     futures = parsed.get("future_price")
     cfd = parsed.get("cfd_price")
-    basis = parsed.get("basis_diff", parsed.get("basis"))
     iv = parsed.get("vol", parsed.get("iv"))
     dte = parsed.get("dte")
-    analysis_status = str(ai_result.get("analysis_status") or "UNKNOWN").upper()
-    status_label = "ยังไม่ยืนยัน" if analysis_status in {"DEGRADED", "REJECTED", "UNKNOWN", "NOT_CONFIRMED"} else "ผ่านการตรวจสอบ"
+    current = narrative.get("summary") or narrative.get("market_read") or "ยังไม่มีภาพตลาดที่ยืนยันได้"
+    why = narrative.get("why_now") or "ยังไม่มีเหตุผลเพิ่มเติมที่ผ่านการตรวจสอบ"
+    path_read = narrative.get("path_read") or flow.get("flow_read") or "ยังไม่มี conditional path"
+    invalidation = narrative.get("invalidation") or ""
+    macro = narrative.get("macro_news") or "ยังไม่มีข่าวหรือ catalyst ที่ยืนยันว่าเปลี่ยนภาพตลาด"
 
     lines = [
         "<b>🟡 GOLD MARKET</b>",
         _thai_datetime_str(),
-        f"สถานะการวิเคราะห์: <b>{status_label}</b> ({_escape(analysis_status)})",
-        f"Futures {_show(futures)} | CFD {_show(cfd)}",
-        f"BASIS <b>{_show(basis)}</b> | IV <b>{_show(iv)}</b> | DTE <b>{_show(dte)}</b>",
+        f"สถานะ: <b>{status_label}</b>",
+        f"CFD {_show(cfd)} | IV {_show(iv)} | DTE {_show(dte)}",
         "",
-        "<b>ตอนนี้เกิดอะไรขึ้น</b>",
-        _escape(read),
+        "<b>ตอนนี้</b>",
+        _escape(current),
+        "",
+        "<b>ทำไมต้องจับตา</b>",
+        _escape(why),
+        "",
+        "<b>ทางที่ตลาดกำลังเลือก</b>",
+        _escape(path_read),
     ]
 
-    # Conditional path is rendered in its own message to avoid repeating
-    # the same transition map twice in the customer bundle.
-    flow_statement = narrative.get("flow_statement") or ""
-    oi_positioning = narrative.get("oi_positioning") or ""
-    volatility_read = narrative.get("volatility") or ""
+    history = narrative.get("history") or ""
+    if history:
+        lines += ["", "<b>สิ่งที่เปลี่ยนจากก่อนหน้า</b>", _escape(history)]
+
     lines += [
         "",
-        "<b>ทำไมระดับนี้ถึงสำคัญ</b>",
-        _escape(why),
-        "<b>FLOW STATEMENT — ภาพรวมแรงที่กำลังเกิดขึ้น</b>",
-        *([_escape(flow_statement)] if flow_statement else ["ยังไม่มี flow statement ที่ยืนยันได้"]),
+        "<b>อะไรจะทำให้มุมมองเปลี่ยน</b>",
+        _escape(invalidation or "ยังไม่มี invalidation ที่ข้อมูลยืนยันได้"),
         "",
-        "<b>VOLATILITY — ตลาดกำลังผันผวนแค่ไหน</b>",
-        _escape(volatility_read),
-        "<b>OI POSITIONING — ผู้เล่นกำลังเพิ่ม/ลดสถานะอย่างไร</b>",
-        _escape(oi_positioning),
-        "",
-        "<b>ข่าว / เศรษฐกิจ</b>",
+        "<b>ข่าว / ปัจจัยภายนอก</b>",
         _escape(macro),
         "",
-        f"Options: IV {_show(parsed.get('vol'))} | GEX {_show((raw.get('gex') or {}).get('net_gex'))} | DTE {_show(parsed.get('dte'))}",
-        "ตัวเลข Options เป็นหลักฐานประกอบ ส่วนทิศทางต้องดูพฤติกรรมราคาจริง",
+        "<b>หลักฐาน Options</b>",
+        _escape(narrative.get("flow_statement") or "ยังไม่มีกลไก Options ที่ยืนยันได้"),
+        "<i>นี่คือ market read; trade plan แยกอยู่ในบล็อกถัดไป</i>",
         "────────────────────────",
     ]
     return "\n".join(lines)

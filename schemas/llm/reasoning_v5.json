@@ -1,0 +1,16 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Intraday-Oi Reasoning V5",
+  "type": "object",
+  "required": ["version","status","directional_context","reasoning_ladder","evidence","conflicts","scenarios","guardrails"],
+  "properties": {
+    "version": {"type":"string"},
+    "status": {"enum":["WAIT","WAIT_FOR_CONFIRMATION","CONDITIONAL","DATA_INSUFFICIENT"]},
+    "directional_context": {"enum":["BULLISH","BEARISH","UNKNOWN"]},
+    "reasoning_ladder": {"type":"array"},
+    "evidence": {"type":"array"},
+    "conflicts": {"type":"array"},
+    "scenarios": {"type":"array"},
+    "guardrails": {"type":"array","items":{"type":"string"}}
+  }
+}
