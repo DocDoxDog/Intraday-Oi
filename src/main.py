@@ -48,6 +48,7 @@ from intelligence.news.free_feed import collect_free_news
 from src.reasoning_engine import build_reasoning_pack
 from src.evidence_fusion import build_evidence_fusion
 from src.v6_intelligence import build_v6_intelligence
+from src.customer_narrative import build_customer_narrative
 
 
 def run():
@@ -416,6 +417,21 @@ def run():
     except Exception as e:
         parsed.setdefault("raw_series", {})["reasoning_v5"] = {"version": "reasoning-v5.1", "status": "DATA_INSUFFICIENT", "directional_context": "UNKNOWN", "error": type(e).__name__}
         print(f"⚠️  Reasoning V5 failed (analysis continues): {e}", file=sys.stderr)
+
+    # Compile a deterministic human-language context before the LLM call.
+    # The LLM receives this as a writing scaffold; it does not own the numbers
+    # or the structural path.
+    try:
+        parsed.setdefault("raw_series", {})["human_narrative_context"] = build_customer_narrative(
+            parsed, {}
+        )
+    except Exception as e:
+        parsed.setdefault("raw_series", {})["human_narrative_context"] = {
+            "summary": "",
+            "status": "UNKNOWN",
+            "error": type(e).__name__,
+        }
+        print(f"⚠️  Human narrative context failed (analysis continues): {e}", file=sys.stderr)
 
     market_state = (parsed.get("raw_series") or {}).get("market_state") or {}
     print(
