@@ -379,3 +379,29 @@ unsupported numeric claim → reject/repair
 invalid risk → NO_TRADE
 dealer causal claim without evidence → MODEL_ASSUMPTION / CONSISTENT_WITH
 fund-flow claim without participant data → HYPOTHESIS / UNKNOWN
+
+
+## Human-language presentation
+
+Customer analysis is a narrative compiler, not a metric renderer.
+
+Use:
+`NOW → WHY → CHANGE → NEXT → WRONG`
+
+Prefer:
+- one coherent market read over separate paragraphs for every data family;
+- relationships such as "negative gamma + price at structural node + volatility expanding" over three isolated metric statements;
+- natural Thai temporal words ("ตอนนี้", "จากเมื่อ 1 ชั่วโมงก่อน", "ขณะเดียวกัน", "ต่อจากนี้");
+- at most the few numbers needed to identify location, change, or the next node.
+
+Do not:
+- join facts with `|` separators;
+- list OI, GEX, IV, DTE, macro and technical values without explaining their relationship;
+- repeat the same fact in Market Read, Why Now and Flow Statement;
+- make "ผู้เล่น", "dealer", or "รายใหญ่" the grammatical subject when the data cannot identify the participant;
+- call a level a signal before an event/response confirms it.
+
+The first paragraph must stand alone and answer:
+"ตอนนี้ตลาดกำลังทำอะไร และอะไรจะทำให้ภาพเปลี่ยน?"
+
+Trade plan remains a separate execution/conditional layer.
