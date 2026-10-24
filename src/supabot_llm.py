@@ -14,6 +14,8 @@ import uuid
 from datetime import datetime, timezone
 from typing import Any
 
+from .deep_reasoning import build_deep_reasoning_context
+
 try:
     from .local_supabot import LocalSupaBOTError, generate_market_narrative
 except ImportError:
@@ -22,7 +24,7 @@ except ImportError:
 
 DEFAULT_GATEWAY_PATH = "/internal/v1/llm/generate"
 TASK = "market.narrative"
-PROMPT_VERSION = "intraday-oi-market-analyst-v8"
+PROMPT_VERSION = "intraday-oi-market-analyst-v9-deep-article"
 DATASET_VERSION = "quikstrike-oi-view-v2"
 CALCULATION_VERSION = "intraday-oi-calcs-v1"
 
@@ -444,6 +446,8 @@ def _summarize_input(parsed: dict[str, Any], history: dict[str, Any] | None) -> 
             if isinstance(row, dict)
         ],
     }
+    current["deep_reasoning_context"] = build_deep_reasoning_context(parsed, history)
+
     current["news_context"] = [
         {
             "source": item.get("source"),
@@ -826,8 +830,8 @@ def analyze_with_supabot(parsed: dict[str, Any], history: dict[str, Any] | None 
             envelope,
             static_prefix=STATIC_PROMPT,
             dynamic={
-                "format": "human_analyst_thai",
-                "priority": ["MARKET_READ","WHY_NOW","CONFLICT","LEVELS","SCENARIO","CONFIRMATION","INVALIDATION","TRADE_PLAN"],
+                "format": "human_analyst_thai_article",
+                "priority": ["MARKET_READ_ARTICLE","CAUSAL_MECHANISM","CONFLICT","HISTORICAL_CONTEXT","SCENARIO","TRADE_PLAN"],
                 "numeric_level_policy": "PRICE CLAIMS MAY USE ONLY VALUES PRESENT IN deterministic_levels OR current market snapshot. Do not invent, interpolate, calculate, or introduce any new price number.",
                 "derived_numeric_policy": "Do not calculate or emit new RR/R-multiple, percentages, ratios, probabilities, distances, expected-move values, or other derived numbers. The deterministic execution layer owns those calculations.",
                 "allowed_price_levels": payload["deterministic_levels"],

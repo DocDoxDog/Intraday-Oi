@@ -34,6 +34,7 @@ from src.supabase_client import (
     mark_notified,
     upsert_market_bars,
     persist_flow_intelligence,
+    get_client,
 )
 from src.url_manager import UrlManager, UrlManagerError
 from src import history, telegram, line
@@ -44,6 +45,8 @@ from src.market_state import enrich_market_state, normalize_analyst_output
 from src.macro_state import build_macro_state
 from src.quant_metrics import enrich_quant_metrics
 from src.market_flow_engine import build_flow_context
+from src.historical_memory import load_multi_timeframe_memory
+from src.trade_plan_journal import persist_trade_plan_journal
 from intelligence.news.free_feed import collect_free_news
 
 
@@ -355,6 +358,17 @@ def run():
             "limitations": ["Disabled by ENABLE_FRED_MACRO."],
         }
 
+    # Historical memory is context only; it never creates a trade signal.
+    try:
+        instrument = ((parsed.get("technical_context") or {}).get("symbol") or parsed.get("symbol") or "XAU/USD")
+        parsed.setdefault("raw_series", {})["historical_memory"] = load_multi_timeframe_memory(instrument=instrument)
+        print("    historical memory: " + ", ".join(
+            f"{k}={v.get('bars',0)}" for k,v in (parsed["raw_series"]["historical_memory"].get("horizons") or {}).items()
+        ))
+    except Exception as e:
+        parsed.setdefault("raw_series", {})["historical_memory"] = {"version":"historical-memory-v1","status":"UNAVAILABLE","error":type(e).__name__}
+        print(f"⚠️  Historical memory unavailable (analysis continues): {e}", file=sys.stderr)
+
     # Deterministic state is prepared AFTER news so the same governed input
     # reaches both the analyst and the Telegram/LINE renderers.
     parsed = enrich_market_state(parsed, hist_context)
@@ -447,6 +461,12 @@ def run():
         )
     except Exception as e:
         print(f"⚠️  Flow intelligence persistence failed (snapshot remains saved): {e}", file=sys.stderr)
+    try:
+        journal_count = persist_trade_plan_journal(get_client(), parsed, ai_result, snapshot_id=row.get("id"))
+        print(f"    ✅ Trade plan journal persisted: {journal_count} executable plans")
+    except Exception as e:
+        print(f"⚠️  Trade plan journal persistence failed (snapshot remains saved): {e}", file=sys.stderr)
+
     try:
         insert_oi_intelligence(parsed, snapshot_id=row.get("id"))
         print("    ✅ Structured OI intelligence persisted")
