@@ -43,7 +43,7 @@ from src.news_announcement import collect_news, format_news_announcement
 from src.market_state import enrich_market_state, normalize_analyst_output
 from src.macro_state import build_macro_state
 from src.quant_metrics import enrich_quant_metrics
-from src.market_flow_engine import build_flow_context\nfrom src.historical_memory import load_multi_timeframe_memory\nfrom src.trade_plan_journal import persist_trade_plan_journal
+from src.market_flow_engine import build_flow_context\nfrom src.historical_memory import load_multi_timeframe_memory\nfrom src.trade_plan_journal import persist_trade_plan_journal\nfrom src.historical_memory import load_multi_timeframe_memory\nfrom src.trade_plan_journal import persist_trade_plan_journal
 from intelligence.news.free_feed import collect_free_news
 
 
