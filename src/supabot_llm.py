@@ -446,7 +446,9 @@ def _summarize_input(parsed: dict[str, Any], history: dict[str, Any] | None) -> 
             if isinstance(row, dict)
         ],
     }
-    current["deep_reasoning_context"] = build_deep_reasoning_context(parsed, history)\n\n    current["news_context"] = [
+    current["deep_reasoning_context"] = build_deep_reasoning_context(parsed, history)
+
+    current["news_context"] = [
         {
             "source": item.get("source"),
             "headline": item.get("headline"),
