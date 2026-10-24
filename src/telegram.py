@@ -87,8 +87,35 @@ def _format_analysis_message(parsed: dict, ai_result: dict) -> str:
     direction = "ขาลง" if bias in {"BEARISH", "SELL"} else "ขาขึ้น" if bias in {"BULLISH", "BUY"} else "ยังรอยืนยัน"
     confirm = "ยืนยันแล้ว" if confirmation == "CONFIRMED" else "ยังไม่ยืนยัน"
 
-    read = flow.get("read") or narrative.get("market_read") or "ยังไม่มีภาพตลาดที่ยืนยันได้"
-    why = narrative.get("why_now") or "ยังไม่มีเหตุผลเพิ่มเติมที่ผ่านการตรวจสอบ"
+    # Prefer the canonical customer narrative, but preserve the analyst
+    # contract when a legacy/degraded payload only supplies what/why/positioning.
+    # This keeps Telegram backward-compatible without replacing the new
+    # plain-language price story.
+    # Canonical narrative is authoritative only when a canonical market-state
+    # source exists. For degraded/legacy payloads with no deterministic state,
+    # preserve the analyst fields instead of replacing them with generic filler.
+    canonical_available = bool(
+        state.get("decision")
+        or state.get("path")
+        or flow.get("path")
+        or flow.get("read")
+    )
+    read = (
+        flow.get("read")
+        or (narrative.get("market_read") if canonical_available else "")
+        or ai_result.get("what")
+        or "ยังไม่มีภาพตลาดที่ยืนยันได้"
+    )
+    why = (
+        (narrative.get("why_now") if canonical_available else "")
+        or ai_result.get("why")
+        or "ยังไม่มีเหตุผลเพิ่มเติมที่ผ่านการตรวจสอบ"
+    )
+    positioning = (
+        (narrative.get("oi_positioning") if canonical_available else "")
+        or ai_result.get("positioning")
+        or ""
+    )
     macro = narrative.get("macro_news") or "ยังไม่มีข่าวที่มี Actual ยืนยัน"
 
     futures = parsed.get("future_price")
@@ -113,7 +140,10 @@ def _format_analysis_message(parsed: dict, ai_result: dict) -> str:
     # Conditional path is rendered in its own message to avoid repeating
     # the same transition map twice in the customer bundle.
     flow_statement = narrative.get("flow_statement") or ""
-    oi_positioning = narrative.get("oi_positioning") or ""
+    oi_positioning = (
+        (narrative.get("oi_positioning") if canonical_available else "")
+        or positioning
+    )
     volatility_read = narrative.get("volatility") or ""
     lines += [
         "",
