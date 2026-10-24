@@ -75,6 +75,7 @@ def test_customer_story_does_not_claim_direct_dealer_intent():
                     "tactical_direction": "NEUTRAL",
                     "confirmation_state": "NOT_CONFIRMED",
                 },
+                "path": {"current_price": 4000},
                 "gamma": {"net_gex": -100},
                 "flow": {},
                 "technical": {},
