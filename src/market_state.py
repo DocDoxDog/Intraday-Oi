@@ -1321,6 +1321,8 @@ def normalize_analyst_output(
     apply_data_clock(parsed)
 
     execution_plan = build_trade_execution_plan(state)
+    from src.trade_plan_research import build_research_plans
+    research_plans = build_research_plans(execution_plan)
 
     # From this point onward, every rendered field must come from the
     # validated plan. Never leave a stale pre-validation entry/TP string.
@@ -1350,6 +1352,7 @@ def normalize_analyst_output(
     ai["trade_plan"] = {
         "status": plan_status,
         "direction": plan_direction,
+        "research_plans": research_plans,
         "long_trigger": validated_plan["long_trigger"], "long_stop": validated_plan["long_stop"],
         **{f"long_tp{i}": validated_plan.get(f"long_tp{i}") for i in range(1, 6)},
         "short_trigger": validated_plan["short_trigger"], "short_stop": validated_plan["short_stop"],
