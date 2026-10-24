@@ -12,9 +12,7 @@ import os
 import re
 import uuid
 from datetime import datetime, timezone
-from typing import Any\n\nfrom .deep_reasoning import build_deep_reasoning_context
-
-try:
+from typing import Any\n\nfrom .deep_reasoning import build_deep_reasoning_context\n\ntry:
     from .local_supabot import LocalSupaBOTError, generate_market_narrative
 except ImportError:
     from local_supabot import LocalSupaBOTError, generate_market_narrative
