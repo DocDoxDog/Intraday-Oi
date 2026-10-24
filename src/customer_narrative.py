@@ -356,6 +356,12 @@ def _human_price_story(parsed: dict[str, Any], ai_result: dict[str, Any]) -> str
     path = ai_result.get("structural_path") or state.get("path") or {}
     current = _num(path.get("current_price")) or _num(parsed.get("cfd_price")) or _num(parsed.get("future_price"))
     if current is None:
+        # Decision evidence is still useful even when a price/path snapshot is absent.
+        # Keep the deterministic structural read instead of collapsing the message
+        # into a generic data-missing sentence.
+        decision_read = _decision_market_read(parsed, ai_result)
+        if decision_read and decision_read != "ยังไม่มี market read ที่ยืนยันได้":
+            return decision_read
         return "ตอนนี้ยังไม่มีราคาปัจจุบันที่ยืนยันได้ จึงยังวางเส้นทางราคาไม่ได้"
 
     upper = path.get("upper_node") or {}
