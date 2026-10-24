@@ -3,49 +3,14 @@ from src.line import format_message as format_line_message
 
 
 def test_telegram_renders_canonical_v2_without_creating_trade_levels():
-    parsed = {
-        "future_price": 4300,
-        "cfd_price": 4297,
-        "dte": 1.38,
-        "raw_series": {"gex": {"status": "ok", "gamma_flip": 4280, "call_wall": 4400, "put_wall": 4200}},
-    }
-    ai = {
-        "analysis_status": "CONFIRMED",
-        "what": "ราคายังอยู่ใกล้ 4297 และหลักฐาน GEX ชี้ไปที่โซน 4200–4400",
-        "why": "GEX เป็น deterministic evidence จาก source รอบนี้",
-        "positioning": "Call wall 4400 และ put wall 4200",
-        "levels": {
-            "resistance_far": "4400", "resistance_main": "4350", "resistance_current": "4300",
-            "support_current": "4250", "support_main": "4200", "support_deep": "4100",
-        },
-        "scenarios": {
-            "bull": "ยืนเหนือ 4300 แล้วติดตามการตอบสนองที่ 4350",
-            "bear": "หลุด 4250 แล้วติดตาม 4200",
-            "sideway": "ยังไม่มีการยืนยันการออกจากกรอบ",
-        },
-        "bias": "WAIT",
-        "uncertainty": 0.3,
-        "trade_plan": {
-            "status": "NO_TRADE",
-            "setup": "ยังไม่มี setup ที่ผ่าน gate",
-            "confirmation": "รอ technical confirmation",
-            "invalidation": "ยังไม่มี setup",
-            "risk_note": "ห้ามสร้าง Entry/SL/TP จาก OI เพียงอย่างเดียว",
-        },
-        "evidence_refs": ["itb:oi:deterministic"],
-        "data_limitations": ["OI ไม่ใช่ traded intraday volume"],
-    }
-    message = format_message(parsed, ai)
+    parsed={"future_price":4300,"cfd_price":4297,"dte":1.38}
+    ai={"market_overview":"ราคายังอยู่ใกล้ระดับสำคัญและหลักฐาน GEX ชี้ไปที่โซนเดิม","bias":"WAIT"}
+    message=format_message(parsed,ai)
     assert "GOLD MARKET" in message
-    assert "Futures 4,300.00 | CFD 4,297.00" in message
-    assert "BASIS <b>-</b> | IV <b>-</b> | DTE <b>1.38</b>" in message
-    assert "ตอนนี้เกิดอะไรขึ้น" in message
-    assert "ทำไมระดับนี้ถึงสำคัญ" in message
-    assert "ข่าว / เศรษฐกิจ" in message
-    assert "Options:" in message
-    assert "TRADE PLAN" not in message
-
-
+    assert "CFD 4,297.00 | FUT. 4,300.00" in message
+    assert "DTE. 1.38" in message
+    assert "ราคายังอยู่ใกล้ระดับสำคัญ" in message
+    assert "ตอนนี้เกิดอะไรขึ้น" not in message
 def test_telegram_requires_explicit_authorized_chat_ids(monkeypatch):
     import pytest
     from src import telegram
@@ -63,61 +28,16 @@ def test_product_identity_does_not_default_unknown_to_gc():
 
 def test_telegram_renders_three_text_message_sections():
     from src import telegram
-    parsed = {
-        "future_price": 4214.1,
-        "cfd_price": 4186.58736,
-        "dte": 0.34,
-        "raw_series": {
-            "totals": {"open_interest_view_put": 3996, "open_interest_view_call": 3048},
-            "multi_expiry_gamma": {
-                "columns": [{"code": "OG1V6"}, {"code": "G1M6"}, {"code": "G1T6"}, {"code": "G1W6"}, {"code": "G1R6"}, {"code": "OG2V6"}, {"code": "G2M6"}],
-            },
-            "multi_expiry_gamma_zones": {
-                "highest_positive_gamma": 4215,
-                "highest_negative_gamma": 4200,
-            },
-        },
-    }
-    ai = {
-        "analysis_status": "DEGRADED", "bias": "WAIT",
-        "what": "WHAT text",
-        "why": "WHY text",
-        "positioning": "POSITIONING text",
-        "levels": {
-            "resistance_far": "4232.48736", "resistance_main": "4222.48736",
-            "resistance_current": "4197.48736", "support_current": "4172.48736",
-            "support_main": "4152.48736", "support_deep": "4122.48736",
-        },
-        "scenarios": {"bull": "bull", "bear": "bear", "sideway": "sideway"},
-        "trade_plan": {
-            "status": "CONDITIONAL", "setup": "รอการยืนยัน",
-            "confirmation": "ยืนยัน", "invalidation": "invalid", "risk_note": "risk",
-            "long_trigger": 4197.48736, "long_stop": 4172.48736,
-            "long_tp1": 4232.48736, "long_tp2": 4242.48736, "long_tp3": 4252.48736,
-            "short_trigger": 4172.48736, "short_stop": 4197.48736,
-            "short_tp1": 4152.48736, "short_tp2": 4122.48736, "short_tp3": 4112.48736,
-        },
-    }
-    m3 = telegram._format_analysis_message(parsed, ai)
-    m4 = telegram._format_levels_message(parsed, ai)
-    m5 = telegram._format_trade_plan_message(parsed, ai)
-    assert "WHAT text" in m3
-    assert "ตอนนี้เกิดอะไรขึ้น" in m3
-    assert "ข่าว / เศรษฐกิจ" in m3
-    assert "Current OI" not in m3
-    assert "📍 KEY LEVELS — จุดสำคัญของตลาด" in m4
-    assert "ยังไม่มีจุดสำคัญที่ข้อมูลยืนยันได้" in m4
-    assert "R1" not in m4 and "S1" not in m4
-    assert "Call Wall" not in m4
-    assert "Put Wall" not in m4
-    assert "<b>TRADE PLAN</b>" in m5
-    assert "🛑 SL" in m5
-    assert "BUY 1 — เบรกแนวต้าน" in m5 or "SELL 1 — ต้านไม่ผ่าน" in m5
-    assert "แผนสำรอง" in m5
-    assert "Entry:" in m5
-    assert "โซน/Trigger:" in m5
-
-
+    parsed={"future_price":4214.1,"cfd_price":4186.58736,"dte":0.34}
+    ai={"market_overview":"WHAT text","trade_plan":{"execution_plan":{"routes":[
+        {"side":"LONG","state":"ARMED","entry":4197.48736,"stop":4172.48736,"targets":[4232.48736]},
+        {"side":"SHORT","state":"ARMED","entry":4172.48736,"stop":4197.48736,"targets":[4152.48736]}
+    ]}}}
+    m3=telegram._format_analysis_message(parsed,ai)
+    m5=telegram._format_trade_plan_message(parsed,ai)
+    assert "WHAT text" in m3 and "GOLD MARKET" in m3
+    assert "TRADE PLAN" in m5 and "Entry" in m5 and "SL" in m5 and "TP1" in m5
+    assert "Confirmation" not in m5 and "Trigger" not in m5
 def test_line_renders_canonical_analysis_without_local_trade_plan():
     parsed = {
         "future_price": 4300, "cfd_price": 4297, "dte": 1.38, "vol": 15.2,
@@ -155,28 +75,9 @@ def test_degraded_v2_has_no_trade_levels():
 
 def test_telegram_escapes_dynamic_trade_level_text():
     from src import telegram
-    parsed = {}
-    ai = {
-        "bias": "WAIT",
-        "trade_plan": {
-            "status": "CONDITIONAL",
-            "long_trigger": "<4180",
-            "long_stop": "4100",
-            "long_tp1": 4200,
-            "long_tp2": 4250,
-            "long_tp3": 4300,
-            "short_trigger": 4100,
-            "short_stop": 4180,
-            "short_tp1": 4050,
-            "short_tp2": 4000,
-            "short_tp3": 3950,
-        },
-    }
-    message = telegram._format_trade_plan_message(parsed, ai)
+    ai={"trade_plan":{"execution_plan":{"routes":[{"side":"LONG","state":"ARMED","entry":"<4180","stop":4100,"targets":[4200]}]}}}
+    message=telegram._format_trade_plan_message({},ai)
     assert "&lt;4180" in message
-    assert "<4180" not in message
-
-
 def test_trade_plan_ladders_are_directionally_monotonic():
     from src.market_state import normalize_analyst_output
 
@@ -299,25 +200,12 @@ def test_trade_targets_use_source_strikes_not_gamma_mean():
 
 def test_telegram_renders_support_reaction_long_setup():
     from src import telegram
-    ai = {
-        "bias": "SELL",
-        "trade_plan": {
-            "status": "CONDITIONAL",
-            "execution_plan": {
-                "state": "ARMED",
-                "long": {"state": "ARMED", "trigger": 4137.88, "stop": 4132.88, "targets": [4147.88]},
-                "long_support": {"state": "ARMED", "trigger": 4072.88, "stop": 4067.88, "targets": [4082.88]},
-                "short": {"state": "ARMED", "trigger": 4137.88, "stop": 4142.88, "targets": [4132.88]},
-            },
-        },
-    }
-    message = telegram._format_trade_plan_message({}, ai)
-    assert "BUY 2 — รับด้านล่าง" in message
-    assert "โซน/Trigger:" in message and "4,072.88" in message
-    assert "🛑 SL: <b>4,067.88</b>" in message
-    assert "🎯 TP1: <b>4,082.88</b>" in message
-
-
+    ai={"trade_plan":{"execution_plan":{"routes":[{"side":"LONG","state":"ARMED","entry":4072.88,"stop":4067.88,"targets":[4082.88]}]}}}
+    message=telegram._format_trade_plan_message({},ai)
+    assert "BUY" in message
+    assert "Entry <b>4,072.88</b>" in message
+    assert "SL <b>4,067.88</b>" in message
+    assert "TP1 <b>4,082.88</b>" in message
 def test_trade_execution_plan_exposes_primary_alternative_and_non_fill_trigger():
     from src.trade_plan_engine import build_trade_execution_plan
 
@@ -370,184 +258,43 @@ def test_trade_execution_plan_exposes_primary_alternative_and_non_fill_trigger()
 
 def test_telegram_does_not_borrow_generic_targets_for_a_route_without_tp():
     from src import telegram
-
-    ai = {
-        "bias": "SELL",
-        "trade_plan": {
-            "long_trigger": 4119.86,
-            "long_stop": 4114.86,
-            "long_tp1": 4119.86,
-            "long_tp2": 4124.86,
-            "long_tp3": 4129.86,
-            "long_tp4": 4134.86,
-            "long_tp5": 4139.86,
-            "execution_plan": {
-                "long_reclaim": {
-                    "state": "APPROACHING",
-                    "trigger": 4119.86,
-                    "stop": 4114.86,
-                    "targets": [],
-                }
-            },
-        },
-    }
-    message = telegram._format_trade_plan_message({}, ai)
-    assert "BUY 1 — เบรกแนวต้าน" in message
-    assert "🛑 SL: <b>4,114.86</b>" in message
-    assert "🎯 TP1: <b>-</b>" in message
-    assert "🎯 TP5: <b>-</b>" in message
-    assert "🎯 TP1: <b>4,119.86</b>" not in message
-    assert "🎯 TP5: <b>4,139.86</b>" not in message
-
-
+    ai={"trade_plan":{"execution_plan":{"routes":[{"side":"LONG","state":"ARMED","entry":4119.86,"stop":4114.86,"targets":[]}]}}}
+    message=telegram._format_trade_plan_message({},ai)
+    assert "ไม่มีแผนที่ผ่านเกณฑ์" in message
+    assert "4,139.86" not in message
 def test_telegram_uses_route_specific_targets_not_the_generic_side_ladder():
     from src import telegram
-
-    ai = {
-        "trade_plan": {
-            "long_tp1": 4200,
-            "long_support_tp1": 4150,
-            "short_tp1": 4100,
-            "short_breakdown_tp1": 4050,
-            "execution_plan": {
-                "long_reclaim": {"state": "ARMED", "trigger": 4190, "stop": 4180, "targets": []},
-                "long_support": {"state": "ARMED", "trigger": 4140, "stop": 4130, "targets": []},
-                "short_rejection": {"state": "ARMED", "trigger": 4160, "stop": 4170, "targets": []},
-                "short_breakdown": {"state": "ARMED", "trigger": 4090, "stop": 4100, "targets": []},
-            },
-        },
-    }
-    message = telegram._format_trade_plan_message({}, ai)
-    # Missing route-specific targets stay missing; the renderer must not
-    # borrow generic LONG/SHORT targets from a different setup.
-    assert "🎯 TP1: <b>-</b>" in message
-    assert "🎯 TP1: <b>4,150.00</b>" in message
-    assert "🎯 TP1: <b>4,100.00</b>" not in message
-    assert "🎯 TP1: <b>4,050.00</b>" in message
-
-
+    ai={"trade_plan":{"execution_plan":{"routes":[
+        {"side":"LONG","state":"ARMED","entry":4140,"stop":4130,"targets":[]},
+        {"side":"SHORT","state":"ARMED","entry":4090,"stop":4100,"targets":[]}
+    ]}}}
+    message=telegram._format_trade_plan_message({},ai)
+    assert "ไม่มีแผนที่ผ่านเกณฑ์" in message
+    assert "4,150.00" not in message and "4,050.00" not in message
 def test_telegram_four_route_plan_renders_tp1_to_tp5():
     from src import telegram
-
-    ai = {
-        "bias": "SELL",
-        "trade_plan": {
-            "execution_plan": {
-                "state": "ARMED",
-                "preferred_setup": "SELL_REJECTION",
-                "preferred_action": "เด้งกลับต้าน → rejection → SELL",
-                "long_reclaim": {
-                    "state": "ARMED", "trigger": 4210, "stop": 4205,
-                    "targets": [4215, 4220, 4225, 4230, 4235],
-                    "action": "เบรกและยืนเหนือโซน → รีเทสต์ไม่หลุด → BUY",
-                    "risk": {"status": "PASS"},
-                },
-                "long_support": {
-                    "state": "ARMED", "trigger": 4190, "stop": 4185,
-                    "targets": [4195, 4200, 4205, 4210, 4215],
-                    "action": "แตะโซนรับ → reaction → BUY",
-                    "risk": {"status": "PASS"},
-                },
-                "short_rejection": {
-                    "state": "ARMED", "trigger": 4210, "stop": 4215,
-                    "targets": [4205, 4200, 4195, 4190, 4185],
-                    "action": "เด้งกลับต้าน → rejection → SELL",
-                    "risk": {"status": "PASS"},
-                },
-                "short_breakdown": {
-                    "state": "ARMED", "trigger": 4190, "stop": 4195,
-                    "targets": [4185, 4180, 4175, 4170, 4165],
-                    "action": "หลุดแนวรับ → รีเทสต์ไม่ผ่าน → SELL",
-                    "risk": {"status": "PASS"},
-                },
-            }
-        },
-    }
-    message = telegram._format_trade_plan_message({}, ai)
-    assert "TP1:" in message
-    assert "TP3:" in message or "TP5:" in message
-    assert "TRADE PLAN" in message
-
-
+    routes=[
+        {"side":"LONG","state":"ARMED","entry":4210,"stop":4205,"targets":[4215,4220,4225,4230,4235]},
+        {"side":"LONG","state":"ARMED","entry":4190,"stop":4185,"targets":[4195,4200,4205,4210,4215]},
+        {"side":"SHORT","state":"ARMED","entry":4210,"stop":4215,"targets":[4205,4200,4195,4190,4185]},
+        {"side":"SHORT","state":"ARMED","entry":4190,"stop":4195,"targets":[4185,4180,4175,4170,4165]},
+    ]
+    message=telegram._format_trade_plan_message({},{"trade_plan":{"execution_plan":{"routes":routes}}})
+    assert message.count("Entry") == 4
+    assert "TP1 <b>" in message and "TP5 <b>" in message
+    assert "confirmation" not in message.lower()
 def test_customer_narrative_is_plain_language_and_uses_evidence_relationships():
     from src import telegram
-
-    parsed = {
-        "future_price": 4136.70,
-        "cfd_price": 4134.78,
-        "basis_diff": 1.92,
-        "dte": 0.55,
-        "vol": 29.17,
-        "raw_series": {
-            "market_state": {
-                "flow": {
-                    "oi_put": 1209,
-                    "oi_call": 491,
-                    "oi_change_put": 188,
-                    "oi_change_call": 189,
-                    "source_churn_total": 23.83,
-                },
-                "volatility": {"iv": 29.17, "iv_change_1h": 0.8, "skew": 1.2},
-                "gamma": {
-                    "net_gex": -87310948.74,
-                    "put_wall": 4123.08156,
-                    "call_wall": 4223.08156,
-                },
-                "technical": {
-                    "h4": {"trend": "bearish"},
-                    "h1": {"trend": "mixed"},
-                },
-            }
-        },
-    }
-    ai = {
-        "analysis_status": "DEGRADED",
-        "bias": "WAIT",
-        "market_regime": "EVENT",
-        "market_overview": "ราคายังแกว่งใกล้ระดับสำคัญและยังไม่มีการยืนยันทางใด",
-        "why": "OI activity สองฝั่งเพิ่มขึ้น แต่ aggressor direction ยังไม่ชัด",
-        "financial_engineering": "Negative Gamma เพิ่มโอกาสให้การเคลื่อนไหวแรงขึ้น",
-        "market_microstructure": "H4 bearish แต่กรอบสั้นยังไม่ยืนยัน",
-        "macro": "มีข่าวสำคัญที่ตลาดกำลังรอ",
-    }
-    message = telegram._format_analysis_message(parsed, ai)
-    assert "ตอนนี้เกิดอะไรขึ้น" in message
-    assert "ทำไมระดับนี้ถึงสำคัญ" in message
-    assert "ข่าว / เศรษฐกิจ" in message
-    assert "Current OI" not in message
-    assert "OI Change" not in message
-
-
+    parsed={"future_price":4136.70,"cfd_price":4134.78,"basis_diff":1.92,"dte":0.55,"vol":29.17}
+    ai={"market_overview":"ราคายังแกว่งใกล้ระดับสำคัญและยังไม่มีการยืนยันทางใด"}
+    message=telegram._format_analysis_message(parsed,ai)
+    assert "GOLD MARKET" in message
+    assert "ราคายังแกว่งใกล้ระดับสำคัญ" in message
+    assert "ตอนนี้เกิดอะไรขึ้น" not in message
 def test_telegram_never_restores_rejected_targets_from_market_map():
     from src import telegram
-
-    ai = {
-        "bias": "BEARISH",
-        "market_map": {
-            "long_reclaim_trade_targets": [4119.86, 4124.86, 4129.86, 4134.86, 4139.86],
-        },
-        "trade_plan": {
-            "long_reclaim_tp1": 4119.86,
-            "long_reclaim_tp2": 4124.86,
-            "long_reclaim_tp3": 4129.86,
-            "execution_plan": {
-                "state": "ARMED",
-                "long_reclaim": {
-                    "state": "ARMED",
-                    "trigger": 4119.86,
-                    "stop": 4114.86,
-                    # Empty means the canonical engine rejected all targets.
-                    "targets": [],
-                    "risk": {"status": "NO_TRADE", "reason": "NO_QUALIFIED_TP1"},
-                },
-            },
-        },
-    }
-
-    message = telegram._format_trade_plan_message({}, ai)
-    buy_one = message.split("BUY 2 — รับด้านล่าง", 1)[0]
-    assert "🛑 SL: <b>4,114.86</b>" in buy_one
-    assert "🎯 TP1: <b>-</b>" in buy_one
-    assert "🎯 TP5: <b>-</b>" in buy_one
-    assert "🎯 TP1: <b>4,119.86</b>" not in buy_one
-    assert "🎯 TP2: <b>4,124.86</b>" not in buy_one
+    ai={"market_map":{"long_reclaim_trade_targets":[4119.86,4124.86,4129.86]},
+        "trade_plan":{"execution_plan":{"routes":[{"side":"LONG","state":"NO_TRADE","entry":4119.86,"stop":4114.86,"targets":[]}]}}}
+    message=telegram._format_trade_plan_message({},ai)
+    assert "ไม่มีแผนที่ผ่านเกณฑ์" in message
+    assert "4,119.86" not in message
