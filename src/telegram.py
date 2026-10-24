@@ -140,7 +140,10 @@ def _format_analysis_message(parsed: dict, ai_result: dict) -> str:
     # Conditional path is rendered in its own message to avoid repeating
     # the same transition map twice in the customer bundle.
     flow_statement = narrative.get("flow_statement") or ""
-    oi_positioning = narrative.get("oi_positioning") or positioning
+    oi_positioning = (
+        (narrative.get("oi_positioning") if canonical_available else "")
+        or positioning
+    )
     volatility_read = narrative.get("volatility") or ""
     lines += [
         "",
