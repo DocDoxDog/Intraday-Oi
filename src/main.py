@@ -34,7 +34,7 @@ from src.supabase_client import (
     mark_notified,
     upsert_market_bars,
     persist_flow_intelligence,
-)
+    get_client,\n)
 from src.url_manager import UrlManager, UrlManagerError
 from src import history, telegram, line
 from src.multi_expiry import build_gamma_matrix, summarize_gamma_zones, merge_expected_expirations, build_gold_weekly_series_window
