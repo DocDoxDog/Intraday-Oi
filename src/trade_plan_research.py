@@ -291,3 +291,78 @@ def evaluate_pending_plans(*, instrument: str = "XAU/USD") -> int:
             ).execute()
             written += 1
     return written
+
+
+def summarize_plan_accuracy(*, instrument: str = "XAU/USD", horizon_seconds: int = 3600) -> dict[str, Any]:
+    """Return empirical outcome stats from already-observed plan outcomes."""
+    client = get_client()
+    result = (
+        client.table("trade_plan_outcomes")
+        .select(
+            "plan_id,horizon_seconds,entry_touched,stop_hit,tp1_hit,first_exit,"
+            "forward_return,mfe,mae,outcome_state"
+        )
+        .eq("horizon_seconds", horizon_seconds)
+        .order("created_at", desc=False)
+        .limit(5000)
+        .execute()
+    )
+    rows = result.data or []
+    if not rows:
+        return {
+            "status": "NO_DATA",
+            "instrument": instrument,
+            "horizon_seconds": horizon_seconds,
+            "sample_count": 0,
+        }
+
+    # Join outcome rows to plans so route/side are not inferred from outcome text.
+    plan_ids = [x.get("plan_id") for x in rows if x.get("plan_id") is not None]
+    plans = {}
+    if plan_ids:
+        plan_result = (
+            client.table("trade_plan_snapshots")
+            .select("id,route,side,structural_bias,regime")
+            .in_("id", plan_ids)
+            .execute()
+        )
+        plans = {x["id"]: x for x in (plan_result.data or [])}
+
+    touched = [x for x in rows if x.get("entry_touched")]
+    tp1 = [x for x in touched if x.get("tp1_hit")]
+    sl = [x for x in touched if str(x.get("first_exit") or "").startswith("SL")]
+    mfe = [_n(x.get("mfe")) for x in touched if _n(x.get("mfe")) is not None]
+    mae = [_n(x.get("mae")) for x in touched if _n(x.get("mae")) is not None]
+
+    by_route: dict[str, dict[str, Any]] = {}
+    for row in touched:
+        plan = plans.get(row.get("plan_id")) or {}
+        key = str(plan.get("route") or "UNKNOWN")
+        bucket = by_route.setdefault(key, {"samples": 0, "tp1": 0, "stop": 0})
+        bucket["samples"] += 1
+        bucket["tp1"] += int(bool(row.get("tp1_hit")))
+        bucket["stop"] += int(str(row.get("first_exit") or "").startswith("SL"))
+
+    for bucket in by_route.values():
+        n = bucket["samples"]
+        bucket["tp1_rate"] = bucket["tp1"] / n if n else None
+        bucket["stop_first_rate"] = bucket["stop"] / n if n else None
+
+    return {
+        "status": "VALID",
+        "instrument": instrument,
+        "horizon_seconds": horizon_seconds,
+        "sample_count": len(rows),
+        "entry_touched": len(touched),
+        "entry_touch_rate": len(touched) / len(rows) if rows else None,
+        "tp1_hit_rate_after_entry": len(tp1) / len(touched) if touched else None,
+        "stop_first_rate_after_entry": len(sl) / len(touched) if touched else None,
+        "timeout_or_open_rate_after_entry": (
+            sum(str(x.get("first_exit") or "") == "" for x in touched) / len(touched)
+            if touched else None
+        ),
+        "mean_mfe": sum(mfe) / len(mfe) if mfe else None,
+        "mean_mae": sum(mae) / len(mae) if mae else None,
+        "by_route": by_route,
+        "method": "empirical_forward_outcomes_only",
+    }
