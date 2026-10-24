@@ -354,6 +354,14 @@ def _human_price_story(parsed: dict[str, Any], ai_result: dict[str, Any]) -> str
     raw = parsed.get("raw_series") or {}
     state = raw.get("market_state") or {}
     path = ai_result.get("structural_path") or state.get("path") or {}
+    # An empty path is not a price story. Prefer the deterministic decision or
+    # legacy analyst field instead of emitting a generic current-price sentence.
+    if not isinstance(path, dict) or not path:
+        decision_read = _decision_market_read(parsed, ai_result)
+        if decision_read and decision_read != "ยังไม่มี market read ที่ยืนยันได้":
+            return decision_read
+        return _friendly_text(ai_result.get("what") or ai_result.get("market_overview")) or "ยังไม่มี market read ที่ยืนยันได้"
+
     current = _num(path.get("current_price")) or _num(parsed.get("cfd_price")) or _num(parsed.get("future_price"))
     if current is None:
         # Decision evidence is still useful even when a price/path snapshot is absent.
