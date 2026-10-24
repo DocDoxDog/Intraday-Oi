@@ -343,34 +343,157 @@ def _decision_market_read(parsed: dict[str, Any], ai_result: dict[str, Any]) -> 
     return f"โครงสร้างหลักยังเป็น{side} แต่ยังไม่มี price confirmation จึงรอ trigger/การยืนยันก่อน"
 
 
+
+def _human_price_story(parsed: dict[str, Any], ai_result: dict[str, Any]) -> str:
+    """Explain the market as a plain-Thai price story.
+
+    Deterministic levels come only from the structural path. The wording may
+    simplify mechanics, but it never invents a price or claims direct knowledge
+    of dealer intent.
+    """
+    raw = parsed.get("raw_series") or {}
+    state = raw.get("market_state") or {}
+    path = ai_result.get("structural_path") or state.get("path") or {}
+    current = _num(path.get("current_price")) or _num(parsed.get("cfd_price")) or _num(parsed.get("future_price"))
+    if current is None:
+        return "ตอนนี้ยังไม่มีราคาปัจจุบันที่ยืนยันได้ จึงยังวางเส้นทางราคาไม่ได้"
+
+    upper = path.get("upper_node") or {}
+    lower = path.get("lower_node") or {}
+    next_up = path.get("next_up") or {}
+    next_down = path.get("next_down") or {}
+    up = _num(upper.get("level"))
+    dn = _num(lower.get("level"))
+    up2 = _num(next_up.get("level"))
+    dn2 = _num(next_down.get("level"))
+
+    def p(v: float | None) -> str:
+        return _show(v, 2) if v is not None else "ยังไม่มีระดับถัดไปที่ยืนยันได้"
+
+    def node_reason(node: dict[str, Any]) -> str:
+        role = _clean_text(node.get("role")).upper()
+        source = _clean_text(node.get("source")).lower()
+        if role == "CALL_WALL":
+            return "ด้านบนมีสถานะ Call กระจุกตัว ทำให้บริเวณนี้มีโอกาสเป็นด่านที่ราคาขึ้นแล้วชะลอ"
+        if role == "PUT_WALL":
+            return "ด้านล่างมีสถานะ Put กระจุกตัว ทำให้บริเวณนี้เป็นจุดที่ควรดูว่าราคาจะหยุดหรือเด้งหรือไม่"
+        if role == "GAMMA_FLIP":
+            return "บริเวณนี้เป็นจุดที่พฤติกรรมการป้องกันความเสี่ยงจาก Options อาจเปลี่ยน ทำให้ราคามีโอกาสเคลื่อนเร็วขึ้นเมื่อผ่าน"
+        if "FVG" in role:
+            return "บริเวณนี้เป็นพื้นที่ราคาที่เคยเคลื่อนผ่านเร็ว จึงอาจกลับมาทดสอบอีกครั้ง"
+        if "SWING_HIGH" in role:
+            return "บริเวณนี้เป็นจุดสูงเดิมที่ตลาดเคยขายกลับ"
+        if "SWING_LOW" in role:
+            return "บริเวณนี้เป็นจุดต่ำเดิมที่ตลาดเคยรับกลับ"
+        if source == "options_strike":
+            return "บริเวณนี้มีสถานะ Options กระจุกตัวในระดับราคานี้"
+        return "บริเวณนี้เป็นระดับโครงสร้างที่ระบบพบจากข้อมูลราคาและตลาด Options"
+
+    def recent_move() -> str:
+        technical = parsed.get("technical_context") or {}
+        ohlcv = technical.get("ohlcv") or {}
+        bars = []
+        if isinstance(ohlcv, dict):
+            for value in ohlcv.values():
+                if isinstance(value, list):
+                    bars.extend(x for x in value if isinstance(x, dict))
+        if not bars:
+            return ""
+        closes = []
+        for bar in bars[-30:]:
+            close = _num(bar.get("close"))
+            if close is not None:
+                closes.append(close)
+        if len(closes) < 2:
+            return ""
+        start = closes[0]
+        end = closes[-1]
+        if end < start:
+            return f"ช่วงข้อมูลล่าสุดราคาลดจากประมาณ {p(start)} มาที่ {p(end)}"
+        if end > start:
+            return f"ช่วงข้อมูลล่าสุดราคาขยับจากประมาณ {p(start)} มาที่ {p(end)}"
+        return "ช่วงข้อมูลล่าสุดราคาแทบไม่เปลี่ยน"
+
+    parts = ["ตอนนี้ทองอยู่ที่ประมาณ " + p(current) + " ครับ"]
+    move = recent_move()
+    if move:
+        parts.append(move + " ทำให้ตอนนี้ราคากำลังเข้าใกล้จุดสำคัญด้านบนและด้านล่าง")
+
+    if dn is not None and up is not None:
+        parts.append(
+            f"ด้านล่างมี {p(dn)} เป็นจุดรับ ส่วนด้านบนมี {p(up)} เป็นด่าน"
+        )
+        parts.append(
+            f"ถ้าหลุด {p(dn)} ได้ ทางถัดไปคือ {p(dn2)}"
+            + (f" และถ้า {p(dn2)} ยังรับไม่อยู่ ก็มีโอกาสลงต่อ" if dn2 is not None else "")
+        )
+        parts.append(
+            f"แต่ถ้า {p(dn)} รับอยู่ ราคามีโอกาสเด้งกลับไปหา {p(up)}"
+        )
+        parts.append(
+            f"ถ้าผ่าน {p(up)} ได้ ทางถัดไปคือ {p(up2)}"
+            + (f" ส่วนถ้าขึ้นไปไม่ผ่าน {p(up)} ก็มีโอกาสกลับมาทดสอบ {p(dn)} อีกครั้ง" if up is not None else "")
+        )
+    elif dn is not None:
+        parts.append(f"ตอนนี้จุดสำคัญอยู่ที่ {p(dn)} ด้านล่าง")
+        parts.append(f"ถ้าหลุด {p(dn)} ได้ → {p(dn2)}")
+        parts.append(f"ถ้าไม่หลุดและรับราคาอยู่ → มีโอกาสเด้งกลับขึ้น")
+    elif up is not None:
+        parts.append(f"ตอนนี้ด่านสำคัญอยู่ที่ {p(up)} ด้านบน")
+        parts.append(f"ถ้าผ่าน {p(up)} ได้ → {p(up2)}")
+        parts.append(f"ถ้าขึ้นไปไม่ผ่าน → มีโอกาสถอยกลับลงมาทดสอบฐานเดิม")
+    else:
+        parts.append("ตอนนี้ยังไม่มีระดับราคาที่มากพอจะสร้างเส้นทางขึ้นหรือลงอย่างน่าเชื่อถือ")
+
+    if lower:
+        parts.append("ทำไมจุดด้านล่างถึงสำคัญ? " + node_reason(lower))
+    if upper:
+        parts.append("ทำไมจุดด้านบนถึงสำคัญ? " + node_reason(upper))
+
+    gamma = state.get("gamma") or {}
+    net_gex = _num(gamma.get("net_gex"))
+    if net_gex is not None:
+        if net_gex < 0:
+            parts.append("ตอนนี้โครงสร้างการป้องกันความเสี่ยงมีลักษณะที่ทำให้การเคลื่อนออกจากระดับสำคัญมีโอกาสแรงขึ้น")
+        elif net_gex > 0:
+            parts.append("ตอนนี้โครงสร้างการป้องกันความเสี่ยงมีลักษณะที่ช่วยให้ราคาชะลอและแกว่งรอบระดับสำคัญได้มากขึ้น")
+
+    parts.append(
+        "เราเห็นผลของการปรับการป้องกันความเสี่ยงจากโครงสร้าง Options "
+        "แต่ไม่ได้หมายความว่าเรารู้ว่าผู้ดูแลสภาพคล่องตั้งใจจะดันหรือกดราคา"
+    )
+    return "\n\n".join(x for x in parts if x)
+
+
 def build_customer_narrative(parsed: dict[str, Any], ai_result: dict[str, Any]) -> dict[str, str]:
-    """Return concise customer-facing sections in plain Thai."""
+    """Return the canonical human-readable market story plus supporting sections."""
     raw = parsed.get("raw_series") or {}
     state = raw.get("market_state") or {}
     volatility = state.get("volatility") or {}
     technical = state.get("technical") or {}
 
-    # Deterministic decision state is the source of truth for Market Read.
-    # The LLM may add thesis details elsewhere, but it cannot override state.
-    market_read = _decision_market_read(parsed, ai_result)
+    # Deterministic decision state remains the source of truth.
+    market_read = _human_price_story(parsed, ai_result)
 
     technical_llm = _friendly_text(ai_result.get("market_microstructure"))
     h4 = _clean_text((technical.get("h4") or {}).get("trend"))
     h1 = _clean_text((technical.get("h1") or {}).get("trend"))
     technical_text = technical_llm or "ยังไม่มีข้อมูล Technical ที่ยืนยันได้"
     if h4 and h1 and h4.lower() != h1.lower():
-        technical_text += " ขณะนี้กรอบเวลาหลักยังให้ภาพต่างกัน"
+        technical_text += " แต่กรอบเวลาหลักยังให้ภาพต่างกัน"
 
     macro_text = _friendly_text(
-        ai_result.get("macro") or "ยังไม่มีข้อมูล Macro/News ที่เพียงพอ"
+        ai_result.get("macro") or "ยังไม่มีข้อมูลข่าวหรือปัจจัยภายนอกที่ยืนยันได้"
     )
     if not macro_text:
-        macro_text = "ยังไม่มีข้อมูล Macro/News ที่เพียงพอ"
+        macro_text = "ยังไม่มีข้อมูลข่าวหรือปัจจัยภายนอกที่ยืนยันได้"
 
     path = ai_result.get("structural_path") or state.get("path") or {}
     current = _num(path.get("current_price")) or _num(parsed.get("cfd_price"))
-    market_flow = compact_market_flow(current, path, state) if current is not None and isinstance(path, dict) else {
-        "read": market_read, "flow": "ยังไม่มี conditional path ที่ยืนยันได้"
+    market_flow = compact_market_flow(
+        current, path, state
+    ) if current is not None and isinstance(path, dict) else {
+        "read": market_read, "flow": "ยังไม่มีเส้นทางราคาที่คำนวณได้"
     }
 
     return {
@@ -382,4 +505,5 @@ def build_customer_narrative(parsed: dict[str, Any], ai_result: dict[str, Any]) 
         "confirmation": _confirmation_read(parsed),
         "technical": technical_text,
         "macro_news": macro_text,
+        "price_path": market_flow.get("flow") or "ยังไม่มีเส้นทางราคาที่คำนวณได้",
     }
