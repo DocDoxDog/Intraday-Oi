@@ -91,19 +91,28 @@ def _format_analysis_message(parsed: dict, ai_result: dict) -> str:
     # contract when a legacy/degraded payload only supplies what/why/positioning.
     # This keeps Telegram backward-compatible without replacing the new
     # plain-language price story.
+    # Canonical narrative is authoritative only when a canonical market-state
+    # source exists. For degraded/legacy payloads with no deterministic state,
+    # preserve the analyst fields instead of replacing them with generic filler.
+    canonical_available = bool(
+        state.get("decision")
+        or state.get("path")
+        or flow.get("path")
+        or flow.get("read")
+    )
     read = (
         flow.get("read")
-        or narrative.get("market_read")
+        or (narrative.get("market_read") if canonical_available else "")
         or ai_result.get("what")
         or "ยังไม่มีภาพตลาดที่ยืนยันได้"
     )
     why = (
-        narrative.get("why_now")
+        (narrative.get("why_now") if canonical_available else "")
         or ai_result.get("why")
         or "ยังไม่มีเหตุผลเพิ่มเติมที่ผ่านการตรวจสอบ"
     )
     positioning = (
-        narrative.get("oi_positioning")
+        (narrative.get("oi_positioning") if canonical_available else "")
         or ai_result.get("positioning")
         or ""
     )
