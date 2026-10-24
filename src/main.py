@@ -34,6 +34,8 @@ from src.supabase_client import (
     mark_notified,
     upsert_market_bars,
     persist_flow_intelligence,
+    persist_trade_plan_snapshots,
+    persist_trade_plan_outcomes,
 )
 from src.url_manager import UrlManager, UrlManagerError
 from src import history, telegram, line
@@ -44,6 +46,7 @@ from src.market_state import enrich_market_state, normalize_analyst_output
 from src.macro_state import build_macro_state
 from src.quant_metrics import enrich_quant_metrics
 from src.market_flow_engine import build_flow_context
+from src.historical_memory import build_historical_memory
 from intelligence.news.free_feed import collect_free_news
 
 
@@ -368,6 +371,28 @@ def run():
     except Exception as e:
         parsed.setdefault("raw_series", {})["market_flow"] = {"status": "UNKNOWN", "error": type(e).__name__}
         print(f"⚠️  Market flow engine failed (continuing with canonical state): {e}", file=sys.stderr)
+    try:
+        deep_memory = build_historical_memory(
+            instrument=os.environ.get("TWELVEDATA_SYMBOL", "XAU/USD"),
+            contract=parsed.get("contract"),
+            as_of=parsed.get("observed_at") or parsed.get("retrieved_at"),
+        )
+        parsed.setdefault("raw_series", {})["historical_memory"] = deep_memory
+        parsed.setdefault("raw_series", {}).setdefault("market_state", {})["historical_memory"] = deep_memory
+        print(
+            "    historical memory: status={} coverage_days={} horizons={}".format(
+                deep_memory.get("status"),
+                (deep_memory.get("coverage") or {}).get("days"),
+                ",".join((deep_memory.get("timeframes") or {}).keys()),
+            )
+        )
+    except Exception as e:
+        parsed.setdefault("raw_series", {})["historical_memory"] = {
+            "version": "historical-memory-v1", "status": "UNKNOWN",
+            "error": type(e).__name__, "timeframes": {},
+        }
+        print(f"⚠️  Historical memory failed (analysis continues): {e}", file=sys.stderr)
+
     market_state = (parsed.get("raw_series") or {}).get("market_state") or {}
     print(
         f"    market state: CFD={'OK' if market_state.get('cfd_complete') else 'UNKNOWN'} | "
@@ -447,6 +472,20 @@ def run():
         )
     except Exception as e:
         print(f"⚠️  Flow intelligence persistence failed (snapshot remains saved): {e}", file=sys.stderr)
+    try:
+        plan_persisted = persist_trade_plan_snapshots(parsed, ai_result, snapshot_id=row.get("id"))
+        print(f"    ✅ Trade plans persisted: {plan_persisted.get('count', 0)}")
+    except Exception as e:
+        print(f"⚠️  Trade-plan persistence failed (snapshot remains saved): {e}", file=sys.stderr)
+
+    try:
+        outcomes_written = persist_trade_plan_outcomes(
+            instrument=os.environ.get("TWELVEDATA_SYMBOL", "XAU/USD")
+        )
+        print(f"    ✅ Trade-plan outcomes refreshed: {outcomes_written}")
+    except Exception as e:
+        print(f"⚠️  Trade-plan outcome refresh failed (delivery continues): {e}", file=sys.stderr)
+
     try:
         insert_oi_intelligence(parsed, snapshot_id=row.get("id"))
         print("    ✅ Structured OI intelligence persisted")
