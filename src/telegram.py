@@ -87,8 +87,11 @@ def _format_analysis_message(parsed: dict, ai_result: dict) -> str:
     direction = "ขาลง" if bias in {"BEARISH", "SELL"} else "ขาขึ้น" if bias in {"BULLISH", "BUY"} else "ยังรอยืนยัน"
     confirm = "ยืนยันแล้ว" if confirmation == "CONFIRMED" else "ยังไม่ยืนยัน"
 
-    read = flow.get("read") or narrative.get("market_read") or "ยังไม่มีภาพตลาดที่ยืนยันได้"
-    why = narrative.get("why_now") or "ยังไม่มีเหตุผลเพิ่มเติมที่ผ่านการตรวจสอบ"
+    # Prefer the canonical plain-language customer story, but retain the
+    # analyst fields as compatibility fallbacks for degraded/legacy payloads.
+    read = flow.get("read") or narrative.get("market_read") or ai_result.get("what") or "ยังไม่มีภาพตลาดที่ยืนยันได้"
+    why = narrative.get("why_now") or ai_result.get("why") or "ยังไม่มีเหตุผลเพิ่มเติมที่ผ่านการตรวจสอบ"
+    positioning = narrative.get("oi_positioning") or ai_result.get("positioning") or "ยังไม่มีข้อมูล positioning ที่ยืนยันได้"
     macro = narrative.get("macro_news") or "ยังไม่มีข่าวที่มี Actual ยืนยัน"
 
     futures = parsed.get("future_price")
@@ -119,6 +122,8 @@ def _format_analysis_message(parsed: dict, ai_result: dict) -> str:
         "",
         "<b>ทำไมระดับนี้ถึงสำคัญ</b>",
         _escape(why),
+        "<b>POSITIONING — ตลาดกำลังวางน้ำหนักไว้ทางไหน</b>",
+        _escape(positioning),
         "<b>FLOW STATEMENT — ภาพรวมแรงที่กำลังเกิดขึ้น</b>",
         *([_escape(flow_statement)] if flow_statement else ["ยังไม่มี flow statement ที่ยืนยันได้"]),
         "",
