@@ -479,6 +479,53 @@ def _human_price_story(parsed: dict[str, Any], ai_result: dict[str, Any]) -> str
     return "\n\n".join(x for x in parts if x)
 
 
+def _article_analysis(parsed: dict[str, Any], ai_result: dict[str, Any]) -> str:
+    """Merge the LLM's domain analyses into one continuous trader-style article.
+
+    The model may reason in several evidence domains internally, but Telegram
+    receives a single narrative rather than a dashboard of labelled fields.
+    """
+    fields = [
+        ai_result.get("market_overview"),
+        ai_result.get("what"),
+        ai_result.get("why"),
+        ai_result.get("financial_engineering"),
+        ai_result.get("market_microstructure"),
+        ai_result.get("positioning"),
+        ai_result.get("market_psychology"),
+        ai_result.get("history_comparison"),
+        ai_result.get("macro"),
+        ai_result.get("base_case"),
+        ai_result.get("alternative_case"),
+        ai_result.get("invalidation_case"),
+    ]
+    paragraphs = []
+    seen = set()
+    for value in fields:
+        text = _friendly_text(value)
+        if not text:
+            continue
+        normalized = re.sub(r"\\s+", " ", text).strip()
+        if len(normalized) < 20 or normalized in seen:
+            continue
+        seen.add(normalized)
+        # Avoid dashboard-like labels leaking into the article.
+        normalized = re.sub(
+            r"^(WHAT|WHY|FLOW|POSITIONING|MACRO|TECHNICAL|FINANCIAL ENGINEERING|MARKET MICROSTRUCTURE|MARKET PSYCHOLOGY)\\s*[:—-]\\s*",
+            "",
+            normalized,
+            flags=re.I,
+        )
+        paragraphs.append(normalized)
+
+    if not paragraphs:
+        return _human_price_story(parsed, ai_result)
+
+    # Keep the article readable in Telegram. Four to six substantial paragraphs
+    # is enough; the remaining evidence remains available in the stored payload.
+    return "\n\n".join(paragraphs[:6])
+
+
 def build_customer_narrative(parsed: dict[str, Any], ai_result: dict[str, Any]) -> dict[str, str]:
     """Return the canonical human-readable market story plus supporting sections."""
     raw = parsed.get("raw_series") or {}
@@ -486,8 +533,9 @@ def build_customer_narrative(parsed: dict[str, Any], ai_result: dict[str, Any]) 
     volatility = state.get("volatility") or {}
     technical = state.get("technical") or {}
 
-    # Deterministic decision state remains the source of truth.
-    market_read = _human_price_story(parsed, ai_result)
+    # Deterministic state remains the source of truth for numbers and levels;
+    # the LLM supplies the synthesis that turns all evidence domains into one article.
+    market_read = _article_analysis(parsed, ai_result)
 
     technical_llm = _friendly_text(ai_result.get("market_microstructure"))
     h4 = _clean_text((technical.get("h4") or {}).get("trend"))
