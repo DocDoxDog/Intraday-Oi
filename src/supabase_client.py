@@ -688,3 +688,68 @@ def insert_multi_expiry_options(parsed: dict, snapshot_id: int | None = None) ->
             written += len(rows)
 
     return written
+
+
+def persist_trade_plan_snapshots(parsed: dict, ai_result: dict, snapshot_id: int | None = None) -> dict:
+    """Persist every deterministic risk-valid plan produced at this point in time."""
+    from src.trade_plan_research import build_research_plans
+
+    trade = ai_result.get("trade_plan") if isinstance(ai_result.get("trade_plan"), dict) else {}
+    execution = trade.get("execution_plan") if isinstance(trade.get("execution_plan"), dict) else {}
+    plans = build_research_plans(execution)
+    if not plans:
+        return {"count": 0, "plans": []}
+
+    client = get_client()
+    observed_at = parsed.get("observed_at") or parsed.get("retrieved_at")
+    instrument = str(os.environ.get("TWELVEDATA_SYMBOL", "XAU/USD"))
+    structural_bias = str(ai_result.get("structural_bias") or ai_result.get("bias") or "UNKNOWN")
+    regime = str(((ai_result.get("regime_engine") or {}).get("regime")) or ai_result.get("market_regime") or "UNKNOWN")
+    evidence_refs = ai_result.get("evidence_refs") or []
+    written = []
+
+    for plan in plans:
+        targets = plan.get("targets") or []
+        row = {
+            "snapshot_id": snapshot_id,
+            "instrument": instrument,
+            "contract": parsed.get("contract"),
+            "observed_at": observed_at,
+            "plan_version": plan.get("plan_version") or "trade-plan-v4",
+            "route": plan.get("route") or "UNKNOWN",
+            "side": plan.get("side"),
+            "status": "VALID",
+            "entry": plan.get("entry"),
+            "stop_loss": plan.get("stop_loss"),
+            "tp1": targets[0] if len(targets) > 0 else None,
+            "tp2": targets[1] if len(targets) > 1 else None,
+            "tp3": targets[2] if len(targets) > 2 else None,
+            "tp4": targets[3] if len(targets) > 3 else None,
+            "tp5": targets[4] if len(targets) > 4 else None,
+            "structural_bias": structural_bias,
+            "regime": regime,
+            "evidence_refs": evidence_refs,
+            "plan_payload": {
+                **plan,
+                "snapshot_id": snapshot_id,
+                "observed_at": observed_at,
+            },
+        }
+        result = client.table("trade_plan_snapshots").upsert(
+            row,
+            on_conflict="instrument,observed_at,plan_version,route",
+        ).execute()
+        if result.data:
+            written.append(result.data[0])
+
+    return {"count": len(written), "plans": written}
+
+
+def persist_trade_plan_outcomes(instrument: str = "XAU/USD") -> int:
+    """Refresh the point-in-time plan journal from subsequent market bars."""
+    from src.trade_plan_research import evaluate_pending_plans
+    try:
+        return evaluate_pending_plans(instrument=instrument)
+    except Exception as exc:
+        print(f"⚠️  Trade-plan outcome evaluation failed: {exc}")
+        return 0

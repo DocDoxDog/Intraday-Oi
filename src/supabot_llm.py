@@ -22,9 +22,55 @@ except ImportError:
 
 DEFAULT_GATEWAY_PATH = "/internal/v1/llm/generate"
 TASK = "market.narrative"
-PROMPT_VERSION = "intraday-oi-market-analyst-v8"
+PROMPT_VERSION = "intraday-oi-market-analyst-v9"
 DATASET_VERSION = "quikstrike-oi-view-v2"
 CALCULATION_VERSION = "intraday-oi-calcs-v1"
+
+
+ARTICLE_STYLE_PROMPT = """
+FINAL CUSTOMER WRITING CONTRACT
+
+The analysis shown to the customer is ONE continuous Thai market article.
+Do not write a dashboard, checklist, scorecard, or field-by-field report.
+
+You must read ALL supplied evidence domains before writing:
+price/market structure, H4-H1-M15-M5-M1 technical state, options OI and delta-OI,
+GEX/DEX and gamma structure, multi-expiration gamma, IV/skew/term structure/DTE,
+quant metrics and expected-range context, auction/value profile when available,
+order-flow/microstructure when actually observed, macro/rates/USD/real-yield,
+fresh news and surprise, session/time context, and leakage-safe historical memory
+from 1H/4H/1D/1W/1M/1Y.
+
+Do not mention every metric. Synthesize them into cause-and-effect:
+what price is doing -> which evidence explains it -> which evidence conflicts ->
+how the options/volatility mechanism can affect the path -> what the historical
+context adds -> what the market is likely to do next.
+
+The article should normally be 4-6 natural Thai paragraphs. Do not prefix
+paragraphs with labels such as WHAT, WHY, FLOW, MACRO, TECHNICAL, GEX, OI,
+CONCLUSION, BIAS, or MARKET STATE.
+
+Do not repeat the same evidence in multiple sentences. Do not create a list of
+numbers. Explain technical concepts in ordinary trader language.
+
+Historical memory is context, never a prediction oracle. Only mention a
+historical similarity/outcome when it is explicitly present in the supplied
+evidence. Never invent win rates, sample sizes, probabilities, or similarity
+scores.
+
+Dealer/MM explanations must be mechanical and epistemically honest:
+"consistent with hedging pressure" is allowed; claiming a dealer definitely
+bought/sold or intentionally moved price is not.
+
+OI/Delta-OI/churn describe positioning activity and cannot identify aggressor
+direction by themselves. True order-flow claims require actual trade/quote/book
+evidence. Bar volume is only a bar proxy.
+
+The article owns the explanation. The trade-plan message owns Entry/SL/TP.
+Do not put confirmation instructions, trigger procedures, or execution coaching
+inside the trade plan. If deterministic plans exist, they will be rendered
+separately.
+"""
 
 
 class SupaBOTLLMError(RuntimeError):
@@ -769,6 +815,8 @@ def analyze_with_supabot(parsed: dict[str, Any], history: dict[str, Any] | None 
     ]
     if payload["current"].get("news_context"):
         input_refs.append("itb:news:latest")
+    if (payload["current"].get("raw_series") or {}).get("market_state", {}).get("historical_memory"):
+        input_refs.append("itb:historical:memory")
     evidence = {
         "itb:oi:deterministic": {
             "source": "cme_quikstrike",
@@ -785,6 +833,14 @@ def analyze_with_supabot(parsed: dict[str, Any], history: dict[str, Any] | None 
             "ingestion_time": as_of,
             "payload": payload["history"],
         },
+        **({
+            "itb:historical:memory": {
+                "source": "intraday_oi_historical_memory",
+                "observed_at": as_of,
+                "ingestion_time": as_of,
+                "payload": (payload["current"].get("raw_series") or {}).get("market_state", {}).get("historical_memory") or {},
+            }
+        } if (payload["current"].get("raw_series") or {}).get("market_state", {}).get("historical_memory") else {}),
         **({
             "itb:news:latest": {
                 "source": "governed_macro_news_feeds",
@@ -824,10 +880,10 @@ def analyze_with_supabot(parsed: dict[str, Any], history: dict[str, Any] | None 
     try:
         result = generate_market_narrative(
             envelope,
-            static_prefix=STATIC_PROMPT,
+            static_prefix=STATIC_PROMPT + ARTICLE_STYLE_PROMPT,
             dynamic={
                 "format": "human_analyst_thai",
-                "priority": ["MARKET_READ","WHY_NOW","CONFLICT","LEVELS","SCENARIO","CONFIRMATION","INVALIDATION","TRADE_PLAN"],
+                "priority": ["FULL_EVIDENCE_REVIEW","MARKET_ARTICLE","SCENARIO","TRADE_PLAN_CONTEXT"],
                 "numeric_level_policy": "PRICE CLAIMS MAY USE ONLY VALUES PRESENT IN deterministic_levels OR current market snapshot. Do not invent, interpolate, calculate, or introduce any new price number.",
                 "derived_numeric_policy": "Do not calculate or emit new RR/R-multiple, percentages, ratios, probabilities, distances, expected-move values, or other derived numbers. The deterministic execution layer owns those calculations.",
                 "allowed_price_levels": payload["deterministic_levels"],
