@@ -144,7 +144,7 @@ def evaluate_plan(plan: dict[str, Any], bars: list[dict[str, Any]], horizon_seco
     entry = _n(plan.get("entry"))
     stop = _n(plan.get("stop_loss"))
     targets = [_n(x) for x in (plan.get("targets") or [])]
-    targets = [x for x in targets if x is not None]
+    targets = [x for x in targets if x is not None][:5]
     side = str(plan.get("side") or "").upper()
 
     if entry is None or stop is None or not targets or side not in {"BUY", "SELL"}:
@@ -172,9 +172,9 @@ def evaluate_plan(plan: dict[str, Any], bars: list[dict[str, Any]], horizon_seco
     path = future[entry_index:]
     mfe_values: list[float] = []
     mae_values: list[float] = []
+    target_times: dict[int, str | None] = {i: None for i in range(1, len(targets) + 1)}
     first_exit = None
     exit_time = None
-    hit_target_index = None
 
     for bar in path:
         high, low = _n(bar.get("high")), _n(bar.get("low"))
@@ -187,17 +187,21 @@ def evaluate_plan(plan: dict[str, Any], bars: list[dict[str, Any]], horizon_seco
             mfe_values.append((entry - low) / entry)
             mae_values.append((entry - high) / entry)
 
-        if first_exit is not None:
+        bar_time = _dt(bar.get("bar_time"))
+        if bar_time is None:
             continue
 
-        # Check TP1 first in a directional list, but use conservative SL if the
-        # same bar touches both.
-        target = targets[0]
-        hit = _first_bar_hit(side, bar, stop, target)
-        if hit:
-            first_exit = hit
-            exit_time = _dt(bar.get("bar_time"))
-            hit_target_index = 1 if hit.startswith("TP") else None
+        # Once the entry is touched, record every TP that the bar reaches.
+        for idx, target in enumerate(targets, 1):
+            if target_times[idx] is None and _bar_hit(side, bar, target):
+                target_times[idx] = bar_time.isoformat()
+
+        if first_exit is None:
+            target1 = targets[0]
+            hit = _first_bar_hit(side, bar, stop, target1)
+            if hit:
+                first_exit = hit
+                exit_time = bar_time
 
     last_close = _n(path[-1].get("close")) if path else None
     forward_return = (
@@ -205,15 +209,13 @@ def evaluate_plan(plan: dict[str, Any], bars: list[dict[str, Any]], horizon_seco
         else ((entry - last_close) / entry)
     ) if last_close is not None and entry else None
 
-    return {
+    result = {
         "horizon_seconds": horizon_seconds,
         "observed_at": future[-1].get("bar_time") if future else None,
         "entry_touched": True,
         "entry_time": entry_time.isoformat() if entry_time else None,
         "stop_hit": first_exit is not None and first_exit.startswith("SL"),
         "stop_time": exit_time.isoformat() if first_exit and first_exit.startswith("SL") else None,
-        "tp1_hit": hit_target_index == 1,
-        "tp1_time": exit_time.isoformat() if hit_target_index == 1 and exit_time else None,
         "first_exit": first_exit,
         "forward_return": forward_return,
         "mfe": max(mfe_values) if mfe_values else None,
@@ -232,6 +234,11 @@ def evaluate_plan(plan: dict[str, Any], bars: list[dict[str, Any]], horizon_seco
             "horizon_seconds": horizon_seconds,
         },
     }
+    for idx in range(1, 6):
+        stamp = target_times.get(idx)
+        result[f"tp{idx}_hit"] = stamp is not None
+        result[f"tp{idx}_time"] = stamp
+    return result
 
 
 def evaluate_pending_plans(*, instrument: str = "XAU/USD") -> int:
