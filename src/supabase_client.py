@@ -702,7 +702,7 @@ def persist_trade_plan_snapshots(parsed: dict, ai_result: dict, snapshot_id: int
 
     client = get_client()
     observed_at = parsed.get("observed_at") or parsed.get("retrieved_at")
-    instrument = str(parsed.get("product_symbol") or "XAU/USD")
+    instrument = str(os.environ.get("TWELVEDATA_SYMBOL", "XAU/USD"))
     structural_bias = str(ai_result.get("structural_bias") or ai_result.get("bias") or "UNKNOWN")
     regime = str(((ai_result.get("regime_engine") or {}).get("regime")) or ai_result.get("market_regime") or "UNKNOWN")
     evidence_refs = ai_result.get("evidence_refs") or []
