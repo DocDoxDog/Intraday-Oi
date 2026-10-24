@@ -183,10 +183,10 @@ def _format_trade_plan_message(parsed: dict, ai_result: dict) -> str:
         emoji="🟢" if "LONG" in side or "BUY" in side else "🔴"
         title="BUY" if emoji=="🟢" else "SELL"
         lines.append(f"{emoji} <b>{title}</b>")
-        lines.append(f"Entry <b>{_show(entry)}</b>")
-        lines.append(f"SL <b>{_show(stop)}</b>")
+        lines.append(f"Entry <b>{_escape(_show(entry))}</b>")
+        lines.append(f"SL <b>{_escape(_show(stop))}</b>")
         for j,tp in enumerate(targets,1):
-            lines.append(f"TP{j} <b>{_show(tp)}</b>")
+            lines.append(f"TP{j} <b>{_escape(_show(tp))}</b>")
     return "\n".join(lines)
 
 def format_message(parsed: dict, ai_result: dict) -> str:
