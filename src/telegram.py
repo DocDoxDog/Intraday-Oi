@@ -71,21 +71,23 @@ def _format_analysis_message(parsed: dict, ai_result: dict) -> str:
     # Legacy/degraded payloads must preserve only the fields that were already
     # customer-safe; never turn old dashboard fields back into an article.
     if not canonical_available:
+        # Degraded/legacy payloads are not sufficiently grounded to be
+        # reassembled into a synthetic article. Preserve only the legacy
+        # market-read sentence that the customer contract explicitly allows.
         sections = [
             ai_result.get("what") or ai_result.get("market_overview"),
-            ai_result.get("positioning"),
         ]
     else:
         sections = [
             ai_result.get("market_overview") or ai_result.get("what"),
             ai_result.get("why"),
-        ai_result.get("financial_engineering"),
-        ai_result.get("market_microstructure"),
-        ai_result.get("positioning"),
-        ai_result.get("history_comparison"),
-        ai_result.get("macro"),
-        ai_result.get("market_psychology"),
-    ]
+            ai_result.get("financial_engineering"),
+            ai_result.get("market_microstructure"),
+            ai_result.get("positioning"),
+            ai_result.get("history_comparison"),
+            ai_result.get("macro"),
+            ai_result.get("market_psychology"),
+        ]
     paragraphs = []
     seen = set()
     for value in sections:
