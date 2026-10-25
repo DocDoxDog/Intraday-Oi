@@ -16,6 +16,8 @@ from typing import Any
 
 from .deep_reasoning import build_deep_reasoning_context
 
+from .deep_reasoning import build_deep_reasoning_context
+
 try:
     from .local_supabot import LocalSupaBOTError, generate_market_narrative
 except ImportError:
@@ -766,6 +768,7 @@ def analyze_with_supabot(parsed: dict[str, Any], history: dict[str, Any] | None 
     as_of = _iso(parsed.get("observed_at") or parsed.get("retrieved_at") or now)
     product = _product(parsed)
     payload = _summarize_input(parsed, history)
+    payload["deep_reasoning"] = build_deep_reasoning_context(parsed, history)
 
     input_refs = [
         "itb:oi:deterministic",
@@ -813,6 +816,7 @@ def analyze_with_supabot(parsed: dict[str, Any], history: dict[str, Any] | None 
         "input_refs": input_refs,
         "input_payload": {
             "market_snapshot": payload["current"],
+            "deep_reasoning_context": payload["deep_reasoning"],
             "deterministic_levels": payload["deterministic_levels"],
             "data_limitations": payload["data_limitations"],
         },
