@@ -191,7 +191,11 @@ def _format_trade_plan_message(parsed: dict, ai_result: dict) -> str:
         if not isinstance(route, dict):
             continue
         state = str(route.get("state") or "").upper()
-        if state in {"NO_TRADE","WAIT","DATA_INSUFFICIENT","INVALIDATED"}:
+        # A complete deterministic route is a customer-facing plan even
+        # when the execution state is still gated by confirmation/risk.
+        # Telegram intentionally hides the gate language and shows only the
+        # source-derived Entry/SL/TP ladder.
+        if state in {"DATA_INSUFFICIENT","INVALIDATED"}:
             continue
         entry = route.get("entry", route.get("trigger"))
         stop = route.get("stop")
