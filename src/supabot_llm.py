@@ -16,8 +16,6 @@ from typing import Any
 
 from .deep_reasoning import build_deep_reasoning_context
 
-from .deep_reasoning import build_deep_reasoning_context
-
 try:
     from .local_supabot import LocalSupaBOTError, generate_market_narrative
 except ImportError:
@@ -448,7 +446,6 @@ def _summarize_input(parsed: dict[str, Any], history: dict[str, Any] | None) -> 
             if isinstance(row, dict)
         ],
     }
-    current["deep_reasoning_context"] = build_deep_reasoning_context(parsed, history)
 
     current["news_context"] = [
         {
