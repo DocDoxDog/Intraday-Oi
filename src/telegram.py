@@ -64,6 +64,35 @@ def _chunk(text: str, limit: int = MAX_MESSAGE_LEN) -> list[str]:
     return chunks
 
 
+def _clean_article_text(value: object) -> str:
+    """Remove raw telemetry/data-dump fragments from the customer article."""
+    text = str(value or "").strip()
+    if not text:
+        return ""
+    # LLM output must remain an analysis narrative. Raw historical telemetry
+    # belongs in the evidence snapshot, never in the customer-facing article.
+    kept: list[str] = []
+    for paragraph in re.split(r"\\n\\s*\\n", text):
+        paragraph = paragraph.strip()
+        if not paragraph:
+            continue
+        if re.match(r"^(?:1H|2H|TODAY|YESTERDAY)\\s*:", paragraph, flags=re.IGNORECASE):
+            continue
+        if re.match(r"^(?:OI|GEX|IV|TECHNICAL|MACRO|NEWS)\\s*:", paragraph, flags=re.IGNORECASE):
+            continue
+        kept.append(paragraph)
+    # Remove exact duplicate paragraphs while preserving the analyst's order.
+    unique: list[str] = []
+    seen: set[str] = set()
+    for paragraph in kept:
+        key = re.sub(r"\\s+", " ", paragraph).strip().lower()
+        if key in seen:
+            continue
+        seen.add(key)
+        unique.append(paragraph)
+    return "\\n\\n".join(unique)
+
+
 def _format_analysis_message(parsed: dict, ai_result: dict) -> str:
     """Render the synthesized analyst article without dashboard-style headings."""
     raw = parsed.get("raw_series") or {}
@@ -91,7 +120,7 @@ def _format_analysis_message(parsed: dict, ai_result: dict) -> str:
     paragraphs = []
     seen = set()
     for value in sections:
-        text = str(value or "").strip()
+        text = _clean_article_text(value)
         if not text or text in seen:
             continue
         seen.add(text)
