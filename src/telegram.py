@@ -65,16 +65,29 @@ def _chunk(text: str, limit: int = MAX_MESSAGE_LEN) -> list[str]:
 
 
 def _format_analysis_message(parsed: dict, ai_result: dict) -> str:
-    """Render one continuous analyst article; evidence is synthesized upstream."""
-    raw = parsed.get("raw_series") or {}
-    state = raw.get("market_state") or {}
-    article = (
-        ai_result.get("market_overview")
-        or ai_result.get("what")
-        or ai_result.get("final_trade_idea")
-        or "ยังไม่มีบทวิเคราะห์ที่ผ่านการตรวจสอบ"
-    )
-    article = str(article).strip()
+    """Render the synthesized analyst article without dashboard-style headings."""
+    sections = [
+        ai_result.get("market_overview") or ai_result.get("what"),
+        ai_result.get("why"),
+        ai_result.get("financial_engineering"),
+        ai_result.get("market_microstructure"),
+        ai_result.get("positioning"),
+        ai_result.get("history_comparison"),
+        ai_result.get("macro"),
+        ai_result.get("market_psychology"),
+    ]
+    paragraphs = []
+    seen = set()
+    for value in sections:
+        text = str(value or "").strip()
+        if not text or text in seen:
+            continue
+        seen.add(text)
+        paragraphs.append(text)
+    article = "\n\n".join(paragraphs) or str(
+        ai_result.get("final_trade_idea") or "ยังไม่มีบทวิเคราะห์ที่ผ่านการตรวจสอบ"
+    ).strip()
+
     futures = parsed.get("future_price")
     cfd = parsed.get("cfd_price")
     basis = parsed.get("basis_diff", parsed.get("basis"))
