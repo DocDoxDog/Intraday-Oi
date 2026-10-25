@@ -84,3 +84,30 @@ def test_customer_story_does_not_claim_direct_dealer_intent():
     }
     out = build_customer_narrative(parsed, {})
     assert "ไม่ได้หมายความว่าเรารู้ว่าผู้ดูแลสภาพคล่องตั้งใจจะดันหรือกดราคา" in out["market_read"]
+
+
+def test_telegram_shows_complete_deterministic_plan_even_when_execution_gate_is_blocked():
+    parsed = {"cfd_price": 3993.70, "future_price": 4007.90, "dte": 1.16, "raw_series": {}}
+    ai = {
+        "trade_plan": {
+            "execution_plan": {
+                "routes": [
+                    {
+                        "side": "SHORT",
+                        "route": "SELL_BREAKDOWN",
+                        "state": "NO_TRADE",
+                        "trigger": 3989.0,
+                        "stop": 3994.0,
+                        "targets": [3964.0, 3939.0, 3889.0],
+                    }
+                ]
+            }
+        }
+    }
+    message = telegram._format_trade_plan_message(parsed, ai)
+    assert "🔴 <b>SELL</b>" in message
+    assert "Entry <b>3989" in message
+    assert "SL <b>3994" in message
+    assert "TP1 <b>3964" in message
+    assert "TP2 <b>3939" in message
+    assert "TP3 <b>3889" in message
