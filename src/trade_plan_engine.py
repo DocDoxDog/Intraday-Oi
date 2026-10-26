@@ -351,13 +351,27 @@ def build_trade_execution_plan(state: dict[str, Any]) -> dict[str, Any]:
             "APPROACHING": 14.0,
             "ARMED": 10.0,
         }.get(state_name, 0.0)
-        # Structural alignment.
-        if (htf == "bullish" and side.startswith("LONG")) or (htf == "bearish" and side.startswith("SHORT")):
-            score += 25.0
-        elif htf in {"mixed", "transition", "neutral"}:
+        # Structural alignment plus observed multi-timeframe evidence.
+        aligned = (htf == "bullish" and side.startswith("LONG")) or (htf == "bearish" and side.startswith("SHORT"))
+        if aligned: score += 25.0
+        elif htf in {"mixed", "transition", "neutral"}: score += 8.0
+        else: score += 3.0
+        signals = state.get("technical_signals") or state.get("technical") or {}
+        tfs = ["m5", "m15", "m30", "h1", "h4", "d1"]
+        trends = [str((signals.get(tf) or {}).get("trend") or "").lower() for tf in tfs]
+        wanted = "bullish" if side.startswith("LONG") else "bearish"
+        score += min(12.0, 3.0 * sum(x == wanted for x in trends))
+        choch = [str((signals.get(tf) or {}).get("choch") or "").lower() for tf in tfs]
+        bos = [str((signals.get(tf) or {}).get("bos") or "").lower() for tf in tfs]
+        if any((wanted == "bullish" and x == "bullish_choch") or (wanted == "bearish" and x == "bearish_choch") for x in choch):
             score += 8.0
-        else:
-            score += 3.0
+        if any((wanted == "bullish" and "bullish" in x) or (wanted == "bearish" and "bearish" in x) for x in bos):
+            score += 6.0
+        divs = [str(((signals.get(tf) or {}).get("divergence") or {}).get("signal") or "").lower() for tf in tfs]
+        opposing_div = "bearish_regular" if wanted == "bullish" else "bullish_regular"
+        aligned_div = "bullish_regular" if wanted == "bullish" else "bearish_regular"
+        if aligned_div in divs: score += 7.0
+        if opposing_div in divs: score -= 7.0
         # Risk/reward quality: first target and best available target.
         rr = [float(x) for x in (route.get("rr") or []) if x is not None]
         if rr:
@@ -390,8 +404,6 @@ def build_trade_execution_plan(state: dict[str, Any]) -> dict[str, Any]:
     for route in routes:
         if not isinstance(route, dict):
             continue
-        if not _entry_geometry_ok(route):
-            continue
         if _n(route.get("trigger")) is None or _n(route.get("stop")) is None:
             continue
         if not [x for x in (route.get("targets") or []) if _n(x) is not None]:
@@ -400,9 +412,20 @@ def build_trade_execution_plan(state: dict[str, Any]) -> dict[str, Any]:
         item["confidence"] = _confidence(route)
         ranked_candidates.append(item)
     ranked_candidates.sort(key=lambda x: (-float(x.get("confidence") or 0), str(x.get("route") or "")))
-    # Customer surface may show the five strongest deterministic setups, but
-    # never invents a fifth setup when only fewer source-derived routes exist.
-    ranked_candidates = ranked_candidates[:5]
+    # Keep the best three distinct routes. A route is a strategy, not merely a
+    # direction, so BUY support / BUY breakout and SELL rejection / breakdown
+    # can coexist when their source-derived levels differ.
+    distinct = []
+    seen_keys = set()
+    for item in ranked_candidates:
+        key = (str(item.get("side") or ""), round(float(item.get("trigger")), 5) if item.get("trigger") is not None else None)
+        if key in seen_keys:
+            continue
+        seen_keys.add(key)
+        distinct.append(item)
+        if len(distinct) == 3:
+            break
+    ranked_candidates = distinct
     for rank, route in enumerate(ranked_candidates, 1):
         route["rank"] = rank
 
