@@ -58,6 +58,44 @@ def _atr(candles: list[dict], period: int = 14) -> float | None:
     return round(sum(true_ranges) / period, 5)
 
 
+def _rsi(v, p=14):
+    if len(v) < p + 1: return None
+    g=[max(0.0,b-a) for a,b in zip(v[-p-1:-1],v[-p:])]
+    l=[max(0.0,a-b) for a,b in zip(v[-p-1:-1],v[-p:])]
+    ag=sum(g)/p; al=sum(l)/p
+    if al == 0: return 100.0 if ag else 50.0
+    return round(100.0-100.0/(1.0+ag/al),4)
+
+def _pivots(c, n=2):
+    hi=[]; lo=[]
+    for i in range(n,len(c)-n):
+        H=c[i]["high"]; L=c[i]["low"]
+        if H >= max(x["high"] for x in c[i-n:i+n+1]): hi.append((i,H))
+        if L <= min(x["low"] for x in c[i-n:i+n+1]): lo.append((i,L))
+    return hi,lo
+
+def _divergence(c):
+    if len(c)<25: return {"signal":"none","indicator":"RSI14"}
+    v=[x["close"] for x in c]; hi,lo=_pivots(c)
+    r=[None]*len(v)
+    for i in range(14,len(v)): r[i]=_rsi(v[:i+1])
+    if len(hi)>=2:
+        a,b=hi[-2],hi[-1]
+        if r[a[0]] is not None and r[b[0]] is not None and b[1]>a[1] and r[b[0]]<r[a[0]]:
+            return {"signal":"bearish_regular","indicator":"RSI14","price_pivots":[a[1],b[1]],"rsi_pivots":[r[a[0]],r[b[0]]]}
+    if len(lo)>=2:
+        a,b=lo[-2],lo[-1]
+        if r[a[0]] is not None and r[b[0]] is not None and b[1]<a[1] and r[b[0]]>r[a[0]]:
+            return {"signal":"bullish_regular","indicator":"RSI14","price_pivots":[a[1],b[1]],"rsi_pivots":[r[a[0]],r[b[0]]]}
+    return {"signal":"none","indicator":"RSI14"}
+
+def _choch(c):
+    hi,lo=_pivots(c)
+    if len(hi)<2 or len(lo)<2: return "none"
+    if hi[-1][1] < hi[-2][1] and c[-1]["close"] > hi[-1][1]: return "bullish_choch"
+    if lo[-1][1] > lo[-2][1] and c[-1]["close"] < lo[-1][1]: return "bearish_choch"
+    return "none"
+
 def _session_vwap(candles: list[dict]) -> float | None:
     if not candles:
         return None
@@ -137,7 +175,10 @@ def _structure(candles: list[dict]) -> dict:
         "trend": trend,
         "sweep": sweep,
         "bos": bos,
+        "choch": _choch(candles),
         "fvg": fvg,
+        "rsi14": _rsi(closes),
+        "divergence": _divergence(candles),
         "fibonacci": fib,
         "previous_close": previous["close"],
         "prior_high": prior_high,
@@ -201,9 +242,11 @@ def build_context(api_key: str | None = None, symbol: str | None = None) -> dict
     for name, interval in {
         "h4": "4h",
         "h1": "1h",
+        "m30": "30min",
         "m15": "15min",
         "m5": "5min",
         "m1": "1min",
+        "d1": "1day",
     }.items():
         candles = _fetch(symbol, interval, key)
         candles_by_tf[name] = candles

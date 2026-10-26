@@ -292,7 +292,7 @@ def _decision_framework(
             tf: technical
             for tf, technical in (
                 (tf, ((parsed.get("technical_context") or {}).get("timeframes") or {}).get(tf) or {})
-                for tf in ("h4", "h1", "m15", "m5", "m1")
+                for tf in ("d1", "h4", "h1", "m30", "m15", "m5", "m1")
             )
         },
         "news": parsed.get("news_context") or [],
@@ -489,7 +489,30 @@ def enrich_market_state(parsed: dict[str, Any], history: dict[str, Any] | None =
         book=order_flow_input.get("book") if isinstance(order_flow_input, dict) else None,
     )
     state["regime"] = build_market_regime(state)
+    # Preserve the full multi-timeframe technical evidence for the analyst and
+    # trade ranking layer; only the decision engine may choose which horizons
+    # are directionally material.
+    state["technical_signals"] = {
+        tf: {
+            "trend": ((technical.get("timeframes") or {}).get(tf) or {}).get("trend"),
+            "bos": ((technical.get("timeframes") or {}).get(tf) or {}).get("bos"),
+            "choch": ((technical.get("timeframes") or {}).get(tf) or {}).get("choch"),
+            "divergence": ((technical.get("timeframes") or {}).get(tf) or {}).get("divergence"),
+            "rsi14": ((technical.get("timeframes") or {}).get(tf) or {}).get("rsi14"),
+            "atr14": ((technical.get("timeframes") or {}).get(tf) or {}).get("atr14"),
+            "atr_percentile": ((technical.get("timeframes") or {}).get(tf) or {}).get("atr_percentile"),
+        }
+        for tf in ("m5", "m15", "m30", "h1", "h4", "d1")
+    }
     state["action_zones"] = build_action_zones(state)
+    try:
+        from src.quant_metrics import enrich_quant_metrics
+        parsed = enrich_quant_metrics(parsed, history)
+        state = parsed["raw_series"]["market_state"]
+    except Exception:
+        # Quant is additive evidence; failure must not break the deterministic
+        # price/OI/GEX pipeline.
+        pass
 
     from src.decision_engine import build_decision_context
 
@@ -813,6 +836,23 @@ def _deterministic_trade_levels(
     # node and TP1-TP5 became empty even though continuation nodes existed.
     path = (raw.get("market_flow") or {}).get("path") or {}
     path_nodes = [n for n in (path.get("nodes") or []) if isinstance(n, dict) and _num(n.get("level")) is not None]
+    # Add observed OHLC-derived structure to the finite target universe. These
+    # are not invented prices: they are confirmed source-derived nodes from
+    # Fibonacci, swings, EMA and prior extrema across the available horizons.
+    technical_nodes = []
+    for tf, ctx in ((parsed.get("technical_context") or {}).get("timeframes") or {}).items():
+        if not isinstance(ctx, dict):
+            continue
+        for key in ("prior_high", "prior_low", "swing_high", "swing_low", "ema50", "ema200", "vwap"):
+            value = _num(ctx.get(key))
+            if value is not None:
+                technical_nodes.append({"level": value, "source": f"technical:{tf}:{key}"})
+        fib = ctx.get("fibonacci") or {}
+        for key in ("retracement_62", "retracement_79"):
+            value = _num(fib.get(key))
+            if value is not None:
+                technical_nodes.append({"level": value, "source": f"technical:{tf}:fib:{key}"})
+    path_nodes.extend(technical_nodes)
     def structural_targets(side: str, anchor: float | None) -> list[float]:
         if anchor is None:
             return []

@@ -573,6 +573,16 @@ LEVEL → EVENT → ACCEPTANCE/REJECTION → RETEST → TRIGGER
 momentum, BOS, FVG, volume, VWAP และ stop/liquidity zones เมื่อมีข้อมูล
 ห้ามสร้าง order-flow claim ที่ไม่มี data
 
+10) TECHNICAL STRUCTURE / DIVERGENCE / QUANT
+ใช้ OHLC ที่เก็บจริงเป็นหลักฐาน ไม่ใช่แค่ EMA:
+- ตรวจ BOS และ CHoCH จาก confirmed swing structure ใน M5/M15/M30/H1/H4/D1
+- ตรวจ RSI divergence แบบ regular เฉพาะ timeframe ที่มีหลักฐานจริง
+- ถ้ามี divergence ให้ระบุ timeframe และความหมาย; ถ้าไม่มี ห้ามสร้าง
+- เชื่อม Fibonacci, swing high/low, prior high/low, VWAP, ATR และ volatility percentile เมื่อมีข้อมูล
+- ใช้ quant_metrics เช่น returns, realized-vol proxy, IV-vs-realized, expected range, basis dislocation,
+  OI imbalance และ risk flags เพื่อประเมิน magnitude/regime ไม่ใช่สร้าง directional signal เอง
+- Quant ที่ไม่มี statistical basis ห้ามถูกแปลงเป็น probability/win rate
+
 10) PSYCHOLOGY / REFLEXIVITY
 ไม่เดาอารมณ์ผู้เล่น
 ให้ถามเชิงกลไก:
@@ -749,6 +759,9 @@ RULES
 - ห้ามใช้คำว่า OI, IV, GEX, skew, term structure, aggressor, absorption หรือ dealer เป็นคำอธิบายหลักโดยไม่มีคำแปลภาษาคนประกอบ
 - market_overview ต้องตอบให้ได้ในย่อหน้าแรกว่าตลาดกำลังทำอะไรและทิศทางชัดหรือยัง
 - positioning ต้องอธิบาย "ผู้เล่นกำลังเพิ่ม/ลดสถานะอย่างไร" และย้ำว่า OI/ΔOI อย่างเดียวระบุฝั่งซื้อขายไม่ได้
+- ห้ามเขียน raw telemetry เช่น "1H: ...", "TODAY: ...", "YESTERDAY: ..." ใน customer article
+- ห้ามใช้ "สร้างสถานะใหม่", "เปิด Long", "เปิด Short", "fresh long/short" จาก OI/ΔOI เพียงอย่างเดียว
+- บทความต้องสังเคราะห์ evidence เป็นเรื่องเดียว: market state → mechanism → conflict → implication
 - financial_engineering ต้องอธิบายผลของ Gamma/IV/DTE ต่อพฤติกรรมราคา ไม่ใช่แค่เรียงตัวเลข
 - history_comparison ต้องเล่า "อะไรเปลี่ยนจากช่วงก่อน" และใช้สัปดาห์/เซสชันปัจจุบันเป็นบริบทหลัก; อย่าใช้ข้อมูลเก่าเป็น baseline ของ intraday โดยไม่มีหลักฐานรองรับ
 - ห้ามสร้างบทสรุปว่าแรงใดเป็นผู้ชนะเพียงเพราะ Call/Put OI เพิ่มขึ้น
