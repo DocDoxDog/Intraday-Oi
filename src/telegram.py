@@ -207,7 +207,9 @@ def _format_trade_plan_message(parsed: dict, ai_result: dict) -> str:
     trade = ai_result.get("trade_plan") or {}
     execution = trade.get("execution_plan") or {}
     ranked = execution.get("ranked_candidates") if isinstance(execution, dict) else None
-    if not isinstance(ranked, list):
+    # New execution plans expose ranked_candidates. Legacy/tests may only
+    # expose routes; an empty ranked list must therefore fall back to routes.
+    if not isinstance(ranked, list) or not ranked:
         ranked = []
         routes = execution.get("routes") if isinstance(execution, dict) else []
         if not isinstance(routes, list):
