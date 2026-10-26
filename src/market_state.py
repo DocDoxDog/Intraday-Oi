@@ -836,6 +836,23 @@ def _deterministic_trade_levels(
     # node and TP1-TP5 became empty even though continuation nodes existed.
     path = (raw.get("market_flow") or {}).get("path") or {}
     path_nodes = [n for n in (path.get("nodes") or []) if isinstance(n, dict) and _num(n.get("level")) is not None]
+    # Add observed OHLC-derived structure to the finite target universe. These
+    # are not invented prices: they are confirmed source-derived nodes from
+    # Fibonacci, swings, EMA and prior extrema across the available horizons.
+    technical_nodes = []
+    for tf, ctx in ((parsed.get("technical_context") or {}).get("timeframes") or {}).items():
+        if not isinstance(ctx, dict):
+            continue
+        for key in ("prior_high", "prior_low", "swing_high", "swing_low", "ema50", "ema200", "vwap"):
+            value = _num(ctx.get(key))
+            if value is not None:
+                technical_nodes.append({"level": value, "source": f"technical:{tf}:{key}"})
+        fib = ctx.get("fibonacci") or {}
+        for key in ("retracement_62", "retracement_79"):
+            value = _num(fib.get(key))
+            if value is not None:
+                technical_nodes.append({"level": value, "source": f"technical:{tf}:fib:{key}"})
+    path_nodes.extend(technical_nodes)
     def structural_targets(side: str, anchor: float | None) -> list[float]:
         if anchor is None:
             return []
