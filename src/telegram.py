@@ -64,6 +64,29 @@ def _chunk(text: str, limit: int = MAX_MESSAGE_LEN) -> list[str]:
     return chunks
 
 
+def _clean_article_text(value: object) -> str:
+    text = str(value or "").strip()
+    if not text:
+        return ""
+    kept = []
+    for paragraph in re.split(r"\\n\\s*\\n", text):
+        paragraph = paragraph.strip()
+        if not paragraph:
+            continue
+        if re.match(r"^(?:1H|2H|TODAY|YESTERDAY)\\s*:", paragraph, flags=re.IGNORECASE):
+            continue
+        kept.append(paragraph)
+    unique = []
+    seen = set()
+    for paragraph in kept:
+        key = re.sub(r"\\s+", " ", paragraph).lower().strip()
+        if key in seen:
+            continue
+        seen.add(key)
+        unique.append(paragraph)
+    return "\\n\\n".join(unique)
+
+
 def _format_analysis_message(parsed: dict, ai_result: dict) -> str:
     """Render the synthesized analyst article without dashboard-style headings."""
     raw = parsed.get("raw_series") or {}
@@ -91,7 +114,7 @@ def _format_analysis_message(parsed: dict, ai_result: dict) -> str:
     paragraphs = []
     seen = set()
     for value in sections:
-        text = str(value or "").strip()
+        text = _clean_article_text(value)
         if not text or text in seen:
             continue
         seen.add(text)
