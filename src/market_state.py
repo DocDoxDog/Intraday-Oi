@@ -390,7 +390,7 @@ def enrich_market_state(parsed: dict[str, Any], history: dict[str, Any] | None =
 
     technical = parsed.get("technical_context") or {}
     technical_summary = {}
-    for tf in ("h4", "h1", "m15", "m5", "m1"):
+    for tf in ("d1", "h4", "h1", "m30", "m15", "m5", "m1"):
         context = (technical.get("timeframes") or {}).get(tf) or {}
         technical_summary[tf] = {
             "trend": context.get("trend"),
@@ -402,6 +402,9 @@ def enrich_market_state(parsed: dict[str, Any], history: dict[str, Any] | None =
             "volume": _num(context.get("latest_volume")),
             "momentum_5": _num(context.get("momentum_5")),
             "bos": context.get("bos"),
+            "choch": context.get("choch"),
+            "rsi14": _num(context.get("rsi14")),
+            "divergence": context.get("divergence"),
             "sweep": context.get("sweep"),
         }
 
@@ -1322,6 +1325,15 @@ def normalize_analyst_output(
 
     execution_plan = build_trade_execution_plan(state)
 
+    from src.multi_domain_engine import build_multi_domain_context
+    multi_domain = build_multi_domain_context(parsed, state, execution_plan)
+    state["multi_domain"] = multi_domain
+    state["macro"] = multi_domain.get("macro") or state.get("macro") or {}
+    state["microstructure"] = multi_domain.get("microstructure") or {}
+    state["psychology"] = multi_domain.get("psychology") or {}
+    state["quant"] = multi_domain.get("quant") or {}
+    state["strategy_candidates"] = multi_domain.get("strategy_candidates") or []
+
     # From this point onward, every rendered field must come from the
     # validated plan. Never leave a stale pre-validation entry/TP string.
     plan = {
@@ -1428,5 +1440,10 @@ def normalize_analyst_output(
     ai["auction"] = state.get("auction") or {}
     ai["order_flow"] = state.get("order_flow") or {}
     ai["macro_state"] = state.get("macro") or {}
+    ai["microstructure"] = state.get("microstructure") or {}
+    ai["market_psychology"] = state.get("psychology") or {}
+    ai["quant_metrics"] = state.get("quant") or {}
+    ai["strategy_candidates"] = state.get("strategy_candidates") or []
+    ai["multi_domain"] = state.get("multi_domain") or {}
     ai["data_clock"] = state.get("data_clock") or {}
     return ai

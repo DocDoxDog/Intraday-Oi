@@ -78,6 +78,72 @@ def _session_vwap(candles: list[dict]) -> float | None:
     return round(weighted / total_volume, 5)
 
 
+
+def _rsi(closes: list[float], period: int = 14) -> float | None:
+    if len(closes) < period + 1:
+        return None
+    gains, losses = [], []
+    for a, b in zip(closes[-period-1:-1], closes[-period:]):
+        change = b - a
+        gains.append(max(change, 0.0))
+        losses.append(max(-change, 0.0))
+    avg_gain = sum(gains) / period
+    avg_loss = sum(losses) / period
+    if avg_loss == 0:
+        return 100.0
+    return round(100.0 - (100.0 / (1.0 + avg_gain / avg_loss)), 5)
+
+
+def _pivot_sequence(candles: list[dict], left: int = 2, right: int = 2) -> dict:
+    highs, lows = [], []
+    for i in range(left, len(candles) - right):
+        h = candles[i]["high"]
+        lo = candles[i]["low"]
+        if h >= max(x["high"] for x in candles[i-left:i+right+1]):
+            highs.append((i, h))
+        if lo <= min(x["low"] for x in candles[i-left:i+right+1]):
+            lows.append((i, lo))
+    return {"highs": highs, "lows": lows}
+
+
+def _choch(candles: list[dict]) -> str:
+    piv = _pivot_sequence(candles)
+    if len(piv["highs"]) < 2 or len(piv["lows"]) < 2:
+        return "none"
+    last_close = candles[-1]["close"]
+    h1, h2 = piv["highs"][-2][1], piv["highs"][-1][1]
+    l1, l2 = piv["lows"][-2][1], piv["lows"][-1][1]
+    if l2 < l1 and last_close > h2:
+        return "bullish_choch"
+    if h2 > h1 and last_close < l2:
+        return "bearish_choch"
+    return "none"
+
+
+def _divergence(candles: list[dict]) -> dict:
+    closes = [x["close"] for x in candles]
+    rsi = _rsi(closes, 14)
+    if rsi is None or len(closes) < 40:
+        return {"type": "none", "status": "INSUFFICIENT"}
+    # Conservative regular divergence: compare two confirmed swing points.
+    piv = _pivot_sequence(candles)
+    result = {"type": "none", "status": "AVAILABLE"}
+    if len(piv["lows"]) >= 2:
+        i1, p1 = piv["lows"][-2]
+        i2, p2 = piv["lows"][-1]
+        r1 = _rsi(closes[:i1+1], 14)
+        r2 = _rsi(closes[:i2+1], 14)
+        if r1 is not None and r2 is not None and p2 < p1 and r2 > r1:
+            result = {"type": "bullish_regular", "status": "DETECTED"}
+    if result["type"] == "none" and len(piv["highs"]) >= 2:
+        i1, p1 = piv["highs"][-2]
+        i2, p2 = piv["highs"][-1]
+        r1 = _rsi(closes[:i1+1], 14)
+        r2 = _rsi(closes[:i2+1], 14)
+        if r1 is not None and r2 is not None and p2 > p1 and r2 < r1:
+            result = {"type": "bearish_regular", "status": "DETECTED"}
+    return result
+
 def _structure(candles: list[dict]) -> dict:
     highs = [x["high"] for x in candles]
     lows = [x["low"] for x in candles]
@@ -137,6 +203,9 @@ def _structure(candles: list[dict]) -> dict:
         "trend": trend,
         "sweep": sweep,
         "bos": bos,
+        "choch": _choch(candles),
+        "rsi14": _rsi(closes, 14),
+        "divergence": _divergence(candles),
         "fvg": fvg,
         "fibonacci": fib,
         "previous_close": previous["close"],
@@ -204,6 +273,7 @@ def build_context(api_key: str | None = None, symbol: str | None = None) -> dict
         "m15": "15min",
         "m5": "5min",
         "m1": "1min",
+        "d1": "1day",
     }.items():
         candles = _fetch(symbol, interval, key)
         candles_by_tf[name] = candles
