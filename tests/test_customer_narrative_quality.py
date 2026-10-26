@@ -111,3 +111,23 @@ def test_telegram_shows_complete_deterministic_plan_even_when_execution_gate_is_
     assert "TP1 <b>3964" in message
     assert "TP2 <b>3939" in message
     assert "TP3 <b>3889" in message
+
+
+def test_trade_plan_renderer_rejects_same_side_of_price_entries_and_renders_ranked_candidates():
+    parsed = {"cfd_price": 4009.48, "future_price": 4018.60}
+    ai = {
+        "trade_plan": {
+            "execution_plan": {
+                "ranked_candidates": [
+                    {"rank": 1, "side": "LONG", "route": "BUY_BREAKOUT", "state": "ARMED", "current_price": 4009.48, "trigger": 4025.88, "stop": 4020.88, "targets": [4035.88, 4045.88]},
+                    {"rank": 2, "side": "SHORT", "route": "SELL_REJECTION", "state": "ARMED", "current_price": 4009.48, "trigger": 4025.88, "stop": 4030.88, "targets": [4015.88, 4000.88]},
+                    {"rank": 3, "side": "LONG", "route": "BUY_SUPPORT", "state": "ARMED", "current_price": 4009.48, "trigger": 3990.88, "stop": 3985.88, "targets": [4000.88]},
+                ]
+            }
+        }
+    }
+    message = telegram._format_trade_plan_message(parsed, ai)
+    assert "TOP 5" in message
+    assert "#1" in message
+    assert "#2" in message
+    assert "#3" in message
