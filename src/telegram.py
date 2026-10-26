@@ -180,42 +180,36 @@ def _format_path_message(parsed: dict, ai_result: dict) -> str:
     return "\n".join(lines)
 
 def _format_trade_plan_message(parsed: dict, ai_result: dict) -> str:
-    """Render every deterministic route that has a complete executable map."""
-    trade = ai_result.get("trade_plan") or {}
-    execution = trade.get("execution_plan") or {}
-    routes = execution.get("routes") if isinstance(execution, dict) else None
-    if not isinstance(routes, list):
-        routes = [execution.get(k) for k in ("long_reclaim","long_support","short_rejection","short_breakdown")] if isinstance(execution, dict) else []
-    valid = []
-    for route in routes:
-        if not isinstance(route, dict):
+    """Render the top three deterministic, distinct strategy candidates."""
+    candidates = ai_result.get("strategy_candidates") or []
+    lines=["<b>🎯 TRADE PLAN</b>"]
+    shown=0
+    for item in candidates[:3]:
+        if not isinstance(item, dict):
             continue
-        state = str(route.get("state") or "").upper()
-        # A complete deterministic route is a customer-facing plan even
-        # when the execution state is still gated by confirmation/risk.
-        # Telegram intentionally hides the gate language and shows only the
-        # source-derived Entry/SL/TP ladder.
-        if state in {"DATA_INSUFFICIENT","INVALIDATED"}:
-            continue
-        entry = route.get("entry", route.get("trigger"))
-        stop = route.get("stop")
-        targets = [x for x in (route.get("targets") or []) if x is not None]
+        entry=item.get("entry"); stop=item.get("stop"); targets=item.get("targets") or []
         if entry is None or stop is None or not targets:
             continue
-        valid.append((route, entry, stop, targets))
-    if not valid:
+        shown += 1
+        side=str(item.get("side") or "").upper()
+        emoji="🟢" if side.startswith("LONG") else "🔴"
+        title="BUY" if side.startswith("LONG") else "SELL"
+        strategy=_escape(item.get("strategy") or "Deterministic setup")
+        score=_show(item.get("score"),2)
+        lines += [
+            "",
+            f"<b>TOP {shown} — {strategy}</b>",
+            f"{emoji} <b>{title}</b>  | Score <b>{score}</b>",
+            f"Entry <b>{_show(entry)}</b>",
+            f"SL <b>{_show(stop)}</b>",
+        ]
+        for j,tp in enumerate(targets[:5],1):
+            lines.append(f"TP{j} <b>{_show(tp)}</b>")
+        evidence=item.get("evidence") or []
+        if evidence:
+            lines.append("Evidence: " + _escape(", ".join(str(x) for x in evidence[:4])))
+    if shown==0:
         return "<b>🎯 TRADE PLAN</b>\nไม่มีแผนที่ผ่านเกณฑ์จากข้อมูลชุดนี้"
-    lines=["<b>🎯 TRADE PLAN</b>"]
-    for i,(route,entry,stop,targets) in enumerate(valid):
-        if i: lines.append("")
-        side=str(route.get("side") or route.get("route") or "").upper()
-        emoji="🟢" if "LONG" in side or "BUY" in side else "🔴"
-        title="BUY" if emoji=="🟢" else "SELL"
-        lines.append(f"{emoji} <b>{title}</b>")
-        lines.append(f"Entry <b>{_escape(_show(entry))}</b>")
-        lines.append(f"SL <b>{_escape(_show(stop))}</b>")
-        for j,tp in enumerate(targets,1):
-            lines.append(f"TP{j} <b>{_escape(_show(tp))}</b>")
     return "\n".join(lines)
 
 def format_message(parsed: dict, ai_result: dict) -> str:
