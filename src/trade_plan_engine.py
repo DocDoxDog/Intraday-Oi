@@ -325,6 +325,86 @@ def build_trade_execution_plan(state: dict[str, Any]) -> dict[str, Any]:
     primary_long = long_reclaim if htf == "bullish" else long_support
 
     routes = [long_reclaim, long_support, short_rejection, short_breakdown]
+
+    def _confidence(route: dict[str, Any]) -> float:
+        """Deterministic route quality score used only for ranking.
+
+        This is not a probability or win-rate. It ranks currently available
+        source-derived setups using structure, location, RR and risk quality.
+        """
+        side = str(route.get("side") or "").upper()
+        state_name = str(route.get("state") or "").upper()
+        entry = _n(route.get("trigger"))
+        stop = _n(route.get("stop"))
+        targets = [x for x in (route.get("targets") or []) if _n(x) is not None]
+        score = 0.0
+        if entry is None or stop is None or not targets:
+            return 0.0
+        # State quality: confirmed > triggered > armed/approaching.
+        score += {
+            "CONFIRMED": 35.0,
+            "COUNTERTREND_CONFIRMED": 28.0,
+            "TRIGGERED_WAIT_CONFIRMATION": 24.0,
+            "TRIGGERED": 24.0,
+            "IN_ZONE": 18.0,
+            "APPROACHING": 14.0,
+            "ARMED": 10.0,
+        }.get(state_name, 0.0)
+        # Structural alignment.
+        if (htf == "bullish" and side.startswith("LONG")) or (htf == "bearish" and side.startswith("SHORT")):
+            score += 25.0
+        elif htf in {"mixed", "transition", "neutral"}:
+            score += 8.0
+        else:
+            score += 3.0
+        # Risk/reward quality: first target and best available target.
+        rr = [float(x) for x in (route.get("rr") or []) if x is not None]
+        if rr:
+            score += min(20.0, max(0.0, rr[0]) * 8.0)
+            score += min(10.0, max(rr) * 2.0)
+        # Penalize blocked risk / invalid geometry.
+        if route.get("risk_blocked"):
+            score -= 25.0
+        if not route.get("rr1_eligible"):
+            score -= 10.0
+        return round(max(0.0, min(100.0, score)), 2)
+
+    def _entry_geometry_ok(route: dict[str, Any]) -> bool:
+        """Prevent a route from using an entry on the wrong side of price."""
+        entry = _n(route.get("trigger"))
+        if entry is None or current is None:
+            return False
+        route_name = str(route.get("route") or "")
+        if route_name in {"BUY_BREAKOUT"}:
+            return entry > current
+        if route_name in {"BUY_SUPPORT"}:
+            return entry < current
+        if route_name in {"SELL_REJECTION"}:
+            return entry > current
+        if route_name in {"SELL_BREAKDOWN"}:
+            return entry < current
+        return True
+
+    ranked_candidates = []
+    for route in routes:
+        if not isinstance(route, dict):
+            continue
+        if not _entry_geometry_ok(route):
+            continue
+        if _n(route.get("trigger")) is None or _n(route.get("stop")) is None:
+            continue
+        if not [x for x in (route.get("targets") or []) if _n(x) is not None]:
+            continue
+        item = dict(route)
+        item["confidence"] = _confidence(route)
+        ranked_candidates.append(item)
+    ranked_candidates.sort(key=lambda x: (-float(x.get("confidence") or 0), str(x.get("route") or "")))
+    # Customer surface may show the five strongest deterministic setups, but
+    # never invents a fifth setup when only fewer source-derived routes exist.
+    ranked_candidates = ranked_candidates[:5]
+    for rank, route in enumerate(ranked_candidates, 1):
+        route["rank"] = rank
+
     states = [str(x.get("state") or "WAIT").upper() for x in routes]
 
     aligned_confirmed = []
@@ -424,6 +504,7 @@ def build_trade_execution_plan(state: dict[str, Any]) -> dict[str, Any]:
         "short_rejection": short_rejection,
         "short_breakdown": short_breakdown,
         "routes": routes,
+        "ranked_candidates": ranked_candidates,
         "rules": [
             "A structural zone is not an entry price.",
             "Entry becomes actionable only after route confirmation and risk gate pass.",
