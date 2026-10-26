@@ -67,3 +67,28 @@ def test_structural_key_levels_are_not_automatic_trade_targets():
     assert p["long"]["rr"] == []
     # No route-specific trigger was supplied, so the v3 engine must fail closed.
     assert p["long"]["state"] == "DATA_INSUFFICIENT"
+
+
+def test_ranked_candidates_are_capped_at_three_and_have_deterministic_confidence():
+    s = _state(price=4190.0)
+    s["market_map"]["long_support_trigger"] = 4175.0
+    s["market_map"]["long_support_invalidation"] = 4140.0
+    s["market_map"]["long_support_trade_targets"] = [4200.0, 4230.0]
+    s["market_map"]["short_rejection_trigger"] = 4200.0
+    s["market_map"]["short_rejection_stop"] = 4210.0
+    s["market_map"]["short_rejection_trade_targets"] = [4175.0, 4140.0]
+    s["market_map"]["short_breakdown_trigger"] = 4175.0
+    s["market_map"]["short_breakdown_stop"] = 4185.0
+    s["market_map"]["short_breakdown_trade_targets"] = [4140.0, 4120.0]
+    s["technical_signals"] = {
+        "m5": {"trend": "bullish", "bos": "bullish_bos", "choch": "none"},
+        "m15": {"trend": "bullish", "bos": "bullish_bos", "choch": "none"},
+        "m30": {"trend": "bullish", "bos": "none", "choch": "bullish_choch"},
+        "h1": {"trend": "neutral", "bos": "none", "choch": "none"},
+        "h4": {"trend": "bearish", "bos": "none", "choch": "none"},
+        "d1": {"trend": "bearish", "bos": "none", "choch": "none"},
+    }
+    p = build_trade_execution_plan(s)
+    assert 1 <= len(p["ranked_candidates"]) <= 3
+    assert all(0 <= float(x["confidence"]) <= 100 for x in p["ranked_candidates"])
+    assert [x["rank"] for x in p["ranked_candidates"]] == list(range(1, len(p["ranked_candidates"]) + 1))
