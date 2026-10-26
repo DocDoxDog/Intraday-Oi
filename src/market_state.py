@@ -292,7 +292,7 @@ def _decision_framework(
             tf: technical
             for tf, technical in (
                 (tf, ((parsed.get("technical_context") or {}).get("timeframes") or {}).get(tf) or {})
-                for tf in ("h4", "h1", "m15", "m5", "m1")
+                for tf in ("d1", "h4", "h1", "m30", "m15", "m5", "m1")
             )
         },
         "news": parsed.get("news_context") or [],
@@ -489,7 +489,30 @@ def enrich_market_state(parsed: dict[str, Any], history: dict[str, Any] | None =
         book=order_flow_input.get("book") if isinstance(order_flow_input, dict) else None,
     )
     state["regime"] = build_market_regime(state)
+    # Preserve the full multi-timeframe technical evidence for the analyst and
+    # trade ranking layer; only the decision engine may choose which horizons
+    # are directionally material.
+    state["technical_signals"] = {
+        tf: {
+            "trend": ((technical.get("timeframes") or {}).get(tf) or {}).get("trend"),
+            "bos": ((technical.get("timeframes") or {}).get(tf) or {}).get("bos"),
+            "choch": ((technical.get("timeframes") or {}).get(tf) or {}).get("choch"),
+            "divergence": ((technical.get("timeframes") or {}).get(tf) or {}).get("divergence"),
+            "rsi14": ((technical.get("timeframes") or {}).get(tf) or {}).get("rsi14"),
+            "atr14": ((technical.get("timeframes") or {}).get(tf) or {}).get("atr14"),
+            "atr_percentile": ((technical.get("timeframes") or {}).get(tf) or {}).get("atr_percentile"),
+        }
+        for tf in ("m5", "m15", "m30", "h1", "h4", "d1")
+    }
     state["action_zones"] = build_action_zones(state)
+    try:
+        from src.quant_metrics import enrich_quant_metrics
+        parsed = enrich_quant_metrics(parsed, history)
+        state = parsed["raw_series"]["market_state"]
+    except Exception:
+        # Quant is additive evidence; failure must not break the deterministic
+        # price/OI/GEX pipeline.
+        pass
 
     from src.decision_engine import build_decision_context
 
