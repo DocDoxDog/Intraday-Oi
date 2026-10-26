@@ -242,9 +242,11 @@ def build_context(api_key: str | None = None, symbol: str | None = None) -> dict
     for name, interval in {
         "h4": "4h",
         "h1": "1h",
+        "m30": "30min",
         "m15": "15min",
         "m5": "5min",
         "m1": "1min",
+        "d1": "1day",
     }.items():
         candles = _fetch(symbol, interval, key)
         candles_by_tf[name] = candles
