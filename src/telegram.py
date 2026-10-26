@@ -182,6 +182,11 @@ def _format_path_message(parsed: dict, ai_result: dict) -> str:
 def _format_trade_plan_message(parsed: dict, ai_result: dict) -> str:
     """Render the top three deterministic, distinct strategy candidates."""
     candidates = ai_result.get("strategy_candidates") or []
+    # Compatibility with the canonical deterministic execution payload used
+    # by older callers/tests. Never synthesize levels here.
+    if not candidates:
+        execution = ((ai_result.get("trade_plan") or {}).get("execution_plan") or {})
+        candidates = execution.get("routes") or []
     lines=["<b>🎯 TRADE PLAN</b>"]
     shown=0
     for item in candidates[:3]:
