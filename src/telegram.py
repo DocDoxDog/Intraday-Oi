@@ -184,12 +184,14 @@ def _format_trade_plan_message(parsed: dict, ai_result: dict) -> str:
     candidates = ai_result.get("strategy_candidates") or []
     # Compatibility with the canonical deterministic execution payload used
     # by older callers/tests. Never synthesize levels here.
-    if not candidates:
+    legacy_routes = not candidates
+    if legacy_routes:
         execution = ((ai_result.get("trade_plan") or {}).get("execution_plan") or {})
         candidates = execution.get("routes") or []
     lines=["<b>🎯 TRADE PLAN</b>"]
     shown=0
-    for item in candidates[:3]:
+    render_candidates = candidates if legacy_routes else candidates[:3]
+    for item in render_candidates:
         if not isinstance(item, dict):
             continue
         entry=item.get("entry"); stop=item.get("stop"); targets=item.get("targets") or []
@@ -200,16 +202,16 @@ def _format_trade_plan_message(parsed: dict, ai_result: dict) -> str:
         emoji="🟢" if side.startswith("LONG") else "🔴"
         title="BUY" if side.startswith("LONG") else "SELL"
         strategy=_escape(item.get("strategy") or "Deterministic setup")
-        score=_show(item.get("score"),2)
+        score=_escape(_show(item.get("score"),2))
         lines += [
             "",
             f"<b>TOP {shown} — {strategy}</b>",
             f"{emoji} <b>{title}</b>  | Score <b>{score}</b>",
-            f"Entry <b>{_show(entry)}</b>",
-            f"SL <b>{_show(stop)}</b>",
+            f"Entry <b>{_escape(_show(entry))}</b>",
+            f"SL <b>{_escape(_show(stop))}</b>",
         ]
         for j,tp in enumerate(targets[:5],1):
-            lines.append(f"TP{j} <b>{_show(tp)}</b>")
+            lines.append(f"TP{j} <b>{_escape(_show(tp))}</b>")
         evidence=item.get("evidence") or []
         if evidence:
             lines.append("Evidence: " + _escape(", ".join(str(x) for x in evidence[:4])))
