@@ -70,19 +70,43 @@ def _psych(state):
     if f.get("oi_change_put") is not None or f.get("oi_change_call") is not None: m.append("positioning_activity_without_aggressor_side")
     return {"mechanisms":m,"interpretation":"behavior is inferred from observable liquidity/positioning mechanisms, not emotion"}
 
-def _name(route,t):
-    r=str(route.get("route") or ""); m5=t.get("m5") or {}; f=[]
-    if m5.get("sweep") not in (None,"none"): f.append("LIQUIDITY_SWEEP")
-    if m5.get("choch") not in (None,"none"): f.append("CHoCH")
-    if m5.get("bos") not in (None,"none"): f.append("BOS")
-    if m5.get("fvg"): f.append("FVG")
-    d=m5.get("divergence") or {}
-    if d.get("status")=="DETECTED": f.append("DIVERGENCE")
+def _pattern_families(state, side):
+    t=state.get("technical") or {}; m5=t.get("m5") or {}; m15=t.get("m15") or {}
+    fam=[]
+    sweep=str(m5.get("sweep") or "none")
+    choch=str(m5.get("choch") or "none")
+    bos=str(m5.get("bos") or "none")
+    if (side.startswith("LONG") and "sell_side" in sweep) or (side.startswith("SHORT") and "buy_side" in sweep):
+        fam += ["ICT","SMC","WYCKOFF","CRT"]
+    if (side.startswith("LONG") and "bullish" in choch) or (side.startswith("SHORT") and "bearish" in choch):
+        fam += ["SMC","CISD"]
+    if (side.startswith("LONG") and "bullish" in bos) or (side.startswith("SHORT") and "bearish" in bos):
+        fam += ["ICT","SMC","CISD","TTRADES"]
+    if m5.get("fvg") or m15.get("fvg"): fam.append("ICT")
+    div=m5.get("divergence") or {}
+    if div.get("status")=="DETECTED": fam.append("TTRADES")
+    # Conservative Elliott candidate: enough alternating swing information is
+    # required; the label is never treated as a completed wave count.
+    if m5.get("prior_high") is not None and m5.get("prior_low") is not None:
+        fam.append("ELLIOTT_CANDIDATE")
+    # MSNR is a level-reaction framework; route levels themselves are source-derived.
+    fam.append("MSNR")
+    return list(dict.fromkeys(fam))
+
+def _name(route,state):
+    t=state.get("technical") or {}; m5=t.get("m5") or {}; m15=t.get("m15") or {}
+    r=str(route.get("route") or ""); side=str(route.get("side") or "").upper()
+    fam=_pattern_families(state,side); features=[]
+    if m5.get("sweep") not in (None,"none"): features.append("LIQUIDITY_SWEEP")
+    if m5.get("choch") not in (None,"none"): features.append("CHoCH")
+    if m5.get("bos") not in (None,"none"): features.append("BOS")
+    if m5.get("fvg") or m15.get("fvg"): features.append("FVG")
+    if (m5.get("divergence") or {}).get("status")=="DETECTED": features.append("DIVERGENCE")
     if "reclaim" in r: n="ICT/SMC Breakout-Reclaim"
-    elif "support" in r: n="ICT Liquidity-Sweep Reversal" if "LIQUIDITY_SWEEP" in f else "SMC Support Reversal"
+    elif "support" in r: n="ICT Liquidity-Sweep Reversal" if "LIQUIDITY_SWEEP" in features else "SMC Support Reversal"
     elif "rejection" in r: n="ICT/SMC Rejection at Liquidity"
     else: n="CRT/SMC Breakdown-Retest"
-    return n,f
+    return n,features,fam
 
 def rank_trade_candidates(state,execution):
     t=state.get("technical") or {}; d=state.get("decision") or {}; structural=str(d.get("structural_bias") or "MIXED").upper()
@@ -106,8 +130,8 @@ def rank_trade_candidates(state,execution):
         if (side.startswith("LONG") and dv.get("type")=="bullish_regular") or (side.startswith("SHORT") and dv.get("type")=="bearish_regular"): score+=5; reasons.append("divergence")
         if m5.get("fvg") or (t.get("m15") or {}).get("fvg"): score+=3; reasons.append("FVG")
         if (r.get("risk") or {}).get("status")=="PASS": score+=6; reasons.append("risk geometry")
-        name,features=_name(r,t)
-        rows.append({"route":r.get("route"),"strategy":name,"side":side,"entry":e,"stop":s,"targets":targets[:5],"score":round(score,2),"evidence":reasons,"features":features})
+        name,features,families=_name(r,state)
+        rows.append({"route":r.get("route"),"strategy":name,"side":side,"entry":e,"stop":s,"targets":targets[:5],"score":round(score,2),"evidence":reasons,"features":features,"strategy_families":families})
     rows.sort(key=lambda x:(x["score"],len(x["targets"])),reverse=True)
     selected=[]; seen=set()
     for x in rows:
