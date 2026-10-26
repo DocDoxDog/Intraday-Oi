@@ -203,6 +203,7 @@ def build_trade_execution_plan(state: dict[str, Any]) -> dict[str, Any]:
         return {
             "side": side,
             "route": key,
+            "current_price": current,
             "entry_mode": "AFTER_CONFIRMATION",
             "entry_reference_role": "TRIGGER_ZONE_NOT_FILL",
             "execution_ready": bool(
