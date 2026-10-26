@@ -180,41 +180,61 @@ def _format_path_message(parsed: dict, ai_result: dict) -> str:
     return "\n".join(lines)
 
 def _format_trade_plan_message(parsed: dict, ai_result: dict) -> str:
-    """Render every deterministic route that has a complete executable map."""
+    """Render the top deterministic trade candidates, not a synthetic BUY/SELL pair."""
     trade = ai_result.get("trade_plan") or {}
     execution = trade.get("execution_plan") or {}
-    routes = execution.get("routes") if isinstance(execution, dict) else None
-    if not isinstance(routes, list):
-        routes = [execution.get(k) for k in ("long_reclaim","long_support","short_rejection","short_breakdown")] if isinstance(execution, dict) else []
+    ranked = execution.get("ranked_candidates") if isinstance(execution, dict) else None
+    if not isinstance(ranked, list):
+        ranked = []
+        routes = execution.get("routes") if isinstance(execution, dict) else []
+        if not isinstance(routes, list):
+            routes = []
+        for route in routes:
+            if isinstance(route, dict):
+                ranked.append(route)
+
     valid = []
-    for route in routes:
+    seen_keys = set()
+    for route in ranked:
         if not isinstance(route, dict):
             continue
         state = str(route.get("state") or "").upper()
-        # A complete deterministic route is a customer-facing plan even
-        # when the execution state is still gated by confirmation/risk.
-        # Telegram intentionally hides the gate language and shows only the
-        # source-derived Entry/SL/TP ladder.
-        if state in {"DATA_INSUFFICIENT","INVALIDATED"}:
+        if state in {"DATA_INSUFFICIENT", "INVALIDATED", "NO_TRADE", "WAIT"}:
             continue
         entry = route.get("entry", route.get("trigger"))
         stop = route.get("stop")
         targets = [x for x in (route.get("targets") or []) if x is not None]
         if entry is None or stop is None or not targets:
             continue
+        side = str(route.get("side") or "").upper()
+        is_long = side.startswith("LONG")
+        is_short = side.startswith("SHORT")
+        current = route.get("current_price")
+        if current is not None:
+            if is_long and float(entry) <= float(current):
+                continue
+            if is_short and float(entry) >= float(current):
+                continue
+        key = (side, round(float(entry), 5), round(float(stop), 5))
+        if key in seen_keys:
+            continue
+        seen_keys.add(key)
         valid.append((route, entry, stop, targets))
+
     if not valid:
         return "<b>🎯 TRADE PLAN</b>\nไม่มีแผนที่ผ่านเกณฑ์จากข้อมูลชุดนี้"
-    lines=["<b>🎯 TRADE PLAN</b>"]
-    for i,(route,entry,stop,targets) in enumerate(valid):
-        if i: lines.append("")
-        side=str(route.get("side") or route.get("route") or "").upper()
-        emoji="🟢" if "LONG" in side or "BUY" in side else "🔴"
-        title="BUY" if emoji=="🟢" else "SELL"
-        lines.append(f"{emoji} <b>{title}</b>")
+
+    lines = ["<b>🎯 TRADE PLAN — TOP 5</b>"]
+    for i, (route, entry, stop, targets) in enumerate(valid[:5], 1):
+        if i > 1:
+            lines.append("")
+        side = str(route.get("side") or "").upper()
+        emoji = "🟢" if "LONG" in side else "🔴"
+        title = "BUY" if emoji == "🟢" else "SELL"
+        lines.append(f"<b>#{i} {emoji} {title}</b>")
         lines.append(f"Entry <b>{_escape(_show(entry))}</b>")
         lines.append(f"SL <b>{_escape(_show(stop))}</b>")
-        for j,tp in enumerate(targets,1):
+        for j, tp in enumerate(targets, 1):
             lines.append(f"TP{j} <b>{_escape(_show(tp))}</b>")
     return "\n".join(lines)
 
