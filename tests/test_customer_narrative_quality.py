@@ -111,3 +111,28 @@ def test_telegram_shows_complete_deterministic_plan_even_when_execution_gate_is_
     assert "TP1 <b>3964" in message
     assert "TP2 <b>3939" in message
     assert "TP3 <b>3889" in message
+
+
+def test_telegram_article_removes_raw_telemetry_and_keeps_distinct_analysis():
+    from src import telegram
+    parsed = {
+        "cfd_price": 3993.70,
+        "future_price": 4007.90,
+        "basis_diff": 14.20,
+        "vol": 16.96,
+        "dte": 1.16,
+        "observed_at": "2026-10-25T16:00:00+00:00",
+        "raw_series": {"market_state": {"flow": {}, "gex": {}}},
+    }
+    ai = {
+        "market_overview": "ภาพหลักยังเป็นขาลง แต่ระยะสั้นกำลังฟื้นตัว",
+        "why": "Gamma เป็นลบ จึงทำให้การเคลื่อนไหวเมื่อหลุดระดับสำคัญมีโอกาสแรงขึ้น",
+        "positioning": "OI เพิ่มทั้ง Put และ Call แต่ข้อมูลนี้ยังไม่บอก aggressor",
+        "history_comparison": "1H: Price Δ UNKNOWN | OI Δ UNKNOWN",
+        "macro": "TODAY: Price Δ 0.00 | IV Δ -0.24%",
+    }
+    message = telegram._format_analysis_message(parsed, ai)
+    assert "1H:" not in message
+    assert "TODAY:" not in message
+    assert "ภาพหลักยังเป็นขาลง" in message
+    assert "Gamma เป็นลบ" in message
