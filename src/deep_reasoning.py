@@ -85,6 +85,7 @@ def build_deep_reasoning_context(parsed: dict[str, Any], history: dict[str, Any]
     flow = raw.get("market_flow") or {}
     multi = raw.get("multi_expiry_gamma") or {}
     zones = raw.get("multi_expiry_gamma_zones") or {}
+    rollover = raw.get("expiry_rollover") or {}
     historical = raw.get("historical_memory") or raw.get("multi_timeframe_memory") or {}
     return _d({
         "as_of": parsed.get("observed_at") or parsed.get("retrieved_at"),
@@ -112,6 +113,7 @@ def build_deep_reasoning_context(parsed: dict[str, Any], history: dict[str, Any]
                 "zones": zones,
                 "totals": multi.get("totals") or {},
             },
+            "expiry_rollover": rollover,
             "oi_intelligence": {
                 "delta_exposure": raw.get("delta_exposure") or {},
                 "flow_hypotheses": raw.get("flow_hypotheses") or {},
