@@ -39,6 +39,7 @@ from src.supabase_client import (
 from src.url_manager import UrlManager, UrlManagerError
 from src import history, telegram, line
 from src.multi_expiry import build_gamma_matrix, summarize_gamma_zones, merge_expected_expirations, build_gold_weekly_series_window
+from src.expiry_rollover import build_expiry_rollover_context
 from src.gamma_chart import render_gamma_table, render_gamma_table_full
 from src.news_announcement import collect_news, format_news_announcement
 from src.market_state import enrich_market_state, normalize_analyst_output
@@ -97,6 +98,11 @@ def run():
         parsed["raw_series"]["gold_series_window"] = build_gold_weekly_series_window(
             as_of=parsed.get("observed_at"),
             count=max(7, int(os.environ.get("QUIKSTRIKE_DISPLAY_EXPIRATIONS", "7"))),
+        )
+        parsed["raw_series"]["expiry_rollover"] = build_expiry_rollover_context(
+            expiry_snapshots,
+            current_price=parsed.get("future_price"),
+            rollover_dte_threshold=float(os.environ.get("EXPIRY_ROLLOVER_DTE_THRESHOLD", "5")),
         )
         observed_columns = sum(1 for c in gamma_matrix["columns"] if c.get("status") == "OBSERVED")
         print(
