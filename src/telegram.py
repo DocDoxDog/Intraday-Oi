@@ -180,7 +180,7 @@ def _format_path_message(parsed: dict, ai_result: dict) -> str:
     return "\n".join(lines)
 
 def _format_trade_plan_message(parsed: dict, ai_result: dict) -> str:
-    """Render the top three deterministic, distinct strategy candidates."""
+    """Render up to five deterministic, distinct strategy candidates."""
     candidates = list(ai_result.get("strategy_candidates") or [])
     # Compatibility with the canonical deterministic execution payload used
     # by older callers/tests. Fill the ranked list from the four deterministic
@@ -188,12 +188,21 @@ def _format_trade_plan_message(parsed: dict, ai_result: dict) -> str:
     # levels and never duplicate a route.
     execution = ((ai_result.get("trade_plan") or {}).get("execution_plan") or {})
     legacy_candidates = list(execution.get("routes") or [])
-    seen_routes = {str(x.get("route") or "") for x in candidates if isinstance(x, dict)}
+    seen_routes = {
+        (str(x.get("route") or ""), str(x.get("side") or "").upper(),
+         _show(x.get("entry")), _show(x.get("stop")))
+        for x in candidates if isinstance(x, dict)
+    }
     for route in legacy_candidates:
         if not isinstance(route, dict):
             continue
-        route_key = str(route.get("route") or "")
-        if route_key and route_key not in seen_routes:
+        route_key = (
+            str(route.get("route") or ""),
+            str(route.get("side") or "").upper(),
+            _show(route.get("entry")),
+            _show(route.get("stop")),
+        )
+        if route_key not in seen_routes:
             candidates.append(route)
             seen_routes.add(route_key)
         if len(candidates) >= 5:
