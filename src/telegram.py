@@ -181,16 +181,26 @@ def _format_path_message(parsed: dict, ai_result: dict) -> str:
 
 def _format_trade_plan_message(parsed: dict, ai_result: dict) -> str:
     """Render the top three deterministic, distinct strategy candidates."""
-    candidates = ai_result.get("strategy_candidates") or []
+    candidates = list(ai_result.get("strategy_candidates") or [])
     # Compatibility with the canonical deterministic execution payload used
-    # by older callers/tests. Never synthesize levels here.
-    legacy_routes = not candidates
-    if legacy_routes:
-        execution = ((ai_result.get("trade_plan") or {}).get("execution_plan") or {})
-        candidates = execution.get("routes") or []
+    # by older callers/tests. Fill the ranked list from the four deterministic
+    # routes when fewer than five ranked candidates exist. Never synthesize
+    # levels and never duplicate a route.
+    execution = ((ai_result.get("trade_plan") or {}).get("execution_plan") or {})
+    legacy_candidates = list(execution.get("routes") or [])
+    seen_routes = {str(x.get("route") or "") for x in candidates if isinstance(x, dict)}
+    for route in legacy_candidates:
+        if not isinstance(route, dict):
+            continue
+        route_key = str(route.get("route") or "")
+        if route_key and route_key not in seen_routes:
+            candidates.append(route)
+            seen_routes.add(route_key)
+        if len(candidates) >= 5:
+            break
     lines=["<b>🎯 TRADE PLAN</b>"]
     shown=0
-    render_candidates = candidates if legacy_routes else candidates[:3]
+    render_candidates = candidates[:5]
     for item in render_candidates:
         if not isinstance(item, dict):
             continue
