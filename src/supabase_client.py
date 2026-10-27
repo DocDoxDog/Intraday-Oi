@@ -704,6 +704,20 @@ def insert_multi_expiry_options(parsed: dict, snapshot_id: int | None = None) ->
                 "observed_at": observed_at,
             })
         if rows:
+            # QuikStrike can expose duplicate strike rows across rendering layers.
+            # Collapse them before a single upsert; otherwise Postgres 21000 rejects
+            # a batch that targets the same unique row more than once.
+            deduped: dict[tuple[int, float, str], dict] = {}
+            for row in rows:
+                key = (int(expiry_id), float(row["strike"]), str(row["observed_at"]))
+                current = deduped.get(key)
+                if current is None:
+                    deduped[key] = row
+                    continue
+                for field, value in row.items():
+                    if current.get(field) in (None, "") and value not in (None, ""):
+                        current[field] = value
+            rows = list(deduped.values())
             client.table("option_strike_observations").upsert(
                 rows,
                 on_conflict="expiration_id,strike,observed_at",
