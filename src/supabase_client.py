@@ -706,7 +706,7 @@ def insert_multi_expiry_options(parsed: dict, snapshot_id: int | None = None) ->
         if rows:
             client.table("option_strike_observations").upsert(
                 rows,
-                on_conflict="expiration_id,strike",
+                on_conflict="expiration_id,strike,observed_at",
             ).execute()
             written += len(rows)
 
