@@ -13,14 +13,14 @@ G1M/G1T/G1W/G1R daily families. Month letters follow CME month codes.
 
 from __future__ import annotations
 
-from collections import defaultdict
 from typing import Any
 import re
 
 MONTH_CODES = ("F", "G", "H", "J", "K", "M", "N", "Q", "U", "V", "X", "Z")
 MONTH_INDEX = {c: i for i, c in enumerate(MONTH_CODES, start=1)}
 
-_WEEKLY_RE = re.compile(r"^(?P<prefix>G|OG)(?P<week>[1-5])(?P<month>[FGHJKMNQUVXZ])(?P<year>\\d)$", re.I)
+_FRIDAY_RE = re.compile(r"^OG(?P<week>[1-5])(?P<month>[FGHJKMNQUVXZ])(?P<year>\\d)$", re.I)
+_DAILY_RE = re.compile(r"^G(?P<week>[1-5])(?P<weekday>[MTWR])(?P<month>[FGHJKMNQUVXZ])(?P<year>\\d)$", re.I)
 _MONTHLY_RE = re.compile(r"^OG(?P<month>[FGHJKMNQUVXZ])(?P<year>\\d)$", re.I)
 
 
@@ -33,23 +33,29 @@ def classify_expiry(code: str | None) -> dict[str, Any]:
     if not code:
         return {"code": code, "kind": "UNKNOWN", "weekday": None, "week": None}
 
-    m = _WEEKLY_RE.match(code)
+    m = _FRIDAY_RE.match(code)
     if m:
-        prefix = m.group("prefix").upper()
-        week = int(m.group("week"))
-        weekday = "FRIDAY" if prefix == "OG" else None
-        if prefix == "G":
-            # QuikStrike uses G1M/G1T/G1W/G1R for Mon/Tue/Wed/Thu.
-            day_code = code[2]
-            weekday = {"M": "MONDAY", "T": "TUESDAY", "W": "WEDNESDAY", "R": "THURSDAY"}.get(day_code)
+        return {
+            "code": code,
+            "kind": "WEEKLY",
+            "weekday": "FRIDAY",
+            "week": int(m.group("week")),
+            "month_code": m.group("month").upper(),
+            "year_digit": int(m.group("year")),
+            "is_friday": True,
+        }
+
+    m = _DAILY_RE.match(code)
+    if m:
+        weekday = {"M": "MONDAY", "T": "TUESDAY", "W": "WEDNESDAY", "R": "THURSDAY"}[m.group("weekday").upper()]
         return {
             "code": code,
             "kind": "WEEKLY",
             "weekday": weekday,
-            "week": week,
+            "week": int(m.group("week")),
             "month_code": m.group("month").upper(),
             "year_digit": int(m.group("year")),
-            "is_friday": prefix == "OG",
+            "is_friday": False,
         }
 
     m = _MONTHLY_RE.match(code)
