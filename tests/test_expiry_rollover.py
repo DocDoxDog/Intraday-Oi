@@ -1,4 +1,4 @@
-from src.expiry_rollover import build_expiry_rollover_context, classify_expiry
+from src.expiry_rollover import build_expiry_rollover_context, classify_expiry, expected_next_monthly_code
 
 
 def snap(code, dte, rows):
@@ -48,3 +48,8 @@ def test_oi_does_not_claim_aggressor_direction():
         snap("OG2X6", 9.0, [{"strike": 4000, "oiCall": 150, "oiPut": 150}]),
     ])
     assert "oi_does_not_identify_aggressor_side" in result["limitations"]
+
+
+def test_next_monthly_code_is_calendar_only():
+    assert expected_next_monthly_code("OGX6") == "OGZ6"
+    assert expected_next_monthly_code("OGZ6") == "OGF7"
