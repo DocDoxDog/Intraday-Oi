@@ -109,6 +109,15 @@ def run():
             f"    gamma matrix: {len(gamma_matrix['columns'])} display expirations "
             f"(observed {observed_columns}) x {len(gamma_matrix['strikes'])} strikes"
         )
+        rollover = parsed["raw_series"]["expiry_rollover"]
+        friday = (rollover.get("rollover") or {}).get("friday") or {}
+        monthly = (rollover.get("rollover") or {}).get("monthly") or {}
+        print(
+            "    expiry intelligence: "
+            f"front={(rollover.get('front') or {}).get('code', 'UNKNOWN')} "
+            f"friday={(friday.get('front_code') or 'UNKNOWN')}→{(friday.get('next_code') or 'UNKNOWN')} "
+            f"monthly={(monthly.get('front_code') or 'UNKNOWN')}→{(monthly.get('next_code') or 'UNKNOWN')}"
+        )
     print(f"    product={parsed.get('product_symbol') or 'UNKNOWN'} contract={parsed['contract']} future={parsed['future_price']} "
           f"dte={parsed.get('dte')} retrieved_at={parsed['retrieved_at']}")
     if parsed.get("dte_low_confidence"):
