@@ -101,9 +101,28 @@ def upsert_market_bars(technical_context: dict) -> int:
                 "is_final":True,
                 "provenance":{"source":"twelve_data","symbol":technical_context.get("symbol") or "XAU/USD"},
             })
-    if not rows: return 0
-    client.table("market_bars").upsert(rows,on_conflict="source,instrument,timeframe,bar_time").execute()
-    return len(rows)
+    if not rows:
+        return 0
+
+    # Twelve Data windows can overlap/repeat a bar. Postgres rejects an
+    # upsert batch when the same unique key appears twice in that single
+    # statement (SQLSTATE 21000), so collapse duplicates before writing.
+    unique_rows = {}
+    for row in rows:
+        key = (
+            row["source"],
+            row["instrument"],
+            row["timeframe"],
+            row["bar_time"],
+        )
+        unique_rows[key] = row
+
+    deduped = list(unique_rows.values())
+    client.table("market_bars").upsert(
+        deduped,
+        on_conflict="source,instrument,timeframe,bar_time",
+    ).execute()
+    return len(deduped)
 
 
 
@@ -221,7 +240,7 @@ def persist_flow_intelligence(parsed: dict, ai_result: dict, snapshot_id: int | 
             # The database requires a scope; preserve uncertainty explicitly instead of failing the whole node batch.
             "expiry_scope": node.get("expiry_scope") or "UNKNOWN",
             "oi_context": node.get("oi_context") or {},
-            "risk_context": node.get("risk_context"),
+            "risk_context": node.get("risk_context") or {},
             "local_prominence": node.get("local_prominence"),
             "distance_from_price": node.get("distance_from_price"),
             "volatility_distance": node.get("volatility_distance"),
@@ -451,8 +470,12 @@ def insert_news_announcements(items: list[dict]) -> list[dict]:
             merged["event_time"] = existing.get("event_time")
         if not merged.get("calendar_retrieved_at") and existing.get("calendar_retrieved_at"):
             merged["calendar_retrieved_at"] = existing.get("calendar_retrieved_at")
-        if merged.get("calendar_data_status") in (None, "", "UNKNOWN") and existing.get("calendar_data_status"):
-            merged["calendar_data_status"] = existing.get("calendar_data_status")
+        if merged.get("calendar_data_status") in (None, "", "UNKNOWN"):
+            merged["calendar_data_status"] = (
+                existing.get("calendar_data_status")
+                or item.get("calendar_data_status")
+                or "UNKNOWN"
+            )
 
         # Once an event is released, a later feed outage must not downgrade it
         # back to UNKNOWN/UPCOMING.

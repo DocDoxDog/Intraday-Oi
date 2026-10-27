@@ -102,48 +102,168 @@ def _name(route,state):
     if m5.get("bos") not in (None,"none"): features.append("BOS")
     if m5.get("fvg") or m15.get("fvg"): features.append("FVG")
     if (m5.get("divergence") or {}).get("status")=="DETECTED": features.append("DIVERGENCE")
-    if "reclaim" in r: n="ICT/SMC Breakout-Reclaim"
-    elif "support" in r: n="ICT Liquidity-Sweep Reversal" if "LIQUIDITY_SWEEP" in features else "SMC Support Reversal"
-    elif "rejection" in r: n="ICT/SMC Rejection at Liquidity"
-    else: n="CRT/SMC Breakdown-Retest"
+    if r == "BUY_BREAKOUT": n="ICT/SMC Breakout-Reclaim"
+    elif r == "BUY_SUPPORT": n="ICT Liquidity-Sweep Reversal" if "LIQUIDITY_SWEEP" in features else "SMC Support Reversal"
+    elif r == "SELL_REJECTION": n="ICT/SMC Rejection at Liquidity"
+    elif r == "SELL_BREAKDOWN": n="CRT/SMC Breakdown-Retest"
+    elif r == "RANGE_MEAN_REVERSION_LONG": n="MSNR/Gamma-Band Mean Reversion Long"
+    elif r == "RANGE_MEAN_REVERSION_SHORT": n="MSNR/Gamma-Band Mean Reversion Short"
+    else: n="Deterministic Structural Setup"
     return n,features,fam
 
-def rank_trade_candidates(state,execution):
-    t=state.get("technical") or {}; d=state.get("decision") or {}; structural=str(d.get("structural_bias") or "MIXED").upper()
-    rows=[]
-    for r in execution.get("routes") or []:
-        if not isinstance(r,dict): continue
-        e=_n(r.get("trigger")); s=_n(r.get("stop")); targets=[_n(x) for x in r.get("targets") or [] if _n(x) is not None]
-        if e is None or s is None or not targets: continue
-        side=str(r.get("side") or "").upper(); score=20; reasons=[]
-        aligned=(structural=="BULLISH" and side.startswith("LONG")) or (structural=="BEARISH" and side.startswith("SHORT"))
-        if aligned: score+=12; reasons.append("HTF alignment")
-        elif structural in ("BULLISH","BEARISH"): score-=8; reasons.append("countertrend")
-        for tf,w in (("d1",4),("h4",8),("h1",7),("m15",5),("m5",4)):
-            tr=str((t.get(tf) or {}).get("trend") or "").lower()
-            if (side.startswith("LONG") and tr=="bullish") or (side.startswith("SHORT") and tr=="bearish"): score+=w
-        m5=t.get("m5") or {}; ev=str(m5.get("choch") or "")+" "+str(m5.get("bos") or "")
-        if (side.startswith("LONG") and "bullish" in ev) or (side.startswith("SHORT") and "bearish" in ev): score+=8; reasons.append("structure event")
-        sw=str(m5.get("sweep") or "")
-        if (side.startswith("LONG") and "sell_side" in sw) or (side.startswith("SHORT") and "buy_side" in sw): score+=6; reasons.append("liquidity sweep")
-        dv=m5.get("divergence") or {}
-        if (side.startswith("LONG") and dv.get("type")=="bullish_regular") or (side.startswith("SHORT") and dv.get("type")=="bearish_regular"): score+=5; reasons.append("divergence")
-        if m5.get("fvg") or (t.get("m15") or {}).get("fvg"): score+=3; reasons.append("FVG")
-        if (r.get("risk") or {}).get("status")=="PASS": score+=6; reasons.append("risk geometry")
-        name,features,families=_name(r,state)
-        rows.append({"route":r.get("route"),"strategy":name,"side":side,"entry":e,"stop":s,"targets":targets[:5],"score":round(score,2),"evidence":reasons,"features":features,"strategy_families":families})
-    rows.sort(key=lambda x:(x["score"],len(x["targets"])),reverse=True)
-    selected=[]; seen=set()
+def _risk_ratio(side, entry, stop, tp):
+    if None in (entry, stop, tp):
+        return None
+    risk = entry - stop if side == "LONG" else stop - entry
+    reward = tp - entry if side == "LONG" else entry - tp
+    if risk <= 0 or reward <= 0:
+        return None
+    return reward / risk
+
+def rank_trade_candidates(state, execution):
+    """Rank distinct, source-derived setup candidates.
+
+    The engine can emit up to five plans. Four are structural routes from the
+    deterministic execution engine; two optional range-reversion routes use
+    the observed current price plus the same source-derived local boundaries.
+    No synthetic price ladder is created.
+    """
+    t = state.get("technical") or {}
+    d = state.get("decision") or {}
+    structural = str(d.get("structural_bias") or "MIXED").upper()
+    current = _n((state.get("price") or {}).get("cfd"))
+    routes = [r for r in (execution.get("routes") or []) if isinstance(r, dict)]
+
+    def score_route(r):
+        e = _n(r.get("trigger"))
+        s = _n(r.get("stop"))
+        targets = [_n(x) for x in r.get("targets") or [] if _n(x) is not None]
+        if e is None or s is None or not targets:
+            return None
+        side = str(r.get("side") or "").upper()
+        score = 20.0
+        reasons = []
+        aligned = (
+            (structural == "BULLISH" and side.startswith("LONG"))
+            or (structural == "BEARISH" and side.startswith("SHORT"))
+        )
+        if aligned:
+            score += 12; reasons.append("HTF alignment")
+        elif structural in ("BULLISH", "BEARISH"):
+            score -= 8; reasons.append("countertrend")
+
+        for tf, w in (("d1", 4), ("h4", 8), ("h1", 7), ("m30", 5), ("m15", 5), ("m5", 4)):
+            tr = str((t.get(tf) or {}).get("trend") or "").lower()
+            if (side.startswith("LONG") and tr == "bullish") or (side.startswith("SHORT") and tr == "bearish"):
+                score += w
+            elif (side.startswith("LONG") and tr == "bearish") or (side.startswith("SHORT") and tr == "bullish"):
+                score -= 2
+
+        m5 = t.get("m5") or {}
+        m15 = t.get("m15") or {}
+        ev = f"{m5.get('choch') or ''} {m5.get('bos') or ''}"
+        if (side.startswith("LONG") and "bullish" in ev) or (side.startswith("SHORT") and "bearish" in ev):
+            score += 8; reasons.append("structure event")
+        sw = str(m5.get("sweep") or "")
+        if (side.startswith("LONG") and "sell_side" in sw) or (side.startswith("SHORT") and "buy_side" in sw):
+            score += 6; reasons.append("liquidity sweep")
+        dv = m5.get("divergence") or {}
+        if (side.startswith("LONG") and dv.get("type") == "bullish_regular") or (side.startswith("SHORT") and dv.get("type") == "bearish_regular"):
+            score += 5; reasons.append("divergence")
+        if m5.get("fvg") or m15.get("fvg"):
+            score += 3; reasons.append("FVG")
+        if (r.get("risk") or {}).get("status") == "PASS":
+            score += 6; reasons.append("risk geometry")
+        rr = (r.get("rr") or [None])[0]
+        if isinstance(rr, (int, float)):
+            score += min(8.0, max(0.0, float(rr) * 2.0))
+        name, features, families = _name(r, state)
+        return {
+            "route": r.get("route"),
+            "strategy": name,
+            "side": side,
+            "entry": e,
+            "stop": s,
+            "targets": targets[:5],
+            "score": round(score, 2),
+            "evidence": reasons,
+            "features": features,
+            "strategy_families": families,
+        }
+
+    rows = []
+    for r in routes:
+        item = score_route(r)
+        if item:
+            rows.append(item)
+
+    # Optional mean-reversion routes are valid only when price is actually
+    # inside two source-derived local boundaries. This gives the ranking engine
+    # a fifth distinct setup class without inventing levels.
+    if current is not None:
+        upper = _n((state.get("market_map") or {}).get("local_action_resistance"))
+        lower = _n((state.get("market_map") or {}).get("local_action_support"))
+        if upper is not None and lower is not None and lower < current < upper:
+            band = upper - lower
+            if band > 0:
+                for side in ("LONG", "SHORT"):
+                    if side == "LONG":
+                        entry, stop, tp = current, lower, upper
+                    else:
+                        entry, stop, tp = current, upper, lower
+                    rr = _risk_ratio(side, entry, stop, tp)
+                    if rr is None or rr < 1.0:
+                        continue
+                    score = 18.0
+                    reasons = ["inside local structural band", "source-derived band target"]
+                    if structural == "MIXED":
+                        score += 8
+                    elif (structural == "BULLISH" and side == "LONG") or (structural == "BEARISH" and side == "SHORT"):
+                        score += 4
+                    else:
+                        score -= 8
+                    # Negative gamma is a direct penalty for mean reversion:
+                    # it increases the chance that a boundary break extends.
+                    gex = _n(((state.get("gamma") or {}).get("net_gex")))
+                    if gex is not None and gex < 0:
+                        score -= 5; reasons.append("negative gamma penalty")
+                    route = f"RANGE_MEAN_REVERSION_{side}"
+                    rows.append({
+                        "route": route,
+                        "strategy": "MSNR/Gamma-Band Mean Reversion " + ("Long" if side == "LONG" else "Short"),
+                        "side": side,
+                        "entry": entry,
+                        "stop": stop,
+                        "targets": [tp],
+                        "score": round(score, 2),
+                        "evidence": reasons,
+                        "features": ["RANGE", "MEAN_REVERSION"],
+                        "strategy_families": ["MSNR", "TTRADES"],
+                    })
+
+    rows.sort(key=lambda x: (x["score"], len(x["targets"])), reverse=True)
+    selected = []
+    seen = set()
     for x in rows:
-        if x["route"] in seen: continue
-        seen.add(x["route"]); x["rank"]=len(selected)+1; selected.append(x)
-        if len(selected)==3: break
+        key = (x["route"], x["side"], round(float(x["entry"]), 5), round(float(x["stop"]), 5))
+        if key in seen:
+            continue
+        seen.add(key)
+        x["rank"] = len(selected) + 1
+        selected.append(x)
+        if len(selected) == 5:
+            break
     return selected
 
 def build_multi_domain_context(parsed,state,execution):
     quant=build_quant_evidence(parsed)
     macro=_macro(parsed,state); micro=_micro(state); psychology=_psych(state)
     candidates=rank_trade_candidates(state,execution)
+    # Keep deterministic context available to the ranking layer and downstream
+    # renderers without making the score a probability.
+    state["quant"] = quant
+    state["macro"] = macro
+    state["psychology"] = psychology
     conflicts=[]
     structural=str((state.get("decision") or {}).get("structural_bias") or "MIXED").upper()
     for x in candidates:

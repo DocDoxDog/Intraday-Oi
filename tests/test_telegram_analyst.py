@@ -283,6 +283,39 @@ def test_telegram_four_route_plan_renders_tp1_to_tp5():
     assert message.count("Entry") == 4
     assert "TP1 <b>" in message and "TP5 <b>" in message
     assert "confirmation" not in message.lower()
+
+
+def test_telegram_renders_up_to_five_ranked_trade_plans():
+    from src import telegram
+    candidates = [
+        {"route": f"ROUTE_{i}", "strategy": f"SETUP {i}", "side": "LONG" if i % 2 else "SHORT",
+         "entry": 4000 + i, "stop": 3995 + i, "targets": [4005 + i, 4010 + i]}
+        for i in range(1, 6)
+    ]
+    message = telegram._format_trade_plan_message({}, {"strategy_candidates": candidates})
+    assert message.count("TOP ") == 5
+    assert message.count("Entry") == 5
+    assert "TOP 5 — SETUP 5" in message
+
+
+def test_telegram_fills_ranked_plans_from_deterministic_routes_to_max_five():
+    from src import telegram
+    ranked = [
+        {"route": "SELL_REJECTION", "strategy": "Rejection", "side": "SHORT",
+         "entry": 4023, "stop": 4028, "targets": [4018]}
+    ]
+    routes = [
+        {"route": "SELL_REJECTION", "side": "SHORT", "entry": 4023, "stop": 4028, "targets": [4018]},
+        {"route": "BUY_BREAKOUT", "side": "LONG", "entry": 4038, "stop": 4033, "targets": [4043]},
+        {"route": "BUY_SUPPORT", "side": "LONG", "entry": 4020, "stop": 4015, "targets": [4028]},
+        {"route": "SELL_BREAKDOWN", "side": "SHORT", "entry": 4020, "stop": 4025, "targets": [4015]},
+    ]
+    message = telegram._format_trade_plan_message(
+        {}, {"strategy_candidates": ranked, "trade_plan": {"execution_plan": {"routes": routes}}}
+    )
+    assert message.count("Entry") == 4
+    assert "BUY" in message and "SELL" in message
+
 def test_customer_narrative_is_plain_language_and_uses_evidence_relationships():
     from src import telegram
     parsed={"future_price":4136.70,"cfd_price":4134.78,"basis_diff":1.92,"dte":0.55,"vol":29.17}

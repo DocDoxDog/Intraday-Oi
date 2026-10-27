@@ -64,6 +64,32 @@ def _chunk(text: str, limit: int = MAX_MESSAGE_LEN) -> list[str]:
     return chunks
 
 
+def _clean_article_text(value: object) -> str:
+    """Remove raw telemetry/data-dump fragments from the customer article."""
+    text = str(value or "").strip()
+    if not text:
+        return ""
+    kept: list[str] = []
+    for paragraph in re.split(r"\n\s*\n", text):
+        paragraph = paragraph.strip()
+        if not paragraph:
+            continue
+        if re.match(r"^(?:1H|2H|TODAY|YESTERDAY)\s*:", paragraph, flags=re.IGNORECASE):
+            continue
+        if re.match(r"^(?:OI|GEX|IV|TECHNICAL|MACRO|NEWS)\s*:", paragraph, flags=re.IGNORECASE):
+            continue
+        kept.append(paragraph)
+    unique: list[str] = []
+    seen: set[str] = set()
+    for paragraph in kept:
+        key = re.sub(r"\s+", " ", paragraph).strip().lower()
+        if key in seen:
+            continue
+        seen.add(key)
+        unique.append(paragraph)
+    return "\n\n".join(unique)
+
+
 def _format_analysis_message(parsed: dict, ai_result: dict) -> str:
     """Render the synthesized analyst article without dashboard-style headings."""
     raw = parsed.get("raw_series") or {}
@@ -91,7 +117,7 @@ def _format_analysis_message(parsed: dict, ai_result: dict) -> str:
     paragraphs = []
     seen = set()
     for value in sections:
-        text = str(value or "").strip()
+        text = _clean_article_text(value)
         if not text or text in seen:
             continue
         seen.add(text)
@@ -180,17 +206,36 @@ def _format_path_message(parsed: dict, ai_result: dict) -> str:
     return "\n".join(lines)
 
 def _format_trade_plan_message(parsed: dict, ai_result: dict) -> str:
-    """Render the top three deterministic, distinct strategy candidates."""
-    candidates = ai_result.get("strategy_candidates") or []
+    """Render up to five deterministic, distinct strategy candidates."""
+    candidates = list(ai_result.get("strategy_candidates") or [])
     # Compatibility with the canonical deterministic execution payload used
-    # by older callers/tests. Never synthesize levels here.
-    legacy_routes = not candidates
-    if legacy_routes:
-        execution = ((ai_result.get("trade_plan") or {}).get("execution_plan") or {})
-        candidates = execution.get("routes") or []
+    # by older callers/tests. Fill the ranked list from the four deterministic
+    # routes when fewer than five ranked candidates exist. Never synthesize
+    # levels and never duplicate a route.
+    execution = ((ai_result.get("trade_plan") or {}).get("execution_plan") or {})
+    legacy_candidates = list(execution.get("routes") or [])
+    seen_routes = {
+        (str(x.get("route") or ""), str(x.get("side") or "").upper(),
+         _show(x.get("entry")), _show(x.get("stop")))
+        for x in candidates if isinstance(x, dict)
+    }
+    for route in legacy_candidates:
+        if not isinstance(route, dict):
+            continue
+        route_key = (
+            str(route.get("route") or ""),
+            str(route.get("side") or "").upper(),
+            _show(route.get("entry")),
+            _show(route.get("stop")),
+        )
+        if route_key not in seen_routes:
+            candidates.append(route)
+            seen_routes.add(route_key)
+        if len(candidates) >= 5:
+            break
     lines=["<b>🎯 TRADE PLAN</b>"]
     shown=0
-    render_candidates = candidates if legacy_routes else candidates[:3]
+    render_candidates = candidates[:5]
     for item in render_candidates:
         if not isinstance(item, dict):
             continue
