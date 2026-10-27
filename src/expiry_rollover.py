@@ -73,6 +73,24 @@ def classify_expiry(code: str | None) -> dict[str, Any]:
     return {"code": code, "kind": "UNKNOWN", "weekday": None, "week": None}
 
 
+
+def expected_next_monthly_code(code: str | None) -> str | None:
+    """Return the next calendar-month OG monthly option code when the current
+    monthly identity is parseable. This is a calendar expectation only; it is
+    never treated as observed market data."""
+    info = classify_expiry(code)
+    if info.get("kind") != "MONTHLY":
+        return None
+    month = info.get("month_code")
+    year_digit = info.get("year_digit")
+    if month not in MONTH_INDEX or year_digit is None:
+        return None
+    idx = MONTH_INDEX[month]
+    next_idx = 1 if idx == 12 else idx + 1
+    next_year = (int(year_digit) + 1) % 10 if idx == 12 else int(year_digit)
+    return f"OG{MONTH_CODES[next_idx - 1]}{next_year}"
+
+
 def _snapshot_rows(snapshot: dict[str, Any]) -> list[dict[str, Any]]:
     raw = snapshot.get("raw_series") or {}
     return [
@@ -241,6 +259,8 @@ def build_expiry_rollover_context(
             "overlap_concentration": [],
         }
 
+    next_monthly_expected = expected_next_monthly_code(monthly_front["code"]) if monthly_front else None
+
     return {
         "version": "expiry-rollover-v1",
         "status": "VALID" if observed else "UNKNOWN",
@@ -254,6 +274,10 @@ def build_expiry_rollover_context(
             {k: v for k, v in x.items() if k != "_snapshot"}
             for x in monthly[:4]
         ],
+        "monthly_roll_expected_next": {
+            "code": next_monthly_expected,
+            "observed": any(x["code"] == next_monthly_expected for x in monthly) if next_monthly_expected else False,
+        },
         "rollover": {
             "friday": friday_roll,
             "monthly": monthly_roll,
