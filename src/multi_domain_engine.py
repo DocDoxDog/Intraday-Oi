@@ -121,7 +121,7 @@ def _risk_ratio(side, entry, stop, tp):
     return reward / risk
 
 
-def _technical_setup_candidates(state):
+def _technical_setup_candidates(state, parsed):
     """Build additional strategy candidates from observed OHLC geometry only.
 
     These are independent setup hypotheses, not renamed execution routes.
@@ -163,9 +163,7 @@ def _technical_setup_candidates(state):
 
     for tf in ("m5", "m15", "m30", "h1"):
         x = technical.get(tf) or {}
-        bars = _ohlcv({"technical_context": {"ohlcv": {tf: state.get("ohlcv", {}).get(tf, [])}}}, tf)
-        # Normal state normally keeps OHLCV under technical_context in parsed;
-        # this local fallback handles state objects that expose it directly.
+        bars = _ohlcv(parsed, tf)
         if not bars:
             bars = list((state.get("ohlcv") or {}).get(tf) or [])
         if not bars:
@@ -329,7 +327,7 @@ def rank_trade_candidates(state, execution):
     # canonical execution routes do not provide enough distinct geometry.
     # These remain research candidates until the normal risk/plan gate accepts
     # them; no level is manufactured.
-    for candidate in _technical_setup_candidates(state):
+    for candidate in _technical_setup_candidates(state, parsed):
         score = 16.0
         side = candidate["side"]
         if (structural == "BULLISH" and side == "LONG") or (structural == "BEARISH" and side == "SHORT"):
