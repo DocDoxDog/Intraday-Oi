@@ -120,6 +120,134 @@ def _risk_ratio(side, entry, stop, tp):
         return None
     return reward / risk
 
+
+def _technical_setup_candidates(state):
+    """Build additional strategy candidates from observed OHLC geometry only.
+
+    These are independent setup hypotheses, not renamed execution routes.
+    Every level must come from a stored candle, FVG boundary, or Fibonacci
+    swing derived from stored OHLC. Invalid geometry is discarded.
+    """
+    technical = state.get("technical") or {}
+    current = _n((state.get("price") or {}).get("cfd"))
+    if current is None:
+        return []
+
+    out = []
+
+    def add(route, strategy, side, entry, stop, target, evidence, families):
+        e, s, t = _n(entry), _n(stop), _n(target)
+        if None in (e, s, t):
+            return
+        if side == "LONG" and not (s < e < t):
+            return
+        if side == "SHORT" and not (s > e > t):
+            return
+        rr = _risk_ratio(side, e, s, t)
+        if rr is None or rr < 1.0:
+            return
+        out.append({
+            "route": route,
+            "strategy": strategy,
+            "side": side,
+            "entry": e,
+            "stop": s,
+            "targets": [t],
+            "score": 0.0,
+            "evidence": list(evidence),
+            "features": [],
+            "strategy_families": list(families),
+            "geometry_source": "OHLC_DERIVED",
+            "_rr": rr,
+        })
+
+    for tf in ("m5", "m15", "m30", "h1"):
+        x = technical.get(tf) or {}
+        bars = _ohlcv({"technical_context": {"ohlcv": {tf: state.get("ohlcv", {}).get(tf, [])}}}, tf)
+        # Normal state normally keeps OHLCV under technical_context in parsed;
+        # this local fallback handles state objects that expose it directly.
+        if not bars:
+            bars = list((state.get("ohlcv") or {}).get(tf) or [])
+        if not bars:
+            continue
+        last = bars[-1]
+        last_high, last_low = _n(last.get("high")), _n(last.get("low"))
+        prior_high, prior_low = _n(x.get("prior_high")), _n(x.get("prior_low"))
+
+        sweep = str(x.get("sweep") or "none")
+        if "sell_side_sweep" in sweep:
+            add(
+                f"LIQUIDITY_SWEEP_LONG_{tf.upper()}",
+                f"ICT/SMC Liquidity Sweep Reversal ({tf.upper()})",
+                "LONG", current, last_low, prior_high,
+                [f"{tf.upper()} sell-side sweep", "prior swing low/high"],
+                ["ICT", "SMC", "WYCKOFF", "CRT"],
+            )
+        elif "buy_side_sweep" in sweep:
+            add(
+                f"LIQUIDITY_SWEEP_SHORT_{tf.upper()}",
+                f"ICT/SMC Liquidity Sweep Reversal ({tf.upper()})",
+                "SHORT", current, last_high, prior_low,
+                [f"{tf.upper()} buy-side sweep", "prior swing high/low"],
+                ["ICT", "SMC", "WYCKOFF", "CRT"],
+            )
+
+        fvg = x.get("fvg") or {}
+        fvg_side = str(fvg.get("side") or "").lower()
+        fvg_low, fvg_high = _n(fvg.get("low")), _n(fvg.get("high"))
+        if fvg_side == "bullish":
+            add(
+                f"FVG_RECLAIM_LONG_{tf.upper()}",
+                f"ICT FVG Rebalance ({tf.upper()})",
+                "LONG", fvg_high, prior_low, prior_high,
+                [f"{tf.upper()} bullish FVG", "OHLC prior range"],
+                ["ICT", "SMC"],
+            )
+        elif fvg_side == "bearish":
+            add(
+                f"FVG_RECLAIM_SHORT_{tf.upper()}",
+                f"ICT FVG Rebalance ({tf.upper()})",
+                "SHORT", fvg_low, prior_high, prior_low,
+                [f"{tf.upper()} bearish FVG", "OHLC prior range"],
+                ["ICT", "SMC"],
+            )
+
+        fib = x.get("fibonacci") or {}
+        hi, lo = _n(fib.get("swing_high")), _n(fib.get("swing_low"))
+        r62, r79 = _n(fib.get("retracement_62")), _n(fib.get("retracement_79"))
+        trend = str(x.get("trend") or "").lower()
+        if trend == "bullish":
+            add(
+                f"FIB_OTE_LONG_{tf.upper()}",
+                f"MSNR/ICT Fibonacci Reclaim ({tf.upper()})",
+                "LONG", r79 or r62, lo, hi,
+                [f"{tf.upper()} Fibonacci retracement", "swing high/low"],
+                ["ICT", "MSNR", "TTRADES"],
+            )
+        elif trend == "bearish":
+            add(
+                f"FIB_OTE_SHORT_{tf.upper()}",
+                f"MSNR/ICT Fibonacci Rejection ({tf.upper()})",
+                "SHORT", r79 or r62, hi, lo,
+                [f"{tf.upper()} Fibonacci retracement", "swing high/low"],
+                ["ICT", "MSNR", "TTRADES"],
+            )
+
+    # De-duplicate exact geometry; different strategy families with identical
+    # levels are not useful as separate plans.
+    deduped, seen = [], set()
+    for item in out:
+        key = (
+            item["side"],
+            round(item["entry"], 5),
+            round(item["stop"], 5),
+            round(item["targets"][0], 5),
+        )
+        if key not in seen:
+            seen.add(key)
+            deduped.append(item)
+    return deduped
+
 def rank_trade_candidates(state, execution):
     """Rank distinct, source-derived setup candidates.
 
@@ -196,6 +324,27 @@ def rank_trade_candidates(state, execution):
         item = score_route(r)
         if item:
             rows.append(item)
+
+    # Add genuinely different OHLC-derived setup hypotheses when the four
+    # canonical execution routes do not provide enough distinct geometry.
+    # These remain research candidates until the normal risk/plan gate accepts
+    # them; no level is manufactured.
+    for candidate in _technical_setup_candidates(state):
+        score = 16.0
+        side = candidate["side"]
+        if (structural == "BULLISH" and side == "LONG") or (structural == "BEARISH" and side == "SHORT"):
+            score += 10.0
+        elif structural in ("MIXED", "TRANSITION", "NEUTRAL"):
+            score += 4.0
+        else:
+            score -= 6.0
+        tf_name = candidate["route"].rsplit("_", 1)[-1].lower()
+        tf_weight = {"d1": 8, "h1": 7, "m30": 5, "m15": 4, "m5": 3}.get(tf_name, 2)
+        score += tf_weight
+        score += min(12.0, candidate["_rr"] * 2.0)
+        candidate["score"] = round(score, 2)
+        candidate.pop("_rr", None)
+        rows.append(candidate)
 
     # Optional mean-reversion routes are valid only when price is actually
     # inside two source-derived local boundaries. This gives the ranking engine
