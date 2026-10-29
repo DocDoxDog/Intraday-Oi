@@ -11,7 +11,7 @@ def test_options_max_pain_candidate_uses_cfd_basis():
             }
         },
         "market_map": {
-            "local_action_support": 4000,
+            "local_action_support": 4015,
             "local_action_resistance": 4070,
         },
     }
@@ -20,4 +20,4 @@ def test_options_max_pain_candidate_uses_cfd_basis():
     assert rows[0]["side"] == "LONG"
     assert rows[0]["entry"] == 4020
     assert rows[0]["targets"] == [4030]
-    assert rows[0]["stop"] == 4000
+    assert rows[0]["stop"] == 4015
