@@ -255,7 +255,9 @@ def _options_setup_candidates(state):
     if surface.get("status") != "AVAILABLE":
         return []
     current = _n((state.get("price") or {}).get("cfd"))
-    max_pain = _n(((surface.get("max_pain") or {}).get("strike")))
+    max_pain_futures = _n(((surface.get("max_pain") or {}).get("strike")))
+    basis = _n((state.get("price") or {}).get("basis"))
+    max_pain = max_pain_futures - basis if max_pain_futures is not None and basis is not None else None
     if current is None or max_pain is None or current == max_pain:
         return []
     market_map = state.get("market_map") or {}
@@ -357,7 +359,9 @@ def rank_trade_candidates(state, execution, parsed=None):
 
         surface = ((state.get("quant") or {}).get("options_surface") or {})
         if surface.get("status") == "AVAILABLE":
-            mp = _n(((surface.get("max_pain") or {}).get("strike")))
+            mp_futures = _n(((surface.get("max_pain") or {}).get("strike")))
+            basis = _n((state.get("price") or {}).get("basis"))
+            mp = mp_futures - basis if mp_futures is not None and basis is not None else None
             if mp is not None and e is not None:
                 if (side.startswith("LONG") and mp > e) or (side.startswith("SHORT") and mp < e):
                     score += 4; reasons.append("max pain alignment")
