@@ -327,7 +327,6 @@ def rank_trade_candidates(state, execution, parsed=None):
     # canonical execution routes do not provide enough distinct geometry.
     # These remain research candidates until the normal risk/plan gate accepts
     # them; no level is manufactured.
-    parsed = parsed if isinstance(parsed, dict) else {}
     for candidate in _technical_setup_candidates(state, parsed):
         score = 16.0
         side = candidate["side"]
