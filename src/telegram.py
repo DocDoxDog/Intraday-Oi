@@ -239,7 +239,14 @@ def _format_trade_plan_message(parsed: dict, ai_result: dict) -> str:
     for item in render_candidates:
         if not isinstance(item, dict):
             continue
-        entry=item.get("entry"); stop=item.get("stop"); targets=item.get("targets") or []
+        # Execution routes use `trigger` as the deterministic entry reference;
+        # ranked research candidates use `entry`. Accept both without creating
+        # or changing any price level.
+        entry=item.get("entry")
+        if entry is None:
+            entry=item.get("trigger")
+        stop=item.get("stop")
+        targets=item.get("targets") or []
         if entry is None or stop is None or not targets:
             continue
         shown += 1
