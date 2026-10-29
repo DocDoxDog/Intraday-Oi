@@ -246,7 +246,7 @@ def _technical_setup_candidates(state, parsed):
             deduped.append(item)
     return deduped
 
-def rank_trade_candidates(state, execution):
+def rank_trade_candidates(state, execution, parsed=None):
     """Rank distinct, source-derived setup candidates.
 
     The engine can emit up to five plans. Four are structural routes from the
@@ -327,6 +327,7 @@ def rank_trade_candidates(state, execution):
     # canonical execution routes do not provide enough distinct geometry.
     # These remain research candidates until the normal risk/plan gate accepts
     # them; no level is manufactured.
+    parsed = parsed if isinstance(parsed, dict) else {}
     for candidate in _technical_setup_candidates(state, parsed):
         score = 16.0
         side = candidate["side"]
@@ -405,7 +406,7 @@ def rank_trade_candidates(state, execution):
 def build_multi_domain_context(parsed,state,execution):
     quant=build_quant_evidence(parsed)
     macro=_macro(parsed,state); micro=_micro(state); psychology=_psych(state)
-    candidates=rank_trade_candidates(state,execution)
+    candidates=rank_trade_candidates(state,execution,parsed)
     # Keep deterministic context available to the ranking layer and downstream
     # renderers without making the score a probability.
     state["quant"] = quant
