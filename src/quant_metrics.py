@@ -45,6 +45,108 @@ def _iv_slope(term: list[dict[str, Any]]) -> float | None:
     return (v2 - v1) / (d2 - d1)
 
 
+
+def _row_field(row: dict[str, Any], *aliases: str) -> float | None:
+    normalized = {"".join(ch for ch in str(k).lower() if ch.isalnum()): v for k, v in row.items()}
+    for alias in aliases:
+        value = _n(normalized.get("".join(ch for ch in alias.lower() if ch.isalnum())))
+        if value is not None:
+            return value
+    return None
+
+
+def _options_surface(rows: list[dict[str, Any]], underlying: float | None) -> dict[str, Any]:
+    """Derive max-pain, moneyness, ATM and IV-surface evidence from observed strikes."""
+    if not rows or underlying is None:
+        return {"status": "UNKNOWN", "reason": "missing_strike_rows_or_underlying"}
+    clean = []
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        strike = _n(row.get("strike"))
+        if strike is None:
+            continue
+        clean.append({
+            "strike": strike,
+            "call_oi": _n(row.get("oiCall")) or 0.0,
+            "put_oi": _n(row.get("oiPut")) or 0.0,
+            "iv": _n(row.get("vol")),
+            "call_iv": _row_field(row, "callIV", "callImpliedVol", "callVol"),
+            "put_iv": _row_field(row, "putIV", "putImpliedVol", "putVol"),
+            "distance": abs(strike - underlying),
+        })
+    if not clean:
+        return {"status": "UNKNOWN", "reason": "no_valid_strikes"}
+    clean.sort(key=lambda x: x["strike"])
+    atm = min(clean, key=lambda x: x["distance"])
+
+    totals = {"call": {"ITM": 0.0, "ATM": 0.0, "OTM": 0.0},
+              "put": {"ITM": 0.0, "ATM": 0.0, "OTM": 0.0}}
+    for x in clean:
+        if x["strike"] == atm["strike"]:
+            cb = pb = "ATM"
+        else:
+            cb = "ITM" if x["strike"] < underlying else "OTM"
+            pb = "ITM" if x["strike"] > underlying else "OTM"
+        totals["call"][cb] += x["call_oi"]
+        totals["put"][pb] += x["put_oi"]
+
+    pain = []
+    for settle in (x["strike"] for x in clean):
+        payout = sum(
+            x["call_oi"] * max(settle - x["strike"], 0.0)
+            + x["put_oi"] * max(x["strike"] - settle, 0.0)
+            for x in clean
+        )
+        pain.append((payout, abs(settle - underlying), settle))
+    pain.sort(key=lambda x: (x[0], x[1]))
+    max_pain = pain[0][2] if pain else None
+
+    wing = [x for x in clean if x["distance"] > 0]
+    max_dist = max((x["distance"] for x in wing), default=0.0)
+    threshold = max_dist * 0.35
+    call_iv = [x["call_iv"] for x in wing if x["strike"] > underlying and x["distance"] >= threshold and x["call_iv"] is not None]
+    put_iv = [x["put_iv"] for x in wing if x["strike"] < underlying and x["distance"] >= threshold and x["put_iv"] is not None]
+    if call_iv and put_iv:
+        c, p = sum(call_iv) / len(call_iv), sum(put_iv) / len(put_iv)
+        skew = {
+            "status": "AVAILABLE",
+            "method": "OTM_WING_IV_AVERAGE",
+            "call_otm_iv": round(c, 5),
+            "put_otm_iv": round(p, 5),
+            "risk_reversal_put_minus_call": round(p - c, 5),
+        }
+    else:
+        curve = [(x["strike"], x["iv"]) for x in clean if x["iv"] is not None]
+        slope = None
+        if len(curve) >= 3 and curve[-1][0] != curve[0][0]:
+            slope = (curve[-1][1] - curve[0][1]) / (curve[-1][0] - curve[0][0])
+        skew = {
+            "status": "CURVE_ONLY" if slope is not None else "UNKNOWN",
+            "method": "SINGLE_IV_STRIKE_CURVE",
+            "strike_iv_slope": round(slope, 8) if slope is not None else None,
+            "limitation": "No separate call/put IV was exposed by source rows.",
+        }
+
+    return {
+        "status": "AVAILABLE",
+        "underlying": underlying,
+        "atm": {
+            "strike": atm["strike"], "distance": atm["distance"],
+            "iv": atm["iv"], "call_oi": atm["call_oi"], "put_oi": atm["put_oi"],
+        },
+        "moneyness_oi": totals,
+        "max_pain": {
+            "strike": max_pain,
+            "distance": max_pain - underlying if max_pain is not None else None,
+            "distance_pct": (max_pain / underlying - 1.0) if max_pain is not None and underlying else None,
+            "method": "OI_WEIGHTED_EXPIRY_PAYOUT_MINIMIZATION",
+        },
+        "iv_skew": skew,
+        "source_strikes": len(clean),
+    }
+
+
 def enrich_quant_metrics(parsed: dict[str, Any], history: dict[str, Any] | None = None) -> dict[str, Any]:
     """Attach a deterministic quant_metrics evidence block to market_state."""
     history = history or {}
@@ -123,6 +225,7 @@ def enrich_quant_metrics(parsed: dict[str, Any], history: dict[str, Any] | None 
     term = vol.get("iv_term_structure") or []
     skew = _n(vol.get("skew"))
     term_slope = _iv_slope(term)
+    options_surface = _options_surface(raw.get("strike_rows") or [], futures)
 
     # Options-implied expected move from ATM IV and time-to-expiry.
     # This is a magnitude/range estimate, not a directional forecast.
@@ -195,7 +298,9 @@ def enrich_quant_metrics(parsed: dict[str, Any], history: dict[str, Any] | None 
             "iv_minus_realized_proxy": iv - realized_vol_proxy if iv is not None and realized_vol_proxy is not None else None,
             "iv_term_slope_per_dte": term_slope,
             "atm_skew": skew,
+            "options_surface": options_surface,
         },
+        "options_surface": options_surface,
         "expiry": {"dte": dte},
         "risk_flags": flags,
         "method": "deterministic-financial-math-v1",

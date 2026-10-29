@@ -20,6 +20,8 @@ def _z(xs, x):
 
 def build_quant_evidence(parsed):
     out={"status":"UNKNOWN","timeframes":{}}
+    canonical_quant = (((parsed.get("raw_series") or {}).get("market_state") or {}).get("quant_metrics") or {})
+    out["options_surface"] = canonical_quant.get("options_surface") or {}
     for tf in ("m5","m15","m30","h1","h4","d1"):
         bars=_ohlcv(parsed,tf); closes=[_n(x.get("close")) for x in bars]; closes=[x for x in closes if x is not None]
         if len(closes)<20: continue
@@ -246,6 +248,62 @@ def _technical_setup_candidates(state, parsed):
             deduped.append(item)
     return deduped
 
+
+def _options_setup_candidates(state):
+    """Build source-derived option-structure candidates without manufacturing levels."""
+    surface = (((state.get("quant") or {}).get("options_surface")) or {})
+    if surface.get("status") != "AVAILABLE":
+        return []
+    current = _n((state.get("price") or {}).get("cfd"))
+    max_pain_futures = _n(((surface.get("max_pain") or {}).get("strike")))
+    basis = _n((state.get("price") or {}).get("basis"))
+    max_pain = max_pain_futures - basis if max_pain_futures is not None and basis is not None else None
+    if current is None or max_pain is None or current == max_pain:
+        return []
+    market_map = state.get("market_map") or {}
+    support = _n(market_map.get("local_action_support"))
+    resistance = _n(market_map.get("local_action_resistance"))
+    if support is None:
+        support = _n((state.get("gamma") or {}).get("put_wall"))
+    if resistance is None:
+        resistance = _n((state.get("gamma") or {}).get("call_wall"))
+
+    out = []
+    if max_pain > current and support is not None and support < current:
+        rr = _risk_ratio("LONG", current, support, max_pain)
+        if rr is not None and rr >= 1.0:
+            out.append({
+                "route": "OPTIONS_MAX_PAIN_REVERSION_LONG",
+                "strategy": "Options Max-Pain Reversion Long",
+                "side": "LONG",
+                "entry": current,
+                "stop": support,
+                "targets": [max_pain],
+                "score": 0.0,
+                "evidence": ["max pain above spot", "source-derived support invalidation"],
+                "features": ["MAX_PAIN", "ATM", "ITM_OTM"],
+                "strategy_families": ["MSNR", "TTRADES"],
+                "_rr": rr,
+            })
+    elif max_pain < current and resistance is not None and resistance > current:
+        rr = _risk_ratio("SHORT", current, resistance, max_pain)
+        if rr is not None and rr >= 1.0:
+            out.append({
+                "route": "OPTIONS_MAX_PAIN_REVERSION_SHORT",
+                "strategy": "Options Max-Pain Reversion Short",
+                "side": "SHORT",
+                "entry": current,
+                "stop": resistance,
+                "targets": [max_pain],
+                "score": 0.0,
+                "evidence": ["max pain below spot", "source-derived resistance invalidation"],
+                "features": ["MAX_PAIN", "ATM", "ITM_OTM"],
+                "strategy_families": ["MSNR", "TTRADES"],
+                "_rr": rr,
+            })
+    return out
+
+
 def rank_trade_candidates(state, execution, parsed=None):
     """Rank distinct, source-derived setup candidates.
 
@@ -298,6 +356,25 @@ def rank_trade_candidates(state, execution, parsed=None):
             score += 5; reasons.append("divergence")
         if m5.get("fvg") or m15.get("fvg"):
             score += 3; reasons.append("FVG")
+
+        surface = ((state.get("quant") or {}).get("options_surface") or {})
+        if surface.get("status") == "AVAILABLE":
+            mp_futures = _n(((surface.get("max_pain") or {}).get("strike")))
+            basis = _n((state.get("price") or {}).get("basis"))
+            mp = mp_futures - basis if mp_futures is not None and basis is not None else None
+            if mp is not None and e is not None:
+                if (side.startswith("LONG") and mp > e) or (side.startswith("SHORT") and mp < e):
+                    score += 4; reasons.append("max pain alignment")
+                elif (side.startswith("LONG") and mp < e) or (side.startswith("SHORT") and mp > e):
+                    score -= 3; reasons.append("max pain conflict")
+            skew = surface.get("iv_skew") or {}
+            rr_skew = _n(skew.get("risk_reversal_put_minus_call"))
+            if rr_skew is not None:
+                if side.startswith("LONG") and rr_skew > 0:
+                    score -= min(3.0, abs(rr_skew) * 0.25); reasons.append("put-IV skew headwind")
+                elif side.startswith("SHORT") and rr_skew > 0:
+                    score += min(3.0, abs(rr_skew) * 0.25); reasons.append("put-IV skew support")
+
         if (r.get("risk") or {}).get("status") == "PASS":
             score += 6; reasons.append("risk geometry")
         rr = (r.get("rr") or [None])[0]
@@ -340,6 +417,20 @@ def rank_trade_candidates(state, execution, parsed=None):
         tf_weight = {"d1": 8, "h1": 7, "m30": 5, "m15": 4, "m5": 3}.get(tf_name, 2)
         score += tf_weight
         score += min(12.0, candidate["_rr"] * 2.0)
+        candidate["score"] = round(score, 2)
+        candidate.pop("_rr", None)
+        rows.append(candidate)
+
+    for candidate in _options_setup_candidates(state):
+        score = 17.0
+        side = candidate["side"]
+        if (structural == "BULLISH" and side == "LONG") or (structural == "BEARISH" and side == "SHORT"):
+            score += 8.0
+        elif structural == "MIXED":
+            score += 3.0
+        else:
+            score -= 5.0
+        score += min(10.0, candidate["_rr"] * 2.0)
         candidate["score"] = round(score, 2)
         candidate.pop("_rr", None)
         rows.append(candidate)
