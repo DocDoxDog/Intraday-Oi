@@ -16,7 +16,7 @@ _NUM = r"-?[\d,]+(?:\.\d+)?"
 DTE_PATTERN_STRICT = re.compile(rf"\(({_NUM})\s*DTE\)\s*vs\s*{_NUM}", re.I)
 DTE_PATTERN_LOOSE = re.compile(rf"\(({_NUM})\s*DTE\)", re.I)
 _INT_FIELDS = {"oiCall","oiPut","oiTotal","volumeCall","volumePut","volumeTotal","ivolumeCall","ivolumePut","ivolumeTotal"}
-_FLOAT_FIELDS = {"callPremium","putPremium","straddlePremium","callSettle","putSettle","straddleSettle","callChange","putChange","straddleChange","vol","callDelta","putDelta","gamma","vega","theta","oichgvCall","oichgvPut","oichgvTotal"}
+_FLOAT_FIELDS = {"callIV","putIV","callVol","putVol","callImpliedVol","putImpliedVol","callPremium","putPremium","straddlePremium","callSettle","putSettle","straddleSettle","callChange","putChange","straddleChange","vol","callDelta","putDelta","gamma","vega","theta","oichgvCall","oichgvPut","oichgvTotal"}
 _CHANGE_FIELDS = {"oiCallChange","oiPutChange","oiTotalChange","volumeCallChange","volumePutChange","volumeTotalChange"}
 
 def _number(value: Any) -> float | int | None:
@@ -57,10 +57,20 @@ def _normalise_row(row: dict) -> dict:
     m = re.search(rf"({_NUM})\s*Strike", title, re.I)
     out = {"strike": _number(m.group(1)) if m else None, "coords": row.get("coords"), "template_id": row.get("template_id")}
     for key, value in fields.items():
+        key_norm = re.sub(r"[^a-z0-9]", "", str(key).lower())
         if key in _INT_FIELDS: out[key] = _number(value)
         elif key in _FLOAT_FIELDS or key in _CHANGE_FIELDS:
             n = _number(value); out[key] = value if n is None and value not in (None, "") else n
+        elif re.search(r"(?:call|put).*(?:iv|vol|impliedvol)", key_norm):
+            out[key] = _iv_percent(value)
         else: out[key] = value
+    for side in ("call", "put"):
+        for original_key, original_value in list(out.items()):
+            normalized = re.sub(r"[^a-z0-9]", "", str(original_key).lower())
+            if normalized in {f"{side}iv", f"{side}vol", f"{side}impliedvol", f"{side}impliedvolatility", f"{side}ivol"}:
+                if isinstance(original_value, (int, float)):
+                    out[f"{side}_iv"] = original_value
+                    break
     return out
 
 def _deduplicate_rows(rows):
