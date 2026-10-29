@@ -106,7 +106,7 @@ def test_telegram_shows_complete_deterministic_plan_even_when_execution_gate_is_
     }
     message = telegram._format_trade_plan_message(parsed, ai)
     assert "🔴 <b>SELL</b>" in message
-    assert "Entry <b>3989" in message
+    assert "Entry <b>3,989.00" in message
     assert "SL <b>3994" in message
     assert "TP1 <b>3964" in message
     assert "TP2 <b>3939" in message
