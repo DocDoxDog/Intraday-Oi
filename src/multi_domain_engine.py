@@ -161,7 +161,7 @@ def _technical_setup_candidates(state, parsed):
             "_rr": rr,
         })
 
-    for tf in ("m5", "m15", "m30", "h1"):
+    for tf in ("m5", "m15", "m30", "h1", "h4", "d1"):
         x = technical.get(tf) or {}
         bars = _ohlcv(parsed, tf)
         if not bars:
@@ -405,7 +405,7 @@ def rank_trade_candidates(state, execution, parsed=None):
         else:
             score -= 6.0
         tf_name = candidate["route"].rsplit("_", 1)[-1].lower()
-        tf_weight = {"d1": 8, "h1": 7, "m30": 5, "m15": 4, "m5": 3}.get(tf_name, 2)
+        tf_weight = {"d1": 8, "h4": 8, "h1": 7, "m30": 5, "m15": 4, "m5": 3}.get(tf_name, 2)
         score += tf_weight
         score += min(12.0, candidate["_rr"] * 2.0)
         candidate["score"] = round(score, 2)
