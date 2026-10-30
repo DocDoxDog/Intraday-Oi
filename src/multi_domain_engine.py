@@ -170,7 +170,11 @@ def _technical_setup_candidates(state, parsed):
             continue
         last = bars[-1]
         last_high, last_low = _n(last.get("high")), _n(last.get("low"))
-        prior_high, prior_low = _n(x.get("prior_high")), _n(x.get("prior_low"))
+        lookback = bars[-21:-1] if len(bars) > 21 else bars[:-1]
+        prior_high = max((_n(b.get("high")) for b in lookback), default=last_high)
+        prior_low = min((_n(b.get("low")) for b in lookback), default=last_low)
+        swing_high = max((_n(b.get("high")) for b in bars[-50:]), default=last_high)
+        swing_low = min((_n(b.get("low")) for b in bars[-50:]), default=last_low)
 
         sweep = str(x.get("sweep") or "none")
         if "sell_side_sweep" in sweep:
@@ -240,7 +244,7 @@ def _technical_setup_candidates(state, parsed):
         # execution geometries.
         bos = str(x.get("bos") or "none").lower()
         choch = str(x.get("choch") or "none").lower()
-        if "bullish_bos" in bos and prior_high > current:
+        if "bullish_bos" in bos and current >= prior_high:
             add(
                 f"BOS_CONTINUATION_LONG_{tf.upper()}",
                 f"SMC/ICT BOS Continuation ({tf.upper()})",
@@ -248,7 +252,7 @@ def _technical_setup_candidates(state, parsed):
                 [f"{tf.upper()} bullish BOS", "prior swing high", "swing high"],
                 ["SMC", "ICT", "CISD", "TTRADES"],
             )
-        elif "bearish_bos" in bos and prior_low < current:
+        elif "bearish_bos" in bos and current <= prior_low:
             add(
                 f"BOS_CONTINUATION_SHORT_{tf.upper()}",
                 f"SMC/ICT BOS Continuation ({tf.upper()})",
