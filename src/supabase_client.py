@@ -90,7 +90,18 @@ def upsert_market_bars(technical_context: dict) -> int:
     for timeframe,bars in (technical_context.get("ohlcv") or {}).items():
         for bar in bars or []:
             bar_time=bar.get("datetime") or bar.get("bar_time")
-            if not bar_time: continue
+            if not bar_time:
+                continue
+            # Normalize equivalent timestamp spellings before de-duplication.
+            # Twelve Data can return the same UTC bar with different offset/
+            # separator representations across overlapping windows.
+            try:
+                parsed_time = datetime.fromisoformat(str(bar_time).replace("Z", "+00:00"))
+                if parsed_time.tzinfo is None:
+                    parsed_time = parsed_time.replace(tzinfo=timezone.utc)
+                bar_time = parsed_time.astimezone(timezone.utc).isoformat()
+            except (TypeError, ValueError):
+                bar_time = str(bar_time).strip()
             rows.append({
                 "source":"twelve_data",
                 "instrument":technical_context.get("symbol") or "XAU/USD",
