@@ -188,8 +188,15 @@ def _structure(candles: list[dict]) -> dict:
     fib = {
         "swing_high": round(swing_high, 5) if swing_high is not None else None,
         "swing_low": round(swing_low, 5) if swing_low is not None else None,
+        # Legacy fields keep the historical high-to-low convention.
         "retracement_62": round(swing_high - span * 0.62, 5) if span is not None else None,
         "retracement_79": round(swing_high - span * 0.79, 5) if span is not None else None,
+        # Directional OTE geometry prevents a bearish setup from using a
+        # bullish retracement level by accident.
+        "retracement_62_bullish": round(swing_high - span * 0.62, 5) if span is not None else None,
+        "retracement_79_bullish": round(swing_high - span * 0.79, 5) if span is not None else None,
+        "retracement_62_bearish": round(swing_low + span * 0.62, 5) if span is not None else None,
+        "retracement_79_bearish": round(swing_low + span * 0.79, 5) if span is not None else None,
     }
 
     momentum_5 = round(last["close"] - closes[-6], 5) if len(closes) >= 6 else None
@@ -270,6 +277,7 @@ def build_context(api_key: str | None = None, symbol: str | None = None) -> dict
     for name, interval in {
         "h4": "4h",
         "h1": "1h",
+        "m30": "30min",
         "m15": "15min",
         "m5": "5min",
         "m1": "1min",
