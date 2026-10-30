@@ -9,6 +9,7 @@ import os
 import re
 import time
 import uuid
+from datetime import datetime, timezone
 from src.event_outcome_engine import HORIZONS_SECONDS, measure_outcome
 from supabase import create_client, Client
 
@@ -244,7 +245,7 @@ def persist_flow_intelligence(parsed: dict, ai_result: dict, snapshot_id: int | 
             "local_prominence": node.get("local_prominence"),
             "distance_from_price": node.get("distance_from_price"),
             "volatility_distance": node.get("volatility_distance"),
-            "state": node.get("state"),
+            "state": node.get("state") or "UNKNOWN",
             "evidence_refs": node.get("evidence_refs") or [],
         })
     if node_rows:
@@ -390,11 +391,16 @@ def insert_news_announcements(items: list[dict]) -> list[dict]:
 
     client = get_client()
     normalized_items: list[dict] = []
+    unique_items: dict[tuple[str, str], dict] = {}
     for item in items:
         source = str(item.get("source") or "").strip()
         external_id = str(item.get("external_id") or "").strip()
         if source and external_id:
-            normalized_items.append(dict(item))
+            # Last observation wins within the same batch. This is critical
+            # because Supabase/Postgres rejects an upsert batch containing the
+            # same unique key more than once.
+            unique_items[(source, external_id)] = dict(item)
+    normalized_items = list(unique_items.values())
     if not normalized_items:
         return []
 
@@ -476,6 +482,10 @@ def insert_news_announcements(items: list[dict]) -> list[dict]:
                 or item.get("calendar_data_status")
                 or "UNKNOWN"
             )
+        # The column is NOT NULL. Keep an explicit value even when a provider
+        # omitted calendar metadata for this observation.
+        if merged.get("calendar_data_status") in (None, ""):
+            merged["calendar_data_status"] = "UNKNOWN"
 
         # Once an event is released, a later feed outage must not downgrade it
         # back to UNKNOWN/UPCOMING.

@@ -161,7 +161,7 @@ def _technical_setup_candidates(state, parsed):
             "_rr": rr,
         })
 
-    for tf in ("m5", "m15", "m30", "h1"):
+    for tf in ("m5", "m15", "m30", "h1", "h4", "d1"):
         x = technical.get(tf) or {}
         bars = _ohlcv(parsed, tf)
         if not bars:
@@ -170,7 +170,11 @@ def _technical_setup_candidates(state, parsed):
             continue
         last = bars[-1]
         last_high, last_low = _n(last.get("high")), _n(last.get("low"))
-        prior_high, prior_low = _n(x.get("prior_high")), _n(x.get("prior_low"))
+        lookback = bars[-21:-1] if len(bars) > 21 else bars[:-1]
+        prior_high = max((_n(b.get("high")) for b in lookback), default=last_high)
+        prior_low = min((_n(b.get("low")) for b in lookback), default=last_low)
+        swing_high = max((_n(b.get("high")) for b in bars[-50:]), default=last_high)
+        swing_low = min((_n(b.get("low")) for b in bars[-50:]), default=last_low)
 
         sweep = str(x.get("sweep") or "none")
         if "sell_side_sweep" in sweep:
@@ -212,24 +216,88 @@ def _technical_setup_candidates(state, parsed):
 
         fib = x.get("fibonacci") or {}
         hi, lo = _n(fib.get("swing_high")), _n(fib.get("swing_low"))
-        r62, r79 = _n(fib.get("retracement_62")), _n(fib.get("retracement_79"))
+        r62_bull = _n(fib.get("retracement_62_bullish", fib.get("retracement_62")))
+        r79_bull = _n(fib.get("retracement_79_bullish", fib.get("retracement_79")))
+        r62_bear = _n(fib.get("retracement_62_bearish"))
+        r79_bear = _n(fib.get("retracement_79_bearish"))
         trend = str(x.get("trend") or "").lower()
         if trend == "bullish":
             add(
                 f"FIB_OTE_LONG_{tf.upper()}",
                 f"MSNR/ICT Fibonacci Reclaim ({tf.upper()})",
-                "LONG", r79 or r62, lo, hi,
-                [f"{tf.upper()} Fibonacci retracement", "swing high/low"],
+                "LONG", r79_bull or r62_bull, lo, hi,
+                [f"{tf.upper()} Fibonacci OTE", "swing high/low"],
                 ["ICT", "MSNR", "TTRADES"],
             )
         elif trend == "bearish":
             add(
                 f"FIB_OTE_SHORT_{tf.upper()}",
                 f"MSNR/ICT Fibonacci Rejection ({tf.upper()})",
-                "SHORT", r79 or r62, hi, lo,
-                [f"{tf.upper()} Fibonacci retracement", "swing high/low"],
+                "SHORT", r79_bear or r62_bear, hi, lo,
+                [f"{tf.upper()} Fibonacci OTE", "swing high/low"],
                 ["ICT", "MSNR", "TTRADES"],
             )
+
+        # BOS/CHoCH candidates are derived from confirmed OHLC swing geometry,
+        # not from an LLM label. They provide genuinely different plans when
+        # the four option-structure routes collapse to only one or two valid
+        # execution geometries.
+        bos = str(x.get("bos") or "none").lower()
+        choch = str(x.get("choch") or "none").lower()
+        if "bullish_bos" in bos and current >= prior_high:
+            add(
+                f"BOS_CONTINUATION_LONG_{tf.upper()}",
+                f"SMC/ICT BOS Continuation ({tf.upper()})",
+                "LONG", prior_high, last_low, swing_high,
+                [f"{tf.upper()} bullish BOS", "prior swing high", "swing high"],
+                ["SMC", "ICT", "CISD", "TTRADES"],
+            )
+        elif "bearish_bos" in bos and current <= prior_low:
+            add(
+                f"BOS_CONTINUATION_SHORT_{tf.upper()}",
+                f"SMC/ICT BOS Continuation ({tf.upper()})",
+                "SHORT", prior_low, last_high, swing_low,
+                [f"{tf.upper()} bearish BOS", "prior swing low", "swing low"],
+                ["SMC", "ICT", "CISD", "TTRADES"],
+            )
+
+        if "bullish_choch" in choch:
+            add(
+                f"CHOCH_REVERSAL_LONG_{tf.upper()}",
+                f"SMC CHoCH Reversal ({tf.upper()})",
+                "LONG", current, last_low, prior_high,
+                [f"{tf.upper()} bullish CHoCH", "liquidity shift", "prior swing"],
+                ["SMC", "CISD", "ICT"],
+            )
+        elif "bearish_choch" in choch:
+            add(
+                f"CHOCH_REVERSAL_SHORT_{tf.upper()}",
+                f"SMC CHoCH Reversal ({tf.upper()})",
+                "SHORT", current, last_high, prior_low,
+                [f"{tf.upper()} bearish CHoCH", "liquidity shift", "prior swing"],
+                ["SMC", "CISD", "ICT"],
+            )
+
+        # CRT reference-candle expansion: only emit when price has actually
+        # expanded through the completed candle range. The candle itself is
+        # the source of entry/invalidation; no synthetic ATR target is used.
+        if last_high is not None and last_low is not None:
+            if current > last_high and prior_high > current:
+                add(
+                    f"CRT_EXPANSION_LONG_{tf.upper()}",
+                    f"CRT Range Expansion ({tf.upper()})",
+                    "LONG", last_high, last_low, prior_high,
+                    [f"{tf.upper()} reference-candle high", "range expansion", "prior high"],
+                    ["CRT", "TTRADES"],
+                )
+            elif current < last_low and prior_low < current:
+                add(
+                    f"CRT_EXPANSION_SHORT_{tf.upper()}",
+                    f"CRT Range Expansion ({tf.upper()})",
+                    "SHORT", last_low, last_high, prior_low,
+                    [f"{tf.upper()} reference-candle low", "range expansion", "prior low"],
+                    ["CRT", "TTRADES"],
+                )
 
     # De-duplicate exact geometry; different strategy families with identical
     # levels are not useful as separate plans.
@@ -337,7 +405,7 @@ def rank_trade_candidates(state, execution, parsed=None):
         else:
             score -= 6.0
         tf_name = candidate["route"].rsplit("_", 1)[-1].lower()
-        tf_weight = {"d1": 8, "h1": 7, "m30": 5, "m15": 4, "m5": 3}.get(tf_name, 2)
+        tf_weight = {"d1": 8, "h4": 8, "h1": 7, "m30": 5, "m15": 4, "m5": 3}.get(tf_name, 2)
         score += tf_weight
         score += min(12.0, candidate["_rr"] * 2.0)
         candidate["score"] = round(score, 2)
