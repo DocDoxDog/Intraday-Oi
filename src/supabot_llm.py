@@ -390,6 +390,7 @@ def _summarize_input(parsed: dict[str, Any], history: dict[str, Any] | None) -> 
         "technical_context": parsed.get("technical_context") or {},
         "raw_series": {
             "market_state": raw.get("market_state") or {},
+            "multi_domain": raw.get("multi_domain") or (raw.get("market_state") or {}).get("multi_domain") or {},
             "totals": totals,
             "dte": raw.get("dte"),
             "heading": raw.get("heading"),
@@ -565,7 +566,16 @@ PRICING = ตลาดกำลังตอบสนองหรือยัง
 ถ้าข่าวไม่มีผลต่อ current setup อย่างมีหลักฐาน ให้ลดน้ำหนัก
 ถ้าไม่มีข่าวที่เกี่ยวข้อง ให้ระบุว่าไม่มี catalyst สำคัญจากข้อมูลที่ได้รับ
 
-9) MICROSTRUCTURE / LIQUIDITY
+9) MICROECONOMICS / SUPPLY-DEMAND / PRICE IMPACT
+ใช้เฉพาะ trade/book observations ที่มีจริง:
+- แยก aggressive classified trades ออกจาก passive displayed depth
+- อ่าน buy/sell delta เฉพาะเมื่อมี classified trades; ถ้าไม่มีให้ UNKNOWN
+- book imbalance บอก displayed bid/ask depth ไม่ใช่ executed buying/selling
+- volume-per-price-unit เป็น descriptive proxy เท่านั้น ไม่ใช่ calibrated elasticity
+- absorption เป็น hypothesis เมื่อ order-flow engine ตรวจพบ และห้ามยกระดับเป็น fact
+- ห้ามอนุมาน dealer/customer inventory จาก OI หรือ options positioning เพียงอย่างเดียว
+
+9A) MICROSTRUCTURE / LIQUIDITY
 ใช้ Technical/flow evidence เพื่อแยก:
 LEVEL → EVENT → ACCEPTANCE/REJECTION → RETEST → TRIGGER
 
