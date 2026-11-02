@@ -331,3 +331,31 @@ def test_telegram_never_restores_rejected_targets_from_market_map():
     message=telegram._format_trade_plan_message({},ai)
     assert "ไม่มีแผนที่ผ่านเกณฑ์" in message
     assert "4,119.86" not in message
+
+
+
+def test_telegram_top_five_deduplicates_same_geometry_from_different_routes():
+    from src import telegram
+
+    ai = {
+        "strategy_candidates": [
+            {"route": "FVG_M5", "strategy": "ICT FVG", "side": "LONG",
+             "entry": 100, "stop": 98, "targets": [104], "score": 90},
+            {"route": "FIB_M15", "strategy": "Fibonacci OTE", "side": "LONG",
+             "entry": 100, "stop": 98, "targets": [104], "score": 85},
+            {"route": "BOS_H1", "strategy": "BOS Continuation", "side": "SHORT",
+             "entry": 105, "stop": 108, "targets": [99], "score": 80},
+        ],
+        "trade_plan": {
+            "execution_plan": {
+                "routes": [
+                    {"route": "LEGACY_DUPLICATE", "side": "LONG",
+                     "trigger": 100, "stop": 98, "targets": [104]},
+                ]
+            }
+        },
+    }
+    message = telegram._format_trade_plan_message({}, ai)
+    assert message.count("Entry <b>") == 2
+    assert "TOP 1 — ICT FVG" in message
+    assert "TOP 2 — BOS Continuation" in message
