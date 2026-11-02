@@ -65,6 +65,89 @@ def _micro(state):
             "structure_events":[x for x in events if ":bos=" in x or ":choch=" in x],
             "interpretation":"level and event are kept separate; no tick-level aggressor claim without trade/book data"}
 
+def _microeconomics(state):
+    """Describe observed order-flow/book economics without inferring hidden inventory.
+
+    Book depth, classified aggressor volume and price displacement are kept as
+    separate observables. Derived ratios are explicitly proxies, not elasticities.
+    """
+    order_flow = state.get("order_flow") or {}
+    aggression = order_flow.get("aggression") or {}
+    book = order_flow.get("book") or {}
+
+    buy = _n(aggression.get("buy"))
+    sell = _n(aggression.get("sell"))
+    delta = _n(aggression.get("delta"))
+    total = _n(aggression.get("total"))
+    displacement = _n(aggression.get("price_displacement"))
+    book_imbalance = _n(book.get("imbalance"))
+    spread = _n(book.get("spread"))
+
+    aggression_balance = (
+        delta / total if delta is not None and total is not None and total > 0 else None
+    )
+    if aggression_balance is None:
+        aggressor_bias = "UNKNOWN"
+    elif aggression_balance > 0.05:
+        aggressor_bias = "NET_AGGRESSIVE_BUYING"
+    elif aggression_balance < -0.05:
+        aggressor_bias = "NET_AGGRESSIVE_SELLING"
+    else:
+        aggressor_bias = "BALANCED"
+
+    if book_imbalance is None:
+        depth_bias = "UNKNOWN"
+    elif book_imbalance > 0.05:
+        depth_bias = "BID_DEPTH_HEAVY"
+    elif book_imbalance < -0.05:
+        depth_bias = "ASK_DEPTH_HEAVY"
+    else:
+        depth_bias = "BALANCED_DEPTH"
+
+    volume_per_price_unit = (
+        total / abs(displacement)
+        if total is not None and total > 0 and displacement is not None and abs(displacement) > 1e-9
+        else None
+    )
+    observed = any(x is not None for x in (
+        buy, sell, delta, total, displacement, book_imbalance, spread
+    ))
+    return {
+        "status": "AVAILABLE" if observed else "UNKNOWN",
+        "aggressor_flow": {
+            "buy_volume": buy,
+            "sell_volume": sell,
+            "delta": delta,
+            "total_classified_volume": total,
+            "balance_ratio": round(aggression_balance, 6) if aggression_balance is not None else None,
+            "classification": aggressor_bias,
+            "trade_count": aggression.get("trade_count"),
+        },
+        "order_book": {
+            "best_bid_depth": _n(book.get("best_bid_depth")),
+            "best_ask_depth": _n(book.get("best_ask_depth")),
+            "imbalance": book_imbalance,
+            "depth_bias": depth_bias,
+            "spread": spread,
+        },
+        "price_impact": {
+            "observed_displacement": displacement,
+            "volume_per_price_unit_proxy": round(volume_per_price_unit, 6) if volume_per_price_unit is not None else None,
+            "interpretation": "descriptive proxy only; not a calibrated elasticity estimate",
+        },
+        "absorption_hypotheses": [
+            x for x in (order_flow.get("hypotheses") or [])
+            if isinstance(x, dict) and x.get("type") == "ABSORPTION_CANDIDATE"
+        ],
+        "limitations": [
+            "No hidden dealer/customer inventory is inferred from OI.",
+            "Book depth is a displayed-liquidity snapshot, not guaranteed executable liquidity.",
+            "Aggressor bias is emitted only when classified trade volume is supplied.",
+            "Volume-per-price-unit is not economic elasticity and is not a standalone signal.",
+        ],
+    }
+
+
 def _psych(state):
     f=state.get("flow") or {}; g=state.get("gamma") or {}; t=state.get("technical") or {}; m=[]
     if any(str((t.get(x) or {}).get("sweep") or "none")!="none" for x in ("m5","m15","h1")): m.append("liquidity_sweep")
@@ -580,18 +663,23 @@ def rank_trade_candidates(state, execution, parsed=None):
 
 def build_multi_domain_context(parsed,state,execution):
     quant=build_quant_evidence(parsed)
-    macro=_macro(parsed,state); micro=_micro(state); psychology=_psych(state)
+    macro=_macro(parsed,state)
+    micro=_micro(state)
+    microeconomics=_microeconomics(state)
+    psychology=_psych(state)
     candidates=rank_trade_candidates(state,execution,parsed)
     # Keep deterministic context available to the ranking layer and downstream
     # renderers without making the score a probability.
     state["quant"] = quant
     state["macro"] = macro
+    state["microeconomics"] = microeconomics
     state["psychology"] = psychology
     conflicts=[]
     structural=str((state.get("decision") or {}).get("structural_bias") or "MIXED").upper()
     for x in candidates:
         if structural=="BULLISH" and x["side"].startswith("SHORT"): conflicts.append("countertrend:"+str(x["route"]))
         if structural=="BEARISH" and x["side"].startswith("LONG"): conflicts.append("countertrend:"+str(x["route"]))
-    return {"version":"multi-domain-v1","macro":macro,"microstructure":micro,"psychology":psychology,
+    return {"version":"multi-domain-v2","macro":macro,"microstructure":micro,
+            "microeconomics":microeconomics,"psychology":psychology,
             "quant":quant,"strategy_candidates":candidates,"conflicts":conflicts,
             "method":"evidence-first deterministic ranking; score is not probability"}

@@ -1330,6 +1330,7 @@ def normalize_analyst_output(
     state["multi_domain"] = multi_domain
     state["macro"] = multi_domain.get("macro") or state.get("macro") or {}
     state["microstructure"] = multi_domain.get("microstructure") or {}
+    state["microeconomics"] = multi_domain.get("microeconomics") or {}
     state["psychology"] = multi_domain.get("psychology") or {}
     state["quant"] = multi_domain.get("quant") or {}
     state["strategy_candidates"] = multi_domain.get("strategy_candidates") or []
@@ -1441,6 +1442,7 @@ def normalize_analyst_output(
     ai["order_flow"] = state.get("order_flow") or {}
     ai["macro_state"] = state.get("macro") or {}
     ai["microstructure"] = state.get("microstructure") or {}
+    ai["microeconomics"] = state.get("microeconomics") or {}
     ai["market_psychology"] = state.get("psychology") or {}
     ai["quant_metrics"] = state.get("quant") or {}
     ai["strategy_candidates"] = state.get("strategy_candidates") or []
