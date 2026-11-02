@@ -184,9 +184,18 @@ def build_trade_execution_plan(state: dict[str, Any]) -> dict[str, Any]:
         risk_per_unit = abs(trigger - stop) if trigger is not None and stop is not None else None
         rr1_ok = bool(rr) and rr[0] is not None and rr[0] >= 1.0
         effective_state = str(conf.get("state") or "WAIT")
+        volatility = state.get("volatility") or {}
+        price_context = state.get("price") or {}
+        atm_iv = _n(volatility.get("atm_iv"))
+        if atm_iv is None:
+            atm_iv = _n(volatility.get("iv"))
+        reference_price = _n(price_context.get("cfd"))
+        if reference_price is None:
+            reference_price = trigger
         risk = evaluate_setup_risk(
             side, trigger, stop, targets,
             atr=atr, spread=spread, slippage=None,
+            iv_pct=atm_iv, ref_price=reference_price,
         )
 
         risk_blocked = risk.get("status") != "PASS"
