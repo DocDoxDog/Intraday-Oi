@@ -214,23 +214,46 @@ def _format_trade_plan_message(parsed: dict, ai_result: dict) -> str:
     # levels and never duplicate a route.
     execution = ((ai_result.get("trade_plan") or {}).get("execution_plan") or {})
     legacy_candidates = list(execution.get("routes") or [])
-    seen_routes = {
-        (str(x.get("route") or ""), str(x.get("side") or "").upper(),
-         _show(x.get("entry")), _show(x.get("stop")))
-        for x in candidates if isinstance(x, dict)
-    }
+    def geometry_key(item):
+        entry = item.get("entry")
+        if entry is None:
+            entry = item.get("trigger")
+        stop = item.get("stop")
+        targets = item.get("targets") or []
+        if entry is None or stop is None or not targets:
+            return None
+        try:
+            return (
+                str(item.get("side") or "").upper(),
+                round(float(entry), 5),
+                round(float(stop), 5),
+                round(float(targets[0]), 5),
+            )
+        except (TypeError, ValueError):
+            return None
+
+    unique_candidates = []
+    seen_geometry = set()
+    for item in candidates:
+        if not isinstance(item, dict):
+            continue
+        key = geometry_key(item)
+        if key is not None and key in seen_geometry:
+            continue
+        if key is not None:
+            seen_geometry.add(key)
+        unique_candidates.append(item)
+    candidates = unique_candidates
+
     for route in legacy_candidates:
         if not isinstance(route, dict):
             continue
-        route_key = (
-            str(route.get("route") or ""),
-            str(route.get("side") or "").upper(),
-            _show(route.get("entry")),
-            _show(route.get("stop")),
-        )
-        if route_key not in seen_routes:
-            candidates.append(route)
-            seen_routes.add(route_key)
+        key = geometry_key(route)
+        if key is not None and key in seen_geometry:
+            continue
+        candidates.append(route)
+        if key is not None:
+            seen_geometry.add(key)
         if len(candidates) >= 5:
             break
     lines=["<b>🎯 TRADE PLAN</b>"]
