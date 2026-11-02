@@ -1,4 +1,4 @@
-from src.multi_domain_engine import build_quant_evidence, rank_trade_candidates
+from src.multi_domain_engine import build_quant_evidence, rank_trade_candidates, _microeconomics
 
 
 def _bars(base: float, n: int = 60, spread: float = 1.0):
@@ -43,3 +43,35 @@ def test_ranker_can_return_five_distinct_ohlc_setups():
     assert len(candidates) >= 5
     assert len({c["route"] for c in candidates[:5]}) == 5
     assert all(c["side"] == "SHORT" for c in candidates[:5])
+
+
+
+def test_microeconomics_uses_observed_aggressor_and_book_data_only():
+    state = {
+        "order_flow": {
+            "status": "OK",
+            "aggression": {
+                "buy": 70.0, "sell": 30.0, "delta": 40.0,
+                "total": 100.0, "trade_count": 20, "price_displacement": 0.25,
+            },
+            "book": {
+                "status": "OK", "best_bid_depth": 120.0,
+                "best_ask_depth": 80.0, "imbalance": 0.2, "spread": 0.1,
+            },
+            "hypotheses": [{"type": "ABSORPTION_CANDIDATE", "status": "CANDIDATE"}],
+        }
+    }
+    out = _microeconomics(state)
+    assert out["status"] == "AVAILABLE"
+    assert out["aggressor_flow"]["classification"] == "NET_AGGRESSIVE_BUYING"
+    assert out["order_book"]["depth_bias"] == "BID_DEPTH_HEAVY"
+    assert out["price_impact"]["volume_per_price_unit_proxy"] == 400.0
+    assert len(out["absorption_hypotheses"]) == 1
+
+
+def test_microeconomics_stays_unknown_without_trade_or_book_observations():
+    out = _microeconomics({})
+    assert out["status"] == "UNKNOWN"
+    assert out["aggressor_flow"]["classification"] == "UNKNOWN"
+    assert out["order_book"]["depth_bias"] == "UNKNOWN"
+    assert out["price_impact"]["volume_per_price_unit_proxy"] is None
