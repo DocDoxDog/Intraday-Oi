@@ -1,14 +1,14 @@
 from src.multi_domain_engine import build_quant_evidence, rank_trade_candidates
 
 
-def _bars(base: float, n: int = 60):
+def _bars(base: float, n: int = 60, spread: float = 1.0):
     rows = []
     for i in range(n):
         close = base - i * 0.1
         rows.append({
             "open": close + 0.05,
-            "high": close + 1.0,
-            "low": close - 1.0,
+            "high": close + spread,
+            "low": close - spread,
             "close": close,
             "datetime": f"2026-10-30T00:{i:02d}:00+00:00",
         })
@@ -28,7 +28,9 @@ def test_quant_engine_consumes_m30_ohlcv():
 
 def test_ranker_can_return_five_distinct_ohlc_setups():
     tfs = ("d1", "h4", "h1", "m30", "m15", "m5")
-    ohlcv = {tf: _bars(120.0 + i * 2.0) for i, tf in enumerate(tfs)}
+    # Same market area across horizons, with different observed ranges so the
+    # resulting Fibonacci geometries are genuinely distinct and risk-valid.
+    ohlcv = {tf: _bars(101.24, spread=0.5 + i * 0.25) for i, tf in enumerate(tfs)}
     state = {
         "price": {"cfd": 100.0},
         "decision": {"structural_bias": "BEARISH"},
