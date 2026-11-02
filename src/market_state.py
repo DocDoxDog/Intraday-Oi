@@ -237,16 +237,37 @@ def _gamma_state(parsed: dict[str, Any], history: dict[str, Any]) -> dict[str, A
 
 def _iv_term_structure(parsed: dict[str, Any]) -> list[dict[str, Any]]:
     output = []
+    from src.quant_metrics import atm_iv
     for item in parsed.get("expiration_snapshots") or []:
         if not isinstance(item, dict):
             continue
+        item_raw = item.get("raw_series") or {}
+        forward = _num(item.get("future_price")) or _num(parsed.get("future_price"))
+        atm = atm_iv(item_raw.get("strike_rows") or [], forward)
         output.append({
             "code": item.get("expiration_code")
-            or (item.get("raw_series") or {}).get("expiration_selection", {}).get("selected"),
+            or item_raw.get("expiration_selection", {}).get("selected"),
             "dte": _num(item.get("dte")),
-            "iv": _num(item.get("vol")),
+            "iv": atm if atm is not None else _num(item.get("vol")),
+            "iv_source": "atm_interpolated_at_forward" if atm is not None else "mean_chain_iv",
         })
     return output
+
+
+def _atm_iv_only(parsed: dict[str, Any]) -> float | None:
+    from src.quant_metrics import atm_iv
+    rows = (parsed.get("raw_series") or {}).get("strike_rows") or []
+    return atm_iv(rows, parsed.get("future_price"))
+
+
+def _atm_or_mean_iv(parsed: dict[str, Any]) -> float | None:
+    atm = _atm_iv_only(parsed)
+    return atm if atm is not None else _num(parsed.get("vol"))
+
+
+def _skew_25d_only(parsed: dict[str, Any]) -> float | None:
+    from src.quant_metrics import skew_25d
+    return skew_25d((parsed.get("raw_series") or {}).get("strike_rows") or [])
 
 
 def _skew(parsed: dict[str, Any]) -> float | None:
@@ -433,7 +454,13 @@ def enrich_market_state(parsed: dict[str, Any], history: dict[str, Any] | None =
             "oi_acceleration_per_hour2": acceleration,
         },
         "volatility": {
-            "iv": _num(parsed.get("vol")),
+            # Prefer interpolated ATM IV; keep the source chain mean separately.
+            "iv": _atm_or_mean_iv(parsed),
+            "iv_source": "atm_interpolated_at_forward" if _atm_iv_only(parsed) is not None else "mean_chain_iv",
+            "mean_chain_iv": _num(parsed.get("vol")),
+            "atm_iv": _atm_iv_only(parsed),
+            "skew_25d": _skew_25d_only(parsed),
+            "iv_change_basis": "mean_chain_iv",
             "iv_change_1h": (
                 round(_num(parsed.get("vol")) - _num(hour.get("vol")), 6)
                 if hour and _num(parsed.get("vol")) is not None and _num(hour.get("vol")) is not None
