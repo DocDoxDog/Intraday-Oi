@@ -22,6 +22,15 @@ def build_quant_evidence(parsed):
     out={"status":"UNKNOWN","timeframes":{}}
     canonical_quant = (((parsed.get("raw_series") or {}).get("market_state") or {}).get("quant_metrics") or {})
     out["options_surface"] = canonical_quant.get("options_surface") or {}
+    canonical_volatility = canonical_quant.get("volatility") or {}
+    out["financial_engineering"] = {
+        "status": "AVAILABLE" if canonical_volatility else "UNKNOWN",
+        "volatility": canonical_volatility,
+        "risk_flags": canonical_quant.get("risk_flags") or [],
+        "method": canonical_quant.get("method") or "UNKNOWN",
+        "limitations": canonical_quant.get("limitations") or [],
+    }
+    out["gamma_profile"] = ((parsed.get("raw_series") or {}).get("gex") or {}).get("gamma_profile") or {}
     for tf in ("m5","m15","m30","h1","h4","d1"):
         bars=_ohlcv(parsed,tf); closes=[_n(x.get("close")) for x in bars]; closes=[x for x in closes if x is not None]
         if len(closes)<20: continue
