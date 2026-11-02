@@ -203,7 +203,9 @@ def _technical_setup_candidates(state, parsed):
             add(
                 f"FVG_RECLAIM_LONG_{tf.upper()}",
                 f"ICT FVG Rebalance ({tf.upper()})",
-                "LONG", fvg_high, prior_low, prior_high,
+                # Enter at the near edge of the observed gap; this keeps the
+                # entry inside the actual FVG rather than beyond its far edge.
+                "LONG", fvg_low, prior_low, prior_high,
                 [f"{tf.upper()} bullish FVG", "OHLC prior range"],
                 ["ICT", "SMC"],
             )
@@ -211,17 +213,32 @@ def _technical_setup_candidates(state, parsed):
             add(
                 f"FVG_RECLAIM_SHORT_{tf.upper()}",
                 f"ICT FVG Rebalance ({tf.upper()})",
-                "SHORT", fvg_low, prior_high, prior_low,
+                # Mirror the bullish geometry: use the near edge of the
+                # bearish gap and retain source-derived invalidation/target.
+                "SHORT", fvg_high, prior_high, prior_low,
                 [f"{tf.upper()} bearish FVG", "OHLC prior range"],
                 ["ICT", "SMC"],
             )
 
         fib = x.get("fibonacci") or {}
-        hi, lo = _n(fib.get("swing_high")), _n(fib.get("swing_low"))
+        # Prefer the technical engine's swing map. If unavailable, derive a
+        # conservative range from stored OHLC only (never future bars).
+        hi = _n(fib.get("swing_high"))
+        lo = _n(fib.get("swing_low"))
+        if hi is None:
+            hi = swing_high
+        if lo is None:
+            lo = swing_low
+        span = hi - lo if hi is not None and lo is not None else None
         r62_bull = _n(fib.get("retracement_62_bullish", fib.get("retracement_62")))
         r79_bull = _n(fib.get("retracement_79_bullish", fib.get("retracement_79")))
         r62_bear = _n(fib.get("retracement_62_bearish"))
         r79_bear = _n(fib.get("retracement_79_bearish"))
+        if span is not None and span > 0:
+            r62_bull = r62_bull if r62_bull is not None else hi - span * 0.62
+            r79_bull = r79_bull if r79_bull is not None else hi - span * 0.79
+            r62_bear = r62_bear if r62_bear is not None else lo + span * 0.62
+            r79_bear = r79_bear if r79_bear is not None else lo + span * 0.79
         trend = str(x.get("trend") or "").lower()
         if trend == "bullish":
             add(
