@@ -47,6 +47,105 @@ def black76_gamma(F: float, strike: float, iv_percent: float | None, dte_days: f
     return math.exp(-0.5 * d1 * d1) / math.sqrt(2 * math.pi) / (F * sigma * math.sqrt(T))
 
 
+# ---------------------------------------------------------------------------
+# Spot-grid gamma profile and dealer-sign scenarios.
+# OI does not identify who is long or short; these are explicit assumptions.
+# ---------------------------------------------------------------------------
+SIGN_SCENARIOS: dict[str, tuple[float, float]] = {
+    "equity_convention": (1.0, -1.0),
+    "dealer_short_calls": (-1.0, 1.0),
+    "dealer_short_both": (-1.0, -1.0),
+}
+
+
+def _row_iv(row: dict[str, Any]) -> float | None:
+    iv = _num(row.get("vol"))
+    return iv if iv is not None and iv > 0 else None
+
+
+def _crossing_in_series(points: list[tuple[float, float]], anchor: float) -> float | None:
+    """Return the zero crossing nearest the forward using linear interpolation."""
+    best = None
+    for (x0, y0), (x1, y1) in zip(points, points[1:]):
+        if y0 == 0:
+            candidate = x0
+        elif (y0 < 0 < y1) or (y0 > 0 > y1):
+            candidate = x0 + (x1 - x0) * (-y0) / (y1 - y0)
+        else:
+            continue
+        if best is None or abs(candidate - anchor) < abs(best - anchor):
+            best = candidate
+    return best
+
+
+def gamma_profile(
+    rows: list[dict[str, Any]],
+    future_price: float,
+    dte_days: float | None,
+    *,
+    multiplier: float = GC_CONTRACT_MULTIPLIER,
+    span: float = 0.06,
+    steps: int = 61,
+) -> dict[str, Any]:
+    """Reprice per-strike gamma across a hypothetical forward-price grid.
+
+    A zero-gamma crossing is computed for each explicitly named dealer-sign
+    convention. It is not presented as observed dealer inventory or intent.
+    """
+    forward, dte = _num(future_price), _num(dte_days)
+    if forward is None or forward <= 0 or dte is None or dte <= 0:
+        return {"status": "unavailable", "reason": "future_price_or_dte_missing", "scenarios": {}}
+    usable = []
+    for row in rows or []:
+        if not isinstance(row, dict):
+            continue
+        strike = _num(row.get("strike"))
+        iv = _row_iv(row)
+        call_oi, put_oi = _num(row.get("oiCall")), _num(row.get("oiPut"))
+        if strike is not None and iv is not None and call_oi is not None and put_oi is not None:
+            usable.append((strike, iv, call_oi, put_oi))
+    if len(usable) < 3:
+        return {"status": "unavailable", "reason": "insufficient_rows_with_iv_and_oi", "scenarios": {}}
+
+    count = max(5, int(steps))
+    grid = [forward * (1.0 - span + (2.0 * span) * i / (count - 1)) for i in range(count)]
+    curves: dict[str, list[tuple[float, float]]] = {name: [] for name in SIGN_SCENARIOS}
+    for spot in grid:
+        scale = multiplier * spot * spot * 0.01
+        call_gamma = put_gamma = 0.0
+        for strike, iv, call_oi, put_oi in usable:
+            gamma = black76_gamma(spot, strike, iv, dte)
+            if gamma is None:
+                continue
+            call_gamma += gamma * call_oi * scale
+            put_gamma += gamma * put_oi * scale
+        for name, (call_sign, put_sign) in SIGN_SCENARIOS.items():
+            curves[name].append((spot, call_sign * call_gamma + put_sign * put_gamma))
+
+    scenarios: dict[str, Any] = {}
+    for name, points in curves.items():
+        at_forward = min(points, key=lambda point: abs(point[0] - forward))[1]
+        scenarios[name] = {
+            "net_gex_at_forward": at_forward,
+            "zero_gamma_level": _crossing_in_series(points, forward),
+            "sign_at_forward": "POSITIVE" if at_forward > 0 else "NEGATIVE" if at_forward < 0 else "ZERO",
+        }
+    signs = {item["sign_at_forward"] for item in scenarios.values()}
+    return {
+        "status": "ok",
+        "method": "spot_grid_black76_per_strike_iv",
+        "span_pct": span * 100.0,
+        "rows_used": len(usable),
+        "scenarios": scenarios,
+        "sign_consensus": len(signs) == 1,
+        "curve": [
+            {"spot": round(spot, 2), "net_gex": round(value, 2)}
+            for spot, value in curves["equity_convention"]
+        ],
+        "limitation": "Dealer sign is assumed; open interest does not identify the long/short holder.",
+    }
+
+
 def calculate_gex(
     rows: list[dict[str, Any]],
     future_price: float,
@@ -112,6 +211,12 @@ def calculate_gex(
     call_rows = [row for row in out if _num(row.get("call_gex")) is not None]
     put_rows = [row for row in out if _num(row.get("put_gex")) is not None]
     net_rows = [row for row in out if _num(row.get("net_gex")) is not None]
+    cumulative_flip = _crossing_level(net_rows, "cumulative_gex")
+    profile = gamma_profile(rows, F, dte_days, multiplier=multiplier)
+    grid_flip = (
+        (profile.get("scenarios") or {}).get("equity_convention", {}).get("zero_gamma_level")
+        if profile.get("status") == "ok" else None
+    )
 
     return {
         "status": "ok" if out else "unavailable",
@@ -126,7 +231,11 @@ def calculate_gex(
         "call_wall": max(call_rows, key=lambda row: row["call_gex"])["strike"] if call_rows else None,
         "put_wall": min(put_rows, key=lambda row: row["put_gex"])["strike"] if put_rows else None,
         "max_abs_gex_strike": max(net_rows, key=lambda row: abs(row["net_gex"]))["strike"] if net_rows else None,
-        "gamma_flip": _crossing_level(net_rows, "cumulative_gex"),
+        "gamma_flip": grid_flip if grid_flip is not None else cumulative_flip,
+        "gamma_flip_method": "spot_grid" if grid_flip is not None else "cumulative_strike_crossing",
+        "gamma_flip_cumulative": cumulative_flip,
+        "gamma_profile": profile,
+        "sign_consensus": profile.get("sign_consensus"),
         "positive_gamma": net > 0 if net is not None else None,
         "source_gamma_count": sum(row["gamma_source"] == "quikstrike" for row in out),
         "derived_gamma_count": sum(row["gamma_source"] == "black76_from_iv" for row in out),
