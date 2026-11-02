@@ -651,7 +651,16 @@ def rank_trade_candidates(state, execution, parsed=None):
     selected = []
     seen = set()
     for x in rows:
-        key = (x["route"], x["side"], round(float(x["entry"]), 5), round(float(x["stop"]), 5))
+        # Strategy labels are not distinct setups. Collapse candidates with the
+        # same side, entry, invalidation and first objective even when they came
+        # from different frameworks/timeframes.
+        first_target = (x.get("targets") or [None])[0]
+        key = (
+            x["side"],
+            round(float(x["entry"]), 5),
+            round(float(x["stop"]), 5),
+            round(float(first_target), 5) if first_target is not None else None,
+        )
         if key in seen:
             continue
         seen.add(key)

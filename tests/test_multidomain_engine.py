@@ -75,3 +75,27 @@ def test_microeconomics_stays_unknown_without_trade_or_book_observations():
     assert out["aggressor_flow"]["classification"] == "UNKNOWN"
     assert out["order_book"]["depth_bias"] == "UNKNOWN"
     assert out["price_impact"]["volume_per_price_unit_proxy"] is None
+
+
+
+def test_ranker_deduplicates_same_setup_across_strategy_labels():
+    state = {
+        "price": {"cfd": 100.0},
+        "decision": {"structural_bias": "MIXED"},
+        "technical": {},
+        "market_map": {},
+        "gamma": {},
+    }
+    execution = {
+        "routes": [
+            {"route": "FVG_M5", "side": "LONG", "trigger": 100, "stop": 98, "targets": [104, 106]},
+            {"route": "FIB_M15", "side": "LONG", "trigger": 100, "stop": 98, "targets": [104, 108]},
+            {"route": "BOS_H1", "side": "LONG", "trigger": 101, "stop": 98, "targets": [104]},
+        ]
+    }
+    rows = rank_trade_candidates(state, execution, {"technical_context": {"ohlcv": {}}})
+    assert len(rows) == 2
+    assert {(x["side"], x["entry"], x["stop"], x["targets"][0]) for x in rows} == {
+        ("LONG", 100.0, 98.0, 104.0),
+        ("LONG", 101.0, 98.0, 104.0),
+    }
