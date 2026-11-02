@@ -7,7 +7,7 @@ def test_technical_candidates_are_source_derived_and_distinct():
             "ohlcv": {
                 "m5": [
                     {"open": 100, "high": 103, "low": 99, "close": 102, "datetime": "2026-10-27T10:00:00Z"},
-                    {"open": 102, "high": 104, "low": 101, "close": 103, "datetime": "2026-10-27T10:05:00Z"},
+                    {"open": 102, "high": 107, "low": 100, "close": 103, "datetime": "2026-10-27T10:05:00Z"},
                 ],
                 "m15": [
                     {"open": 110, "high": 112, "low": 105, "close": 108, "datetime": "2026-10-27T10:00:00Z"},
@@ -24,6 +24,7 @@ def test_technical_candidates_are_source_derived_and_distinct():
         "technical": {
             "m5": {
                 "trend": "bullish",
+                "bos": "bullish_bos",
                 "fvg": {"side": "bullish", "low": 100, "high": 102},
                 "prior_high": 110,
                 "prior_low": 95,
