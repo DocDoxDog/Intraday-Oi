@@ -575,7 +575,14 @@ PRICING = ตลาดกำลังตอบสนองหรือยัง
 - absorption เป็น hypothesis เมื่อ order-flow engine ตรวจพบ และห้ามยกระดับเป็น fact
 - ห้ามอนุมาน dealer/customer inventory จาก OI หรือ options positioning เพียงอย่างเดียว
 
-9A) MICROSTRUCTURE / LIQUIDITY
+9A) MULTI-DOMAIN STRATEGY CANDIDATES
+ใช้ strategy_candidates ที่คำนวณจาก OHLC / options / structural levels เพื่ออธิบายว่า
+setup family ใดมี evidence รองรับและมี conflict กับ HTF / macro / liquidity ตรงไหน
+- Ranking score ใช้จัดอันดับเท่านั้น ไม่ใช่ probability หรือ win rate
+- ห้ามสร้างหรือแก้ Entry / SL / TP; deterministic trade engine เป็นผู้กำหนดราคา
+- ถ้า candidate ไม่ผ่าน geometry / RR / evidence gate ให้ไม่นำมาอ้างเป็นแผนที่พร้อมใช้
+
+9B) MICROSTRUCTURE / LIQUIDITY
 ใช้ Technical/flow evidence เพื่อแยก:
 LEVEL → EVENT → ACCEPTANCE/REJECTION → RETEST → TRIGGER
 
