@@ -45,6 +45,8 @@ from src.market_state import enrich_market_state, normalize_analyst_output
 from src.macro_state import build_macro_state
 from src.quant_metrics import enrich_quant_metrics
 from src.market_flow_engine import build_flow_context
+from src.multi_domain_engine import build_multi_domain_context
+from src.trade_plan_engine import build_trade_execution_plan
 from src.historical_memory import load_multi_timeframe_memory
 from src.trade_plan_journal import persist_trade_plan_journal
 from intelligence.news.free_feed import collect_free_news
@@ -389,6 +391,32 @@ def run():
         f"Today={'OK' if hist_context.get('today', {}).get('count') else 'UNKNOWN'} | "
         f"Yesterday={'OK' if hist_context.get('yesterday', {}).get('count') else 'UNKNOWN'}"
     )
+
+    # Build the same deterministic multi-domain evidence before the LLM call.
+    # The model can explain the evidence, but the ranker still owns the plans.
+    try:
+        execution_for_context = build_trade_execution_plan(market_state)
+        multi_domain_context = build_multi_domain_context(
+            parsed, market_state, execution_for_context
+        )
+        market_state["multi_domain"] = multi_domain_context
+        market_state["microstructure"] = multi_domain_context.get("microstructure") or {}
+        market_state["microeconomics"] = multi_domain_context.get("microeconomics") or {}
+        market_state["psychology"] = multi_domain_context.get("psychology") or {}
+        market_state["quant"] = multi_domain_context.get("quant") or {}
+        market_state["strategy_candidates"] = multi_domain_context.get("strategy_candidates") or []
+        parsed.setdefault("raw_series", {})["multi_domain"] = multi_domain_context
+        print(
+            "    multi-domain evidence: macro={} microeconomics={} candidates={}".format(
+                (multi_domain_context.get("macro") or {}).get("regime", "UNKNOWN"),
+                (multi_domain_context.get("microeconomics") or {}).get("status", "UNKNOWN"),
+                len(multi_domain_context.get("strategy_candidates") or []),
+            )
+        )
+    except Exception as e:
+        # Multi-domain enrichment is additive. The canonical analysis pipeline
+        # continues and the post-LLM normalizer can still rebuild its state.
+        print(f"⚠️  Multi-domain pre-LLM context unavailable: {e}", file=sys.stderr)
 
     print("[6/9] Running local supaBOT-compatible analyst core → Gemini...")
     try:
