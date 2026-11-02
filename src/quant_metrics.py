@@ -5,7 +5,8 @@ This module is descriptive: it does not create a directional alpha score.
 """
 from __future__ import annotations
 
-from math import sqrt
+from datetime import datetime, timezone
+from math import erf, log, sqrt
 from typing import Any
 
 
@@ -43,6 +44,153 @@ def _iv_slope(term: list[dict[str, Any]]) -> float | None:
     if d2 == d1:
         return None
     return (v2 - v1) / (d2 - d1)
+
+
+# ---------------------------------------------------------------------------
+# OHLC realized volatility and options-implied horizon risk (descriptive only)
+# ---------------------------------------------------------------------------
+TRADING_HOURS_PER_DAY = 23.0
+TRADING_DAYS_PER_YEAR = 252.0
+_BARS_PER_DAY = {"m1": 1380, "m5": 276, "m15": 92, "h1": 23}
+_BAR_MINUTES = {"m1": 1, "m5": 5, "m15": 15, "h1": 60}
+
+
+def horizon_sigma(price: float | None, iv_pct: float | None, hours: float) -> float | None:
+    """One-sigma price distance in points over the requested trading hours."""
+    p, iv = _n(price), _n(iv_pct)
+    if p is None or iv is None or p <= 0 or iv < 0 or hours < 0:
+        return None
+    return p * (iv / 100.0) * sqrt(hours / (TRADING_HOURS_PER_DAY * TRADING_DAYS_PER_YEAR))
+
+
+def stop_touch_probability(distance: float | None, sigma: float | None) -> float | None:
+    """Driftless reflection-principle barrier-touch estimate; not a win probability."""
+    d, sg = _n(distance), _n(sigma)
+    if d is None or sg is None or sg <= 0 or d < 0:
+        return None
+    probability = 2.0 * (1.0 - 0.5 * (1.0 + erf((d / sg) / sqrt(2.0))))
+    return min(1.0, max(0.0, probability))
+
+
+def _interp(points: list[tuple[float, float]], x: float) -> float | None:
+    points = sorted(points)
+    for (x0, y0), (x1, y1) in zip(points, points[1:]):
+        if x0 <= x <= x1:
+            return y0 if x1 == x0 else y0 + (y1 - y0) * (x - x0) / (x1 - x0)
+    return None
+
+
+def atm_iv(
+    rows: list[dict[str, Any]] | None,
+    forward: Any,
+    max_gap_pct: float = 0.02,
+) -> float | None:
+    """Interpolate per-strike IV at futures forward; never substitute a distant wing."""
+    fwd = _n(forward)
+    if fwd is None or fwd <= 0:
+        return None
+    points = []
+    for row in rows or []:
+        if not isinstance(row, dict):
+            continue
+        strike, iv = _n(row.get("strike")), _n(row.get("vol"))
+        if strike is not None and iv is not None and iv > 0:
+            points.append((strike, iv))
+    if len(points) < 2:
+        return None
+    interpolated = _interp(points, fwd)
+    if interpolated is not None:
+        return interpolated
+    nearest = min(points, key=lambda point: abs(point[0] - fwd))
+    return nearest[1] if abs(nearest[0] - fwd) / fwd <= max_gap_pct else None
+
+
+def skew_25d(rows: list[dict[str, Any]] | None) -> float | None:
+    """25-delta put IV minus 25-delta call IV, in vol points."""
+    calls, puts = [], []
+    for row in rows or []:
+        if not isinstance(row, dict):
+            continue
+        iv = _n(row.get("vol"))
+        call_delta, put_delta = _n(row.get("callDelta")), _n(row.get("putDelta"))
+        if iv is None or iv <= 0:
+            continue
+        if call_delta is not None:
+            calls.append((abs(call_delta), iv))
+        if put_delta is not None:
+            puts.append((abs(put_delta), iv))
+    if len(calls) < 2 or len(puts) < 2:
+        return None
+    call_scale = 100.0 if max(delta for delta, _ in calls) > 1.5 else 1.0
+    put_scale = 100.0 if max(delta for delta, _ in puts) > 1.5 else 1.0
+    call_25 = _interp([(delta / call_scale, iv) for delta, iv in calls], 0.25)
+    put_25 = _interp([(delta / put_scale, iv) for delta, iv in puts], 0.25)
+    return put_25 - call_25 if call_25 is not None and put_25 is not None else None
+
+
+def _parse_bar_time(value: Any) -> datetime | None:
+    if not value:
+        return None
+    try:
+        parsed = datetime.fromisoformat(str(value).strip().replace("Z", "+00:00"))
+        return parsed if parsed.tzinfo else parsed.replace(tzinfo=timezone.utc)
+    except (TypeError, ValueError):
+        return None
+
+
+def realized_vol_from_bars(
+    bars: list[dict[str, Any]] | None,
+    tf: str = "m5",
+    lookback_bars: int | None = None,
+    min_bars: int = 30,
+) -> dict[str, Any]:
+    """Annualized close-to-close and Parkinson RV; long maintenance gaps are excluded."""
+    timeframe = str(tf).lower()
+    per_day, minutes = _BARS_PER_DAY.get(timeframe), _BAR_MINUTES.get(timeframe)
+    if per_day is None or minutes is None:
+        return {"status": "UNKNOWN", "reason": "unsupported_timeframe", "tf": timeframe}
+    clean = []
+    for bar in bars or []:
+        if not isinstance(bar, dict):
+            continue
+        high, low, close = _n(bar.get("high")), _n(bar.get("low")), _n(bar.get("close"))
+        timestamp = _parse_bar_time(bar.get("datetime") or bar.get("bar_time"))
+        if high is None or low is None or close is None or timestamp is None:
+            continue
+        if high < low or low <= 0 or close <= 0:
+            continue
+        clean.append((timestamp, high, low, close))
+    clean.sort(key=lambda item: item[0])
+    lookback = lookback_bars or per_day
+    clean = clean[-(lookback + 1):]
+    if len(clean) < min_bars:
+        return {"status": "UNKNOWN", "reason": "insufficient_bars", "tf": timeframe, "bars": len(clean)}
+
+    returns, parkinson_terms = [], []
+    max_gap_seconds = minutes * 60 * 3
+    for (time0, _high0, _low0, close0), (time1, high1, low1, close1) in zip(clean, clean[1:]):
+        parkinson_terms.append(log(high1 / low1) ** 2)
+        if (time1 - time0).total_seconds() <= max_gap_seconds:
+            returns.append(log(close1 / close0))
+    if len(returns) < min_bars - 1:
+        return {"status": "UNKNOWN", "reason": "insufficient_contiguous_returns", "tf": timeframe, "bars": len(clean)}
+
+    mean_return = sum(returns) / len(returns)
+    variance = sum((value - mean_return) ** 2 for value in returns) / (len(returns) - 1)
+    annualizer = sqrt(per_day * TRADING_DAYS_PER_YEAR)
+    close_to_close = sqrt(max(variance, 0.0)) * annualizer * 100.0
+    parkinson = sqrt(
+        sum(parkinson_terms) / (4.0 * log(2.0) * len(parkinson_terms))
+    ) * annualizer * 100.0
+    return {
+        "status": "OK",
+        "tf": timeframe,
+        "bars": len(clean),
+        "contiguous_returns": len(returns),
+        "close_to_close_pct": close_to_close,
+        "parkinson_pct": parkinson,
+        "method": "ohlc_realized_vol_gap_filtered_trading_time",
+    }
 
 
 
@@ -165,11 +313,23 @@ def enrich_quant_metrics(parsed: dict[str, Any], history: dict[str, Any] | None 
     put_chg = _n(flow.get("oi_change_put"))
     call_chg = _n(flow.get("oi_change_call"))
     gex = _n(gamma.get("net_gex"))
-    iv = _n(vol.get("iv"))
+    strike_rows = raw.get("strike_rows") or []
+    atm_from_state = _n(vol.get("atm_iv"))
+    atm_from_rows = atm_iv(strike_rows, futures)
+    iv = atm_from_state if atm_from_state is not None else atm_from_rows
+    iv_source = (
+        "market_state_atm_iv" if atm_from_state is not None
+        else "atm_interpolated_at_forward" if atm_from_rows is not None
+        else "state_or_parsed_mean"
+    )
     if iv is None:
-        # Standalone callers and degraded payloads may only carry the parser's
-        # top-level IV. Preserve UNKNOWN when neither source has a value.
+        # The parser field is a chain mean, not an ATM observation.
+        iv = _n(vol.get("iv"))
+    if iv is None:
         iv = _n(parsed.get("vol", parsed.get("iv")))
+    skew25 = _n(vol.get("skew_25d"))
+    if skew25 is None:
+        skew25 = skew_25d(strike_rows)
     dte = _n(parsed.get("dte"))
 
     hour = history.get("hour_ago") or {}
@@ -225,7 +385,28 @@ def enrich_quant_metrics(parsed: dict[str, Any], history: dict[str, Any] | None 
     term = vol.get("iv_term_structure") or []
     skew = _n(vol.get("skew"))
     term_slope = _iv_slope(term)
-    options_surface = _options_surface(raw.get("strike_rows") or [], futures)
+    options_surface = _options_surface(strike_rows, futures)
+
+    technical = parsed.get("technical_context") or {}
+    ohlcv = technical.get("ohlcv") or {}
+    def _bars_for(*names):
+        wanted = {str(name).lower() for name in names}
+        for key, value in ohlcv.items():
+            if str(key).lower() in wanted and isinstance(value, list):
+                return value
+        return None
+    realized_vol = {
+        "m5": realized_vol_from_bars(_bars_for("m5", "5m", "5min"), "m5"),
+        "m15": realized_vol_from_bars(_bars_for("m15", "15m", "15min"), "m15"),
+        "h1": realized_vol_from_bars(_bars_for("h1", "1h", "60m"), "h1"),
+    }
+    rv_m5 = realized_vol.get("m5") or {}
+    rv_value = _n(rv_m5.get("close_to_close_pct")) if rv_m5.get("status") == "OK" else None
+    horizon_moves = {
+        "1h": horizon_sigma(futures, iv, 1.0),
+        "4h": horizon_sigma(futures, iv, 4.0),
+        "1d": horizon_sigma(futures, iv, TRADING_HOURS_PER_DAY),
+    }
 
     # Options-implied expected move from ATM IV and time-to-expiry.
     # This is a magnitude/range estimate, not a directional forecast.
@@ -293,9 +474,15 @@ def enrich_quant_metrics(parsed: dict[str, Any], history: dict[str, Any] | None 
         },
         "volatility": {
             "implied_vol": iv,
+            "implied_vol_source": iv_source,
+            "atm_iv": iv,
+            "skew_25d_put_minus_call": skew25,
             "expected_range": expected_range,
             "realized_vol_proxy": realized_vol_proxy,
+            "realized_vol": realized_vol,
+            "iv_minus_realized_m5_close_to_close": iv - rv_value if iv is not None and rv_value is not None else None,
             "iv_minus_realized_proxy": iv - realized_vol_proxy if iv is not None and realized_vol_proxy is not None else None,
+            "horizon_sigma_points": horizon_moves,
             "iv_term_slope_per_dte": term_slope,
             "atm_skew": skew,
             "options_surface": options_surface,
