@@ -352,8 +352,21 @@ def send_news(news_text: str, *, chat_ids: list[str]) -> None:
         print(f"✅ Telegram NEWS ANNOUNCEMENT sent to {cid}")
 
 
-def _send_photo_with_fallback(token: str, chat_id: str, photo_url: str, caption: str) -> None:
-    """Send a remote image; fall back to multipart upload when Telegram rejects the URL."""
+def _send_photo_with_fallback(token: str, chat_id: str, photo_url: str, caption: str, image_bytes: bytes | None = None) -> None:
+    """Prefer direct multipart delivery so Telegram does not fetch private Supabase URLs."""
+    url = TELEGRAM_PHOTO_API.format(token=token)
+    if image_bytes:
+        upload = requests.post(
+            url,
+            data={"chat_id": chat_id, "caption": caption},
+            files={"photo": ("image.png", image_bytes, "image/png")},
+            timeout=30,
+        )
+        if upload.status_code < 400:
+            return
+        raise RuntimeError(
+            f"Telegram direct photo upload failed HTTP {upload.status_code}: {(upload.text or '')[:500]}"
+        )
     url = TELEGRAM_PHOTO_API.format(token=token)
     response = requests.post(
         url,
@@ -390,6 +403,9 @@ def send(
     chat_ids: list[str] | None = None,
     gamma_table_url: str | None = None,
     gamma_table_full_url: str | None = None,
+    screenshot_bytes: bytes | None = None,
+    gamma_table_bytes: bytes | None = None,
+    gamma_table_full_bytes: bytes | None = None,
 ) -> None:
     token = os.environ.get("TELEGRAM_BOT_TOKEN")
     if not token:
@@ -401,12 +417,12 @@ def send(
         raise RuntimeError("ไม่มี authorized chat_ids ให้ส่ง")
 
     for cid in chat_ids:
-        if gamma_table_url:
-            _send_photo_with_fallback(token, cid, gamma_table_url, "GOLD GAMMA TABLE — Multi-Expiration")
-        if gamma_table_full_url:
-            _send_photo_with_fallback(token, cid, gamma_table_full_url, "GOLD GAMMA TABLE — FULL DATA")
-        if screenshot_url:
-            _send_photo_with_fallback(token, cid, screenshot_url, "QUIKSTRIKE OI — Source Screenshot")
+        if gamma_table_bytes or gamma_table_url:
+            _send_photo_with_fallback(token, cid, gamma_table_url or "", "GOLD GAMMA TABLE — Multi-Expiration", image_bytes=gamma_table_bytes)
+        if gamma_table_full_bytes or gamma_table_full_url:
+            _send_photo_with_fallback(token, cid, gamma_table_full_url or "", "GOLD GAMMA TABLE — FULL DATA", image_bytes=gamma_table_full_bytes)
+        if screenshot_bytes or screenshot_url:
+            _send_photo_with_fallback(token, cid, screenshot_url or "", "QUIKSTRIKE OI — Source Screenshot", image_bytes=screenshot_bytes)
 
         # Telegram is intentionally compact: three evidence images, one article, one plan.
         for message in (
