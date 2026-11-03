@@ -155,6 +155,8 @@ def run():
     gamma_table_url = None
     gamma_table_full_path = None
     gamma_table_full_url = None
+    gamma_table_bytes = None
+    gamma_table_full_bytes = None
     print("[5/9] Fetching history context (1H + 2H + today + yesterday)...")
     hist_context = history.get_context(contract=parsed.get("contract"))
     hr_ago_status = "พบ" if hist_context.get("hour_ago") else "ไม่พบ"
@@ -264,6 +266,7 @@ def run():
             gamma_matrix["display_context"] = display_context
 
             gamma_bytes = render_gamma_table(gamma_matrix, context=display_context)
+            gamma_table_bytes = gamma_bytes
             uploaded_gamma = upload_screenshot(
                 gamma_bytes, contract=f"{parsed.get('contract')}_GAMMA_COMPACT"
             )
@@ -272,6 +275,7 @@ def run():
                 gamma_table_url = uploaded_gamma["signed_url"]
 
             full_bytes = render_gamma_table_full(gamma_matrix, context=display_context)
+            gamma_table_full_bytes = full_bytes
             uploaded_full = upload_screenshot(
                 full_bytes, contract=f"{parsed.get('contract')}_GAMMA_FULL"
             )
@@ -574,6 +578,9 @@ def run():
                 screenshot_url=screenshot_url,
                 gamma_table_url=gamma_table_url,
                 gamma_table_full_url=gamma_table_full_url,
+                screenshot_bytes=screenshot_bytes,
+                gamma_table_bytes=gamma_table_bytes,
+                gamma_table_full_bytes=gamma_table_full_bytes,
                 chat_ids=chat_ids,
             )
             mark_notified("telegram")
