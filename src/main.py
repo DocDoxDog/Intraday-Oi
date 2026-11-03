@@ -493,39 +493,41 @@ def run():
     snapshot_id = row.get("id")
     if not snapshot_id:
         print("    🟡 SUPABASE DEGRADED MODE: skipping dependent persistence; delivery continues")
-    try:
-        if snapshot_id:
-            flow_persisted = persist_flow_intelligence(parsed, ai_result, snapshot_id=snapshot_id)
-        print(
-            "    ✅ Flow intelligence persisted: state={} nodes={} transitions={} event={}".format(
-                flow_persisted.get("state_id"),
-                flow_persisted.get("nodes"),
-                flow_persisted.get("transitions"),
-                flow_persisted.get("event"),
-            )
-        )
-    except Exception as e:
-        print(f"⚠️  Flow intelligence persistence failed (snapshot remains saved): {e}", file=sys.stderr)
-    try:
-        journal_count = persist_trade_plan_journal(get_client(), parsed, ai_result, snapshot_id=snapshot_id)
-        print(f"    ✅ Trade plan journal persisted: {journal_count} executable plans")
-    except Exception as e:
-        print(f"⚠️  Trade plan journal persistence failed (snapshot remains saved): {e}", file=sys.stderr)
-
-    try:
-        if snapshot_id:
-            insert_oi_intelligence(parsed, snapshot_id=snapshot_id)
-        print("    ✅ Structured OI intelligence persisted")
-    except Exception as e:
-        print(f"⚠️  Structured OI persistence failed (snapshot remains saved): {e}", file=sys.stderr)
-
-    if parsed.get("expiration_snapshots"):
+    if snapshot_id:
         try:
-            if snapshot_id:
-                written = insert_multi_expiry_options(parsed, snapshot_id=snapshot_id)
-            print(f"    ✅ Multi-expiry option observations persisted: {written} rows")
+            flow_persisted = persist_flow_intelligence(parsed, ai_result, snapshot_id=snapshot_id)
+            print(
+                "    ✅ Flow intelligence persisted: state={} nodes={} transitions={} event={}".format(
+                    flow_persisted.get("state_id"),
+                    flow_persisted.get("nodes"),
+                    flow_persisted.get("transitions"),
+                    flow_persisted.get("event"),
+                )
+            )
         except Exception as e:
-            print(f"⚠️  Multi-expiry persistence failed (snapshot remains saved): {e}", file=sys.stderr)
+            print(f"⚠️  Flow intelligence persistence failed (snapshot remains saved): {e}", file=sys.stderr)
+        try:
+            journal_count = persist_trade_plan_journal(
+                get_client(), parsed, ai_result, snapshot_id=snapshot_id
+            )
+            print(f"    ✅ Trade plan journal persisted: {journal_count} executable plans")
+        except Exception as e:
+            print(f"⚠️  Trade plan journal persistence failed (snapshot remains saved): {e}", file=sys.stderr)
+
+        try:
+            insert_oi_intelligence(parsed, snapshot_id=snapshot_id)
+            print("    ✅ Structured OI intelligence persisted")
+        except Exception as e:
+            print(f"⚠️  Structured OI persistence failed (snapshot remains saved): {e}", file=sys.stderr)
+
+        if parsed.get("expiration_snapshots"):
+            try:
+                written = insert_multi_expiry_options(parsed, snapshot_id=snapshot_id)
+                print(f"    ✅ Multi-expiry option observations persisted: {written} rows")
+            except Exception as e:
+                print(f"⚠️  Multi-expiry persistence failed (snapshot remains saved): {e}", file=sys.stderr)
+    else:
+        print("    ⏭️  Supabase-dependent persistence skipped in degraded mode")
 
     print("[8/9] Sending to Telegram...")
     # Normal mode is still fail-closed against the Supabase customer registry.
