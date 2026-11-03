@@ -466,19 +466,36 @@ def run():
     print("[7/9] Inserting into Supabase...")
     import json
     
-    row = insert_snapshot(
-        parsed,
-        ai_summary=json.dumps(ai_result, ensure_ascii=False),
-        screenshot_path=screenshot_path,
-        screenshot_url=screenshot_url,
-        gamma_table_path=gamma_table_path,
-        gamma_table_url=gamma_table_url,
-        gamma_table_full_path=gamma_table_full_path,
-        gamma_table_full_url=gamma_table_full_url,
-    )
-    print(f"✅ Done. Row id={row.get('id')}")
+    # Supabase is persistence/memory, not a hard dependency for the live signal.
+    # A project-wide 402 (for example exceed_egress_quota) must not kill the
+    # analysis run before Telegram/LINE delivery.
+    persistence_degraded = False
     try:
-        flow_persisted = persist_flow_intelligence(parsed, ai_result, snapshot_id=row.get("id"))
+        row = insert_snapshot(
+            parsed,
+            ai_summary=json.dumps(ai_result, ensure_ascii=False),
+            screenshot_path=screenshot_path,
+            screenshot_url=screenshot_url,
+            gamma_table_path=gamma_table_path,
+            gamma_table_url=gamma_table_url,
+            gamma_table_full_path=gamma_table_full_path,
+            gamma_table_full_url=gamma_table_full_url,
+        )
+        print(f"✅ Done. Row id={row.get('id')}")
+    except Exception as e:
+        persistence_degraded = True
+        row = {}
+        print(
+            f"⚠️  Supabase snapshot persistence unavailable (live analysis continues): {e}",
+            file=sys.stderr,
+        )
+
+    snapshot_id = row.get("id")
+    if not snapshot_id:
+        print("    🟡 SUPABASE DEGRADED MODE: skipping dependent persistence; delivery continues")
+    try:
+        if snapshot_id:
+            flow_persisted = persist_flow_intelligence(parsed, ai_result, snapshot_id=snapshot_id)
         print(
             "    ✅ Flow intelligence persisted: state={} nodes={} transitions={} event={}".format(
                 flow_persisted.get("state_id"),
@@ -490,38 +507,49 @@ def run():
     except Exception as e:
         print(f"⚠️  Flow intelligence persistence failed (snapshot remains saved): {e}", file=sys.stderr)
     try:
-        journal_count = persist_trade_plan_journal(get_client(), parsed, ai_result, snapshot_id=row.get("id"))
+        journal_count = persist_trade_plan_journal(get_client(), parsed, ai_result, snapshot_id=snapshot_id)
         print(f"    ✅ Trade plan journal persisted: {journal_count} executable plans")
     except Exception as e:
         print(f"⚠️  Trade plan journal persistence failed (snapshot remains saved): {e}", file=sys.stderr)
 
     try:
-        insert_oi_intelligence(parsed, snapshot_id=row.get("id"))
+        if snapshot_id:
+            insert_oi_intelligence(parsed, snapshot_id=snapshot_id)
         print("    ✅ Structured OI intelligence persisted")
     except Exception as e:
         print(f"⚠️  Structured OI persistence failed (snapshot remains saved): {e}", file=sys.stderr)
 
     if parsed.get("expiration_snapshots"):
         try:
-            written = insert_multi_expiry_options(parsed, snapshot_id=row.get("id"))
+            if snapshot_id:
+                written = insert_multi_expiry_options(parsed, snapshot_id=snapshot_id)
             print(f"    ✅ Multi-expiry option observations persisted: {written} rows")
         except Exception as e:
             print(f"⚠️  Multi-expiry persistence failed (snapshot remains saved): {e}", file=sys.stderr)
 
     print("[8/9] Sending to Telegram...")
-    # Authorization is fail-closed: Supabase customer registry is the source of truth.
-    # Never fall back to TELEGRAM_CHAT_ID, because an unavailable/empty registry
-    # must not become an authorization bypass.
+    # Normal mode is still fail-closed against the Supabase customer registry.
+    # During an explicit Supabase outage/restriction, use the existing
+    # TELEGRAM_CHAT_ID as a controlled delivery fallback so a database outage
+    # cannot suppress the live market alert. Disable with
+    # OI_BOT_ALLOW_SUPABASE_DEGRADED_TELEGRAM=0 if the fallback is not desired.
     try:
         chat_ids = get_active_chat_ids()
     except Exception as e:
-        print(f"    ❌ Telegram authorization registry unavailable: {e}", file=sys.stderr)
-        chat_ids = []
+        print(f"    ⚠️  Telegram authorization registry unavailable: {e}", file=sys.stderr)
+        allow_degraded_delivery = os.environ.get(
+            "OI_BOT_ALLOW_SUPABASE_DEGRADED_TELEGRAM", "1"
+        ).strip().lower() in {"1", "true", "yes", "on"}
+        fallback_chat_id = os.environ.get("TELEGRAM_CHAT_ID", "").strip()
+        if allow_degraded_delivery and fallback_chat_id:
+            chat_ids = [fallback_chat_id]
+            print("    🟡 Supabase degraded delivery: using TELEGRAM_CHAT_ID fallback")
+        else:
+            chat_ids = []
     if chat_ids:
-        print(f"    ผู้รับจาก Supabase customers table: {len(chat_ids)} คน")
+        print(f"    ผู้รับ Telegram: {len(chat_ids)} คน")
     else:
-        print("    ⏭️  ไม่มีผู้รับที่ active ใน Supabase customers — ข้าม Telegram", file=sys.stderr)
-        chat_ids = []
+        print("    ⏭️  ไม่มีผู้รับที่ active — ข้าม Telegram", file=sys.stderr)
 
     cooldown_minutes = max(0, int(os.environ.get("OI_BOT_NOTIFICATION_COOLDOWN_MINUTES", "30")))
     force_notify = os.environ.get("OI_BOT_FORCE_NOTIFY", "").strip().lower() in {"1", "true", "yes"}
