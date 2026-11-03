@@ -265,24 +265,34 @@ def run():
             }
             gamma_matrix["display_context"] = display_context
 
-            gamma_bytes = render_gamma_table(gamma_matrix, context=display_context)
-            gamma_table_bytes = gamma_bytes
-            uploaded_gamma = upload_screenshot(
-                gamma_bytes, contract=f"{parsed.get('contract')}_GAMMA_COMPACT"
-            )
-            if uploaded_gamma:
-                gamma_table_path = uploaded_gamma["path"]
-                gamma_table_url = uploaded_gamma["signed_url"]
+            # Render ALL Telegram assets before any Supabase upload.
+            # Supabase may be restricted (e.g. 402 exceed_egress_quota); a failed
+            # archive upload must never prevent the remaining image from being
+            # rendered and delivered directly to Telegram.
+            gamma_table_bytes = render_gamma_table(gamma_matrix, context=display_context)
+            gamma_table_full_bytes = render_gamma_table_full(gamma_matrix, context=display_context)
 
-            full_bytes = render_gamma_table_full(gamma_matrix, context=display_context)
-            gamma_table_full_bytes = full_bytes
-            uploaded_full = upload_screenshot(
-                full_bytes, contract=f"{parsed.get('contract')}_GAMMA_FULL"
-            )
-            if uploaded_full:
-                gamma_table_full_path = uploaded_full["path"]
-                gamma_table_full_url = uploaded_full["signed_url"]
-            print("    ✅ Gamma Table compact(30 rows) + full uploaded")
+            try:
+                uploaded_gamma = upload_screenshot(
+                    gamma_table_bytes, contract=f"{parsed.get('contract')}_GAMMA_COMPACT"
+                )
+                if uploaded_gamma:
+                    gamma_table_path = uploaded_gamma["path"]
+                    gamma_table_url = uploaded_gamma["signed_url"]
+            except Exception as e:
+                print(f"⚠️  Compact Gamma archive upload failed (Telegram bytes preserved): {e}", file=sys.stderr)
+
+            try:
+                uploaded_full = upload_screenshot(
+                    gamma_table_full_bytes, contract=f"{parsed.get('contract')}_GAMMA_FULL"
+                )
+                if uploaded_full:
+                    gamma_table_full_path = uploaded_full["path"]
+                    gamma_table_full_url = uploaded_full["signed_url"]
+            except Exception as e:
+                print(f"⚠️  Full Gamma archive upload failed (Telegram bytes preserved): {e}", file=sys.stderr)
+
+            print("    ✅ Gamma Table compact(30 rows) + full rendered for delivery")
         except Exception as e:
             print(f"⚠️  Gamma Table upload failed (continuing): {e}", file=sys.stderr)
 
