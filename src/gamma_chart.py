@@ -102,7 +102,7 @@ def _render(gamma_matrix: dict[str, Any], *, full: bool) -> bytes:
 
     fig, ax = plt.subplots(
         figsize=(fig_width, fig_height),
-        dpi=160,
+        dpi=220 if full else 160,
         facecolor="white",
     )
     ax.axis("off")
