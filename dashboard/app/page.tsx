@@ -253,6 +253,35 @@ function LevelRail({ levels }: { levels: any }) {
   );
 }
 
+
+function TechnicalPanelFull({ technical }: { technical: any }) {
+  return <Panel eyebrow="MULTI-TIMEFRAME TECHNICAL" title="Technical Confirmation" right={<StatePill value={technical?.confirmation?.bias ?? technical?.htf}/>}>
+    <div className="metric-list"><div><span>HTF</span><strong>{String(technical?.htf ?? "UNKNOWN")}</strong></div><div><span>M15</span><strong>{technical?.m15?.trend ?? "—"}</strong></div><div><span>M5</span><strong>{technical?.m5?.trend ?? "—"}</strong></div></div>
+    <details className="system-details"><summary>Full technical / confirmation evidence</summary><pre className="json-block">{JSON.stringify(technical ?? {},null,2)}</pre></details>
+  </Panel>;
+}
+function OiIntelligencePanel({ oi }: { oi: any }) {
+  const t=oi?.totals??{},d=oi?.deltaExposure??{},h=oi?.historyDelta1h??{},shifts=Array.isArray(oi?.migration?.shifts)?oi.migration.shifts.slice(0,10):[];
+  return <section className="panel" id="oi"><div className="panel-head"><div><span className="eyebrow">OPEN INTEREST INTELLIGENCE</span><h2>OI / Positioning</h2></div><span className="source-tag">DETERMINISTIC</span></div>
+    <div className="metric-grid four">{[["Call OI",compact(t.open_interest_view_call??t.open_interest_call)],["Put OI",compact(t.open_interest_view_put??t.open_interest_put)],["ΔOI Call",compact(t.oi_delta_call)],["ΔOI Put",compact(t.oi_delta_put)],["OI Change Call",compact(t.oi_change_call)],["OI Change Put",compact(t.oi_change_put)],["Churn",compact(t.churn)],["Net Delta",compact(d.net_delta_exposure)]].map(([n,v])=><div className="metric" key={String(n)}><span>{n}</span><strong>{v}</strong></div>)}</div>
+    <div className="two-col"><div className="subpanel"><b>1H DELTA</b><div className="metric-list"><div><span>Put</span><strong>{compact(h.oi_put)}</strong></div><div><span>Call</span><strong>{compact(h.oi_call)}</strong></div><div><span>Total</span><strong>{compact(h.oi_total)}</strong></div><div><span>Price</span><strong>{price(h.future_price_change)}</strong></div><div><span>GEX</span><strong>{compact(h.gex_change)}</strong></div><div><span>IV</span><strong>{price(h.vol_change)}</strong></div></div></div>
+    <div className="subpanel"><b>OI MIGRATION</b>{shifts.length?<div className="table-scroll"><table><thead><tr><th>Side</th><th>From</th><th>To</th><th>OI</th></tr></thead><tbody>{shifts.map((x:any,i:number)=><tr key={i}><td>{x.side}</td><td>{price(x.from_strike)}</td><td>{price(x.to_strike)}</td><td>{compact(x.estimated_oi)}</td></tr>)}</tbody></table></div>:<p className="muted">No migration hypothesis available.</p>}</div></div>
+    <details className="system-details"><summary>Raw OI intelligence evidence</summary><pre className="json-block">{JSON.stringify({deltaExposure:d,flowHypotheses:oi?.flowHypotheses,migration:oi?.migration},null,2)}</pre></details>
+    <div className="context-line">OI is positioning evidence; it does not identify aggressor side by itself.</div>
+  </section>;
+}
+function NewsEvidencePanel({ news }: { news: any[] }) {
+  return <section className="panel" id="news"><div className="panel-head"><div><span className="eyebrow">NEWS / MACRO CALENDAR</span><h2>Recent Evidence</h2></div><span className="source-tag">{news?.length??0} items</span></div><div className="news-list">{(news??[]).slice(0,15).map((x:any,i:number)=><article className="news-item" key={x.url??i}><div><span className="eyebrow">{x.source??"SOURCE"} · {x.published_at??"time unknown"}</span><strong>{x.headline??x.title??"Untitled"}</strong></div>{x.url&&<a href={x.url} target="_blank" rel="noreferrer">OPEN ↗</a>}</article>)}</div></section>;
+}
+function HistoricalEvidencePanel({ memory, comparison }: { memory: any; comparison: any }) {
+  const horizons=memory?.horizons??{};
+  return <section className="panel" id="history"><div className="panel-head"><div><span className="eyebrow">HISTORICAL MEMORY</span><h2>Multi-Timeframe Context</h2></div><span className="source-tag">{memory?.status??"UNKNOWN"}</span></div><div className="metric-grid four">{Object.entries(horizons).map(([k,v]:any)=><div className="metric" key={k}><span>{k}</span><strong>{v?.bars??0} bars</strong></div>)}</div><div className="metric-grid four"><div className="metric"><span>Today Price Δ</span><strong>{price(comparison?.today_price_change)}</strong></div><div className="metric"><span>Today OI Δ</span><strong>{compact(comparison?.today_oi_change)}</strong></div><div className="metric"><span>Today GEX Δ</span><strong>{compact(comparison?.today_gex_change)}</strong></div><div className="metric"><span>Yesterday Price Δ</span><strong>{price(comparison?.yesterday_price_change)}</strong></div></div><details className="system-details"><summary>Historical memory detail</summary><pre className="json-block">{JSON.stringify(memory??{},null,2)}</pre></details></section>;
+}
+function MediaEvidencePanel({ media }: { media: any }) {
+  const items=[["Compact Gamma",media?.gammaTableUrl],["Full Gamma",media?.gammaTableFullUrl]];
+  return <section className="panel"><div className="panel-head"><div><span className="eyebrow">MEDIA / SNAPSHOT</span><h2>Generated Assets</h2></div></div><div className="media-grid">{items.map(([name,url])=><div className="media-card" key={String(name)}>{url?<><img src={String(url)} alt={String(name)}/><a href={String(url)} target="_blank" rel="noreferrer">OPEN IMAGE ↗</a></>:<span>No archived asset</span>}</div>)}</div></section>;
+}
+
 export default function Dashboard() {
   const [data, setData] = useState<Data | null>(null);
   const [error, setError] = useState("");
@@ -310,7 +339,7 @@ export default function Dashboard() {
         </div>
       </section>
 
-      <nav className="quick-nav"><a href="#action">Action</a><a href="#gamma">Gamma</a><a href="#levels">Levels</a><a href="#plan">Plan</a></nav>
+      <nav className="quick-nav"><a href="#reasoning">Reasoning</a><a href="#action">Action</a><a href="#oi">OI</a><a href="#gamma">Gamma</a><a href="#technical">Technical</a><a href="#levels">Levels</a><a href="#plan">Trade</a><a href="#flow">Flow</a><a href="#macro">Macro</a><a href="#auction">Auction</a><a href="#history">History</a><a href="#news">News</a></nav>
 
       <section className="panel action-panel" id="action">
         <div className="panel-head"><div><span className="eyebrow">DECISION LAYER</span><h2>Nearby Action</h2></div><span className="source-tag">{levels.localDistanceMode === "ATR" ? `ATR × ${levels.localMaxAtr ?? "—"}` : "Fallback distance"} • ไม่ไล่ราคา</span></div>
@@ -329,8 +358,10 @@ export default function Dashboard() {
         </div>
       </section>
 
+      <OiIntelligencePanel oi={data.oi}/>
       <GammaTable gamma={gamma}/>
       <LevelRail levels={levels}/>
+      <div id="technical"><TechnicalPanelFull technical={data.technical}/></div>
 
       <section className="panel" id="plan">
         <div className="panel-head">
@@ -374,6 +405,9 @@ export default function Dashboard() {
         <AuctionPanel auction={data.auction}/>
         <MacroPanel macro={data.macro}/>
       </section>
+      <HistoricalEvidencePanel memory={data.historicalMemory} comparison={data.oi?.historyComparison}/>
+      <NewsEvidencePanel news={data.news}/>
+      <MediaEvidencePanel media={data.media}/>
       <section className="two-col">
         <section className="panel">
           <div className="panel-head"><div><span className="eyebrow">ORDER FLOW</span><h2>Flow State</h2></div><span className="source-tag">{data.flow?.status ?? "UNKNOWN"}</span></div>
