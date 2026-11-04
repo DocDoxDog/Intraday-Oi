@@ -549,23 +549,26 @@ def run():
     # TELEGRAM_CHAT_ID as a controlled delivery fallback so a database outage
     # cannot suppress the live market alert. Disable with
     # OI_BOT_ALLOW_SUPABASE_DEGRADED_TELEGRAM=0 if the fallback is not desired.
+    allow_degraded_delivery = os.environ.get(
+        "OI_BOT_ALLOW_SUPABASE_DEGRADED_TELEGRAM", "1"
+    ).strip().lower() in {"1", "true", "yes", "on"}
+    fallback_chat_id = os.environ.get("TELEGRAM_CHAT_ID", "").strip()
+
     try:
         chat_ids = get_active_chat_ids()
     except Exception as e:
         print(f"    ⚠️  Telegram authorization registry unavailable: {e}", file=sys.stderr)
-        allow_degraded_delivery = os.environ.get(
-            "OI_BOT_ALLOW_SUPABASE_DEGRADED_TELEGRAM", "1"
-        ).strip().lower() in {"1", "true", "yes", "on"}
-        fallback_chat_id = os.environ.get("TELEGRAM_CHAT_ID", "").strip()
-        if allow_degraded_delivery and fallback_chat_id:
-            chat_ids = [fallback_chat_id]
-            print("    🟡 Supabase degraded delivery: using TELEGRAM_CHAT_ID fallback")
-        else:
-            chat_ids = []
-    if chat_ids:
+        chat_ids = []
+
+    # Empty registry is also a degraded state: never silently drop a live
+    # alert when TELEGRAM_CHAT_ID is explicitly configured.
+    if not chat_ids and allow_degraded_delivery and fallback_chat_id:
+        chat_ids = [fallback_chat_id]
+        print("    🟡 Telegram degraded delivery: using TELEGRAM_CHAT_ID fallback")
+    elif chat_ids:
         print(f"    ผู้รับ Telegram: {len(chat_ids)} คน")
     else:
-        print("    ⏭️  ไม่มีผู้รับที่ active — ข้าม Telegram", file=sys.stderr)
+        print("    ❌ ไม่มี Telegram recipient และไม่มี TELEGRAM_CHAT_ID fallback", file=sys.stderr)
 
     cooldown_minutes = max(0, int(os.environ.get("OI_BOT_NOTIFICATION_COOLDOWN_MINUTES", "30")))
     force_notify = os.environ.get("OI_BOT_FORCE_NOTIFY", "").strip().lower() in {"1", "true", "yes"}
@@ -593,7 +596,14 @@ def run():
                 gamma_table_full_bytes=gamma_table_full_bytes,
                 chat_ids=chat_ids,
             )
-            mark_notified("telegram")
+            # Telegram delivery is primary; cooldown persistence is secondary.
+            try:
+                mark_notified("telegram")
+            except Exception as state_error:
+                print(
+                    f"⚠️ Telegram sent, but delivery-state persistence failed: {state_error}",
+                    file=sys.stderr,
+                )
             print("✅ Sent to Telegram")
         except Exception as e:
             print(f"⚠️  Telegram send failed (data still saved to Supabase): {e}", file=sys.stderr)
