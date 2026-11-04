@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
+import { buildCme } from "./cme";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -88,7 +89,7 @@ function unavailableRoute(
   };
 }
 
-export async function GET() {
+async function load() {
   const url = process.env.SUPABASE_URL;
   const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
@@ -363,9 +364,34 @@ export async function GET() {
     priceMemory: ai.price_memory ?? raw.market_flow?.price_memory ?? {},
     structuralNodes: Array.isArray(ai.structural_nodes) ? ai.structural_nodes : (raw.market_flow?.nodes ?? []),
     rawSeries: raw,
+    cme: buildCme(raw, row),
     media: {
       gammaTableUrl: row.gamma_table_url ?? null,
       gammaTableFullUrl: row.gamma_table_full_url ?? null,
     },
   }));
+}
+
+
+const TTL_MS = Math.max(0, Number(process.env.MARKET_CACHE_TTL_SECONDS ?? "30")) * 1000;
+let cache: { at: number; body: unknown } | null = null;
+
+export async function GET() {
+  const now = Date.now();
+  if (cache && TTL_MS > 0 && now - cache.at < TTL_MS) {
+    return NextResponse.json(cache.body, { headers: { "Cache-Control": "public, s-maxage=30, stale-while-revalidate=60", "X-Cache": "HIT" } });
+  }
+  const res = await load();
+  let body: any = null;
+  try { body = await res.clone().json(); } catch {}
+  if (res.status === 200 && body?.status === "OK") {
+    cache = { at: now, body };
+    res.headers.set("Cache-Control", "public, s-maxage=30, stale-while-revalidate=60");
+    res.headers.set("X-Cache", "MISS");
+    return res;
+  }
+  if (cache && (res.status >= 500 || body?.status === "ERROR")) {
+    return NextResponse.json({ ...(cache.body as object), stale: true, staleSince: new Date(cache.at).toISOString() }, { headers: { "X-Cache": "STALE" } });
+  }
+  return res;
 }
