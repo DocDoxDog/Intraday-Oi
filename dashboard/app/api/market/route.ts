@@ -356,6 +356,13 @@ export async function GET() {
     news: Array.isArray(raw.news_context) ? raw.news_context.slice(0, 30) : [],
     historicalMemory: raw.historical_memory ?? {},
     macroRaw: raw.macro_state ?? {},
+    multiDomain: raw.multi_domain ?? {},
+    marketFlow: raw.market_flow ?? {},
+    marketState: raw.market_state ?? {},
+    structuralPath: ai.structural_path ?? raw.market_flow?.path ?? {},
+    priceMemory: ai.price_memory ?? raw.market_flow?.price_memory ?? {},
+    structuralNodes: Array.isArray(ai.structural_nodes) ? ai.structural_nodes : (raw.market_flow?.nodes ?? []),
+    rawSeries: raw,
     media: {
       gammaTableUrl: row.gamma_table_url ?? null,
       gammaTableFullUrl: row.gamma_table_full_url ?? null,
