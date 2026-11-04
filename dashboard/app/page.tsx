@@ -254,6 +254,10 @@ function LevelRail({ levels }: { levels: any }) {
 }
 
 
+function Panel({ eyebrow, title, right, children }: { eyebrow: string; title: string; right?: React.ReactNode; children: React.ReactNode }) {
+  return <section className="panel"><div className="panel-head"><div><span className="eyebrow">{eyebrow}</span><h2>{title}</h2></div>{right}</div>{children}</section>;
+}
+
 function TechnicalPanelFull({ technical }: { technical: any }) {
   return <Panel eyebrow="MULTI-TIMEFRAME TECHNICAL" title="Technical Confirmation" right={<StatePill value={technical?.confirmation?.bias ?? technical?.htf}/>}>
     <div className="metric-list"><div><span>HTF</span><strong>{String(technical?.htf ?? "UNKNOWN")}</strong></div><div><span>M15</span><strong>{technical?.m15?.trend ?? "—"}</strong></div><div><span>M5</span><strong>{technical?.m5?.trend ?? "—"}</strong></div></div>
