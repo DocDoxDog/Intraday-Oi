@@ -1,5 +1,7 @@
 "use client";
 
+import { CmeLive } from "./cme-live";
+
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 type Data = any;
@@ -375,6 +377,8 @@ export default function Dashboard() {
       </section>
 
       <nav className="quick-nav"><a href="#reasoning">Reasoning</a><a href="#action">Action</a><a href="#oi">OI</a><a href="#gamma">Gamma</a><a href="#technical">Technical</a><a href="#levels">Levels</a><a href="#plan">Trade</a><a href="#market-flow">Flow Engine</a><a href="#multi-domain">Multi-Domain</a><a href="#macro">Macro</a><a href="#auction">Auction</a><a href="#history">History</a><a href="#news">News</a><a href="#state">State</a><a href="#evidence">Evidence</a></nav>
+
+      <CmeLive data={data}/>
 
       <section className="panel action-panel" id="action">
         <div className="panel-head"><div><span className="eyebrow">DECISION LAYER</span><h2>Nearby Action</h2></div><span className="source-tag">{levels.localDistanceMode === "ATR" ? `ATR × ${levels.localMaxAtr ?? "—"}` : "Fallback distance"} • ไม่ไล่ราคา</span></div>
