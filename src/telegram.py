@@ -352,14 +352,33 @@ def send_news(news_text: str, *, chat_ids: list[str]) -> None:
         print(f"✅ Telegram NEWS ANNOUNCEMENT sent to {cid}")
 
 
+def _prepare_telegram_photo(image_bytes: bytes) -> tuple[bytes, str, str]:
+    """Normalize rendered images to Telegram-safe dimensions/encoding."""
+    try:
+        from io import BytesIO
+        from PIL import Image
+
+        source = Image.open(BytesIO(image_bytes))
+        source.load()
+        source.thumbnail((3500, 3500), Image.Resampling.LANCZOS)
+        if source.mode != "RGB":
+            source = source.convert("RGB")
+        output = BytesIO()
+        source.save(output, format="JPEG", quality=88, optimize=True)
+        return output.getvalue(), "image.jpg", "image/jpeg"
+    except Exception:
+        return image_bytes, "image.png", "image/png"
+
+
 def _send_photo_with_fallback(token: str, chat_id: str, photo_url: str, caption: str, image_bytes: bytes | None = None) -> None:
     """Prefer direct multipart delivery so Telegram does not fetch private Supabase URLs."""
     url = TELEGRAM_PHOTO_API.format(token=token)
     if image_bytes:
+        upload_bytes, filename, content_type = _prepare_telegram_photo(image_bytes)
         upload = requests.post(
             url,
             data={"chat_id": chat_id, "caption": caption},
-            files={"photo": ("image.png", image_bytes, "image/png")},
+            files={"photo": (filename, upload_bytes, content_type)},
             timeout=30,
         )
         if upload.status_code < 400:
@@ -367,7 +386,6 @@ def _send_photo_with_fallback(token: str, chat_id: str, photo_url: str, caption:
         raise RuntimeError(
             f"Telegram direct photo upload failed HTTP {upload.status_code}: {(upload.text or '')[:500]}"
         )
-    url = TELEGRAM_PHOTO_API.format(token=token)
     response = requests.post(
         url,
         json={"chat_id": chat_id, "photo": photo_url, "caption": caption},
@@ -380,10 +398,11 @@ def _send_photo_with_fallback(token: str, chat_id: str, photo_url: str, caption:
     try:
         image = requests.get(photo_url, timeout=20)
         image.raise_for_status()
+        upload_bytes, filename, content_type = _prepare_telegram_photo(image.content)
         upload = requests.post(
             url,
             data={"chat_id": chat_id, "caption": caption},
-            files={"photo": ("image.png", image.content, image.headers.get("content-type", "image/png"))},
+            files={"photo": (filename, upload_bytes, content_type)},
             timeout=30,
         )
         if upload.status_code >= 400:
@@ -417,12 +436,22 @@ def send(
         raise RuntimeError("ไม่มี authorized chat_ids ให้ส่ง")
 
     for cid in chat_ids:
-        if gamma_table_bytes or gamma_table_url:
-            _send_photo_with_fallback(token, cid, gamma_table_url or "", "GOLD GAMMA TABLE — Multi-Expiration", image_bytes=gamma_table_bytes)
-        if gamma_table_full_bytes or gamma_table_full_url:
-            _send_photo_with_fallback(token, cid, gamma_table_full_url or "", "GOLD GAMMA TABLE — FULL DATA", image_bytes=gamma_table_full_bytes)
-        if screenshot_bytes or screenshot_url:
-            _send_photo_with_fallback(token, cid, screenshot_url or "", "QUIKSTRIKE OI — Source Screenshot", image_bytes=screenshot_bytes)
+        # A bad/oversized evidence image must never suppress the text bundle.
+        photo_jobs = [
+            (gamma_table_bytes, gamma_table_url, "GOLD GAMMA TABLE — Multi-Expiration"),
+            (gamma_table_full_bytes, gamma_table_full_url, "GOLD GAMMA TABLE — FULL DATA"),
+            (screenshot_bytes, screenshot_url, "QUIKSTRIKE OI — Source Screenshot"),
+        ]
+        for image_bytes, image_url, caption in photo_jobs:
+            if not (image_bytes or image_url):
+                continue
+            try:
+                _send_photo_with_fallback(
+                    token, cid, image_url or "", caption, image_bytes=image_bytes
+                )
+            except Exception as exc:
+                print(f"⚠️ Telegram photo skipped ({caption}): {exc}", flush=True)
+
 
         # Telegram is intentionally compact: three evidence images, one article, one plan.
         for message in (
