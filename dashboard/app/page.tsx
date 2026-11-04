@@ -286,6 +286,37 @@ function MediaEvidencePanel({ media }: { media: any }) {
   return <section className="panel"><div className="panel-head"><div><span className="eyebrow">MEDIA / SNAPSHOT</span><h2>Generated Assets</h2></div></div><div className="media-grid">{items.map(([name,url])=><div className="media-card" key={String(name)}>{url?<><img src={String(url)} alt={String(name)}/><a href={String(url)} target="_blank" rel="noreferrer">OPEN IMAGE ↗</a></>:<span>No archived asset</span>}</div>)}</div></section>;
 }
 
+
+function MultiDomainPanel({ data }: { data: any }) {
+  const md=data?.multiDomain ?? {};
+  const candidates=Array.isArray(md.strategy_candidates)?md.strategy_candidates:[];
+  return <section className="panel" id="multi-domain"><div className="panel-head"><div><span className="eyebrow">MULTI-DOMAIN ENGINE</span><h2>Strategy Intelligence</h2></div><span className="source-tag">{candidates.length} candidates</span></div>
+    <div className="metric-grid four"><div className="metric"><span>Macro Regime</span><strong>{md.macro?.regime ?? "—"}</strong></div><div className="metric"><span>Microeconomics</span><strong>{md.microeconomics?.status ?? "—"}</strong></div><div className="metric"><span>Psychology</span><strong>{md.psychology?.status ?? "—"}</strong></div><div className="metric"><span>Quant</span><strong>{md.quant?.status ?? "—"}</strong></div></div>
+    {candidates.length>0&&<div className="candidate-grid">{candidates.slice(0,12).map((x:any,i:number)=><article className="candidate-card" key={x.id??x.strategy??i}><span className="eyebrow">{x.strategy??x.id??"CANDIDATE"}</span><strong>{x.direction??x.action??"—"}</strong><small>{x.score!=null?"Score "+x.score:""} {x.status??""}</small><p>{x.reason??x.rationale??""}</p></article>)}</div>}
+    <details className="system-details"><summary>Full multi-domain evidence</summary><pre className="json-block">{JSON.stringify(md,null,2)}</pre></details>
+  </section>;
+}
+function MarketFlowPanel({ data }: { data: any }) {
+  const f=data?.marketFlow??{}; const nodes=Array.isArray(f.nodes)?f.nodes:[]; const path=f.path??{};
+  return <section className="panel" id="market-flow"><div className="panel-head"><div><span className="eyebrow">MARKET FLOW ENGINE</span><h2>Structural Path</h2></div><span className="source-tag">{f.status??"UNKNOWN"}</span></div>
+    <div className="metric-grid four"><div className="metric"><span>Market Read</span><strong>{f.market_read??"—"}</strong></div><div className="metric"><span>Flow Read</span><strong>{f.flow_read??"—"}</strong></div><div className="metric"><span>Nodes</span><strong>{nodes.length}</strong></div><div className="metric"><span>Transitions</span><strong>{path.transitions?.length??path.transition_count??"—"}</strong></div></div>
+    {nodes.length>0&&<div className="flow-timeline">{nodes.slice(0,16).map((n:any,i:number)=><div className="flow-node" key={n.id??i}><span>{i+1}</span><div><b>{n.type??n.kind??"NODE"}</b><strong>{n.label??n.name??"—"}</strong><small>{n.price!=null?price(n.price):""} {n.state??""}</small></div></div>)}</div>}
+    <details className="system-details"><summary>Structural path / price memory</summary><pre className="json-block">{JSON.stringify({path,price_memory:data.priceMemory},null,2)}</pre></details>
+  </section>;
+}
+function MarketStatePanel({ data }: { data: any }) {
+  return <section className="panel" id="state"><div className="panel-head"><div><span className="eyebrow">CANONICAL MARKET STATE</span><h2>Deterministic State</h2></div><span className="source-tag">SOURCE OF TRUTH</span></div>
+    <div className="metric-grid four"><div className="metric"><span>CFD Complete</span><strong>{String(data.marketState?.cfd_complete??"—")}</strong></div><div className="metric"><span>1H</span><strong>{String(data.marketState?.history_1h??"—")}</strong></div><div className="metric"><span>Today</span><strong>{String(data.marketState?.today??"—")}</strong></div><div className="metric"><span>Yesterday</span><strong>{String(data.marketState?.yesterday??"—")}</strong></div></div>
+    <details className="system-details"><summary>Full canonical market state</summary><pre className="json-block">{JSON.stringify(data.marketState??{},null,2)}</pre></details>
+  </section>;
+}
+function EvidenceRegistryPanel({ data }: { data: any }) {
+  const raw=data?.rawSeries??{}; const keys=Object.keys(raw);
+  return <section className="panel" id="evidence"><div className="panel-head"><div><span className="eyebrow">EVIDENCE REGISTRY</span><h2>Everything in Snapshot</h2></div><span className="source-tag">{keys.length} data blocks</span></div>
+    <div className="evidence-key-grid">{keys.map(k=><details className="evidence-key" key={k}><summary>{k}</summary><pre className="json-block">{JSON.stringify(raw[k],null,2)}</pre></details>)}</div>
+  </section>;
+}
+
 export default function Dashboard() {
   const [data, setData] = useState<Data | null>(null);
   const [error, setError] = useState("");
@@ -343,7 +374,7 @@ export default function Dashboard() {
         </div>
       </section>
 
-      <nav className="quick-nav"><a href="#reasoning">Reasoning</a><a href="#action">Action</a><a href="#oi">OI</a><a href="#gamma">Gamma</a><a href="#technical">Technical</a><a href="#levels">Levels</a><a href="#plan">Trade</a><a href="#flow">Flow</a><a href="#macro">Macro</a><a href="#auction">Auction</a><a href="#history">History</a><a href="#news">News</a></nav>
+      <nav className="quick-nav"><a href="#reasoning">Reasoning</a><a href="#action">Action</a><a href="#oi">OI</a><a href="#gamma">Gamma</a><a href="#technical">Technical</a><a href="#levels">Levels</a><a href="#plan">Trade</a><a href="#market-flow">Flow Engine</a><a href="#multi-domain">Multi-Domain</a><a href="#macro">Macro</a><a href="#auction">Auction</a><a href="#history">History</a><a href="#news">News</a><a href="#state">State</a><a href="#evidence">Evidence</a></nav>
 
       <section className="panel action-panel" id="action">
         <div className="panel-head"><div><span className="eyebrow">DECISION LAYER</span><h2>Nearby Action</h2></div><span className="source-tag">{levels.localDistanceMode === "ATR" ? `ATR × ${levels.localMaxAtr ?? "—"}` : "Fallback distance"} • ไม่ไล่ราคา</span></div>
@@ -412,6 +443,10 @@ export default function Dashboard() {
       <HistoricalEvidencePanel memory={data.historicalMemory} comparison={data.oi?.historyComparison}/>
       <NewsEvidencePanel news={data.news}/>
       <MediaEvidencePanel media={data.media}/>
+      <MultiDomainPanel data={data}/>
+      <MarketFlowPanel data={data}/>
+      <MarketStatePanel data={data}/>
+      <EvidenceRegistryPanel data={data}/>
       <section className="two-col">
         <section className="panel">
           <div className="panel-head"><div><span className="eyebrow">ORDER FLOW</span><h2>Flow State</h2></div><span className="source-tag">{data.flow?.status ?? "UNKNOWN"}</span></div>
