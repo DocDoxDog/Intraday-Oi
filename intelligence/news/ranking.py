@@ -203,6 +203,25 @@ def _why_it_matters(item: dict[str, Any], bias: str, surprise: dict[str, Any], c
     return "Relevant macro context; no validated surprise value, so it should not drive a trade by itself."
 
 
+def _news_key(row: dict[str, Any]) -> tuple[str, str, str, str]:
+    published = row.get("published_at")
+    if isinstance(published, datetime):
+        published_key = published.astimezone(timezone.utc).isoformat()
+    else:
+        try:
+            published_key = datetime.fromisoformat(
+                str(published).replace("Z", "+00:00")
+            ).astimezone(timezone.utc).isoformat()
+        except (TypeError, ValueError):
+            published_key = str(published or "").strip()
+    return (
+        str(row.get("source") or "").strip().lower(),
+        str(row.get("url") or "").strip(),
+        published_key,
+        str(row.get("headline") or "").strip().lower(),
+    )
+
+
 def _freshness_score(age_hours: float | None) -> int:
     if age_hours is None:
         return 4
@@ -238,13 +257,7 @@ def rank_news(items: list[dict[str, Any]], *, detected_at: datetime | None = Non
                 row["published_at"] = parsed_published.astimezone(timezone.utc)
             parsed = normalize_news(row, detected_at=now)
             typed.append(parsed)
-            key = (
-                str(row.get("source") or "").strip().lower(),
-                str(row.get("url") or "").strip(),
-                str(row.get("published_at") or "").strip(),
-                str(row.get("headline") or "").strip().lower(),
-            )
-            normalized_by_key[key] = parsed
+            normalized_by_key[_news_key(row)] = parsed
         except (TypeError, ValueError):
             continue
     if typed:
@@ -275,13 +288,7 @@ def rank_news(items: list[dict[str, Any]], *, detected_at: datetime | None = Non
         severity = severity_map.get(str(row.get("severity") or "MEDIUM").upper(), 8)
         surprise = _surprise_info(row)
         surprise_bonus = 12 if surprise["status"] == "AVAILABLE" else 0
-        normalized_key = (
-            str(row.get("source") or "").strip().lower(),
-            str(row.get("url") or "").strip(),
-            str(row.get("published_at") or "").strip(),
-            str(row.get("headline") or "").strip().lower(),
-        )
-        normalized_item = normalized_by_key.get(normalized_key)
+        normalized_item = normalized_by_key.get(_news_key(row))
         cluster = cluster_map.get(normalized_item.news_id) if normalized_item is not None else None
         if cluster is None:
             canonical = str(row.get("headline") or "").strip().lower()
