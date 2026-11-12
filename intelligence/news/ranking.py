@@ -226,10 +226,19 @@ def rank_news(items: list[dict[str, Any]], *, detected_at: datetime | None = Non
 
     normalized: list[dict[str, Any]] = []
     typed = []
+    normalized_by_key: dict[tuple[str, str, str, str], Any] = {}
     for raw in items:
         row = dict(raw)
         try:
-            typed.append(normalize_news(row, detected_at=now))
+            parsed = normalize_news(row, detected_at=now)
+            typed.append(parsed)
+            key = (
+                str(row.get("source") or "").strip().lower(),
+                str(row.get("url") or "").strip(),
+                str(row.get("published_at") or "").strip(),
+                str(row.get("headline") or "").strip().lower(),
+            )
+            normalized_by_key[key] = parsed
         except (TypeError, ValueError):
             continue
     if typed:
@@ -260,11 +269,21 @@ def rank_news(items: list[dict[str, Any]], *, detected_at: datetime | None = Non
         severity = severity_map.get(str(row.get("severity") or "MEDIUM").upper(), 8)
         surprise = _surprise_info(row)
         surprise_bonus = 12 if surprise["status"] == "AVAILABLE" else 0
-        cluster_id = cluster_map.get(str(row.get("external_id") or row.get("news_id") or "" ))
-        if cluster_id is None:
+        normalized_key = (
+            str(row.get("source") or "").strip().lower(),
+            str(row.get("url") or "").strip(),
+            str(row.get("published_at") or "").strip(),
+            str(row.get("headline") or "").strip().lower(),
+        )
+        normalized_item = normalized_by_key.get(normalized_key)
+        cluster = cluster_map.get(normalized_item.news_id) if normalized_item is not None else None
+        if cluster is None:
             canonical = str(row.get("headline") or "").strip().lower()
             cluster_id = f"story-{abs(hash(canonical)) % 1000000:06d}"
-        source_count = cluster_source_count.get(cluster_id.cluster_id if hasattr(cluster_id, "cluster_id") else str(cluster_id), 1)
+            source_count = 1
+        else:
+            cluster_id = cluster.cluster_id
+            source_count = cluster.source_count
         cross_source_bonus = min(8, max(0, source_count - 1) * 4)
 
         score = max(0, min(100, int(round(
