@@ -351,14 +351,25 @@ def format_news_announcement(items: list[NewsItem | dict], *, limit: int = 3) ->
             url = row.url
 
         status = _event_status(actual, event_time, row.get("detected_at") if isinstance(row, dict) else None)
+        impact_tier = row.get("impact_tier") if isinstance(row, dict) else None
+        news_score = row.get("news_score") if isinstance(row, dict) else None
+        gold_bias = row.get("gold_bias") if isinstance(row, dict) else None
+        why_it_matters = row.get("why_it_matters") if isinstance(row, dict) else None
+        cross_source = row.get("cross_source_count") if isinstance(row, dict) else None
+
         lines.extend([
             f"<b>{html.escape(str(category))}</b>",
             html.escape(str(headline)),
             f"Source: {html.escape(str(source))} | {html.escape(str(published))}",
             f"สถานะ: {status}",
+            f"Impact: {html.escape(str(impact_tier)) if impact_tier else '—'}"
+            + (f" | Score: {html.escape(str(news_score))}" if news_score is not None else ""),
+            f"Gold bias: {html.escape(str(gold_bias)) if gold_bias else 'UNKNOWN'}",
+            f"Cross-source: {html.escape(str(cross_source)) if cross_source else '1'}",
             f"Actual: {html.escape(str(actual)) if actual not in (None, '') else '—'}",
             f"Forecast: {html.escape(str(forecast)) if forecast not in (None, '') else '—'}",
             f"Previous: {html.escape(str(previous)) if previous not in (None, '') else '—'}",
+            f"Why it matters: {html.escape(str(why_it_matters))}" if why_it_matters else "",
             html.escape(str(url)),
             "",
         ])
