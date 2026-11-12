@@ -276,8 +276,36 @@ function OiIntelligencePanel({ oi }: { oi: any }) {
     <div className="context-line">OI is positioning evidence; it does not identify aggressor side by itself.</div>
   </section>;
 }
-function NewsEvidencePanel({ news }: { news: any[] }) {
-  return <section className="panel" id="news"><div className="panel-head"><div><span className="eyebrow">NEWS / MACRO CALENDAR</span><h2>Recent Evidence</h2></div><span className="source-tag">{news?.length??0} items</span></div><div className="news-list">{(news??[]).slice(0,15).map((x:any,i:number)=><article className="news-item" key={x.url??i}><div><span className="eyebrow">{x.source??"SOURCE"} · {x.published_at??"time unknown"}</span><strong>{x.headline??x.title??"Untitled"}</strong></div>{x.url&&<a href={x.url} target="_blank" rel="noreferrer">OPEN ↗</a>}</article>)}</div></section>;
+function NewsEvidencePanel({ news, intelligence }: { news: any[]; intelligence: any }) {
+  const ranked = Array.isArray(intelligence?.primary_stories) && intelligence.primary_stories.length
+    ? intelligence.primary_stories
+    : (news ?? []);
+  const top = ranked[0];
+  return <section className="panel" id="news">
+    <div className="panel-head">
+      <div><span className="eyebrow">NEWS / MACRO CALENDAR</span><h2>Recent Evidence</h2></div>
+      <span className="source-tag">{top?.impact_tier ?? "—"} · {intelligence?.total_items ?? news?.length ?? 0} items</span>
+    </div>
+    {top && <div className="preferred-plan">
+      <span className="eyebrow">TOP MARKET-RELEVANT STORY</span>
+      <strong>{top.headline ?? "Untitled"}</strong>
+      <small>
+        Score {top.news_score ?? "—"} · {top.gold_bias ?? "UNKNOWN"} ·
+        {top.cross_source_confirmed ? " cross-source confirmed" : " single-source"}
+      </small>
+      <small>{top.why_it_matters ?? "Headline is context; wait for market confirmation."}</small>
+    </div>}
+    <div className="news-list">
+      {ranked.slice(0, 12).map((x:any,i:number) => <article className="news-item" key={x.url ?? x.external_id ?? i}>
+        <div>
+          <span className="eyebrow">{x.source ?? "SOURCE"} · {x.published_at ?? "time unknown"} · {x.impact_tier ?? "CONTEXT"}</span>
+          <strong>{x.headline ?? x.title ?? "Untitled"}</strong>
+          <small>{x.why_it_matters ?? ""}</small>
+        </div>
+        {x.url && <a href={x.url} target="_blank" rel="noreferrer">OPEN ↗</a>}
+      </article>)}
+    </div>
+  </section>;
 }
 function HistoricalEvidencePanel({ memory, comparison }: { memory: any; comparison: any }) {
   const horizons=memory?.horizons??{};
@@ -445,7 +473,7 @@ export default function Dashboard() {
         <MacroPanel macro={data.macro}/>
       </section>
       <HistoricalEvidencePanel memory={data.historicalMemory} comparison={data.oi?.historyComparison}/>
-      <NewsEvidencePanel news={data.news}/>
+      <NewsEvidencePanel news={data.news} intelligence={data.newsIntelligence}/>
       <MediaEvidencePanel media={data.media}/>
       <MultiDomainPanel data={data}/>
       <MarketFlowPanel data={data}/>
