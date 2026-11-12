@@ -50,6 +50,7 @@ from src.trade_plan_engine import build_trade_execution_plan
 from src.historical_memory import load_multi_timeframe_memory
 from src.trade_plan_journal import persist_trade_plan_journal
 from intelligence.news.free_feed import collect_free_news
+from intelligence.news.ranking import build_news_intelligence, rank_news
 
 
 def run():
@@ -328,15 +329,34 @@ def run():
                 str(item.get("published_at") or "").strip(),
             )
             deduped[key] = item
-        news_dicts = sorted(
-            deduped.values(),
-            key=lambda item: str(item.get("published_at") or ""),
-            reverse=True,
-        )[:30]
+        detected_at = datetime.fromisoformat(parsed["observed_at"].replace("Z", "+00:00"))
+        news_intelligence = build_news_intelligence(
+            list(deduped.values()),
+            detected_at=detected_at,
+            top_n=8,
+        )
+        ranked_news = list(news_intelligence.get("all_ranked") or [])
+        news_dicts = ranked_news[:30]
 
         new_news_rows = insert_news_announcements(news_dicts)
+        # Announcement delivery also uses the same ranking logic so a burst of
+        # minor calendar updates cannot crowd out the most market-relevant story.
+        new_news_rows = rank_news(new_news_rows, detected_at=detected_at)[:5]
+
+        news_intelligence["all_ranked"] = news_dicts
+        news_intelligence["total_items"] = len(news_dicts)
         parsed["news_context"] = news_dicts[:12]
         parsed.setdefault("raw_series", {})["news_context"] = parsed["news_context"]
+        parsed["raw_series"]["news_intelligence"] = news_intelligence
+
+        top_story = (news_intelligence.get("primary_stories") or [None])[0]
+        if top_story:
+            print(
+                "    top news: "
+                f"{top_story.get('impact_tier')} score={top_story.get('news_score')} "
+                f"bias={top_story.get('gold_bias')} "
+                f"headline={top_story.get('headline')}"
+            )
         print(
             f"    news candidates={len(news_dicts)} "
             f"(governed={len(governed_items)} free={len(free_items)}) "
