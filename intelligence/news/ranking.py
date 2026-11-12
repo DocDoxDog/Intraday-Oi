@@ -230,6 +230,12 @@ def rank_news(items: list[dict[str, Any]], *, detected_at: datetime | None = Non
     for raw in items:
         row = dict(raw)
         try:
+            published_value = row.get("published_at")
+            if not isinstance(published_value, datetime):
+                parsed_published = datetime.fromisoformat(str(published_value).replace("Z", "+00:00"))
+                if parsed_published.tzinfo is None:
+                    parsed_published = parsed_published.replace(tzinfo=timezone.utc)
+                row["published_at"] = parsed_published.astimezone(timezone.utc)
             parsed = normalize_news(row, detected_at=now)
             typed.append(parsed)
             key = (
@@ -286,12 +292,16 @@ def rank_news(items: list[dict[str, Any]], *, detected_at: datetime | None = Non
             source_count = cluster.source_count
         cross_source_bonus = min(8, max(0, source_count - 1) * 4)
 
+        # Components are intentionally additive: each represents a distinct
+        # piece of evidence. The raw total is capped to 100 so an official,
+        # fresh, highly relevant release with an actual-vs-forecast surprise
+        # naturally reaches HIGH/CRITICAL instead of being compressed into LOW.
         score = max(0, min(100, int(round(
-            freshness * 0.30
-            + source_score * 0.24
-            + relevance_score * 0.22
-            + severity * 0.16
-            + (surprise_bonus * 0.08)
+            freshness
+            + source_score
+            + relevance_score
+            + severity
+            + surprise_bonus
             + cross_source_bonus
         ))))
 
