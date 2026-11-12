@@ -236,8 +236,129 @@ def _freshness_score(age_hours: float | None) -> int:
     return 2
 
 
-def rank_news(items: list[dict[str, Any]], *, detected_at: datetime | None = None) -> list[dict[str, Any]]:
+
+def _event_type(item: dict[str, Any]) -> str:
+    """Classify news as calendar, breaking, or ongoing without guessing."""
+    event_time = item.get("event_time")
+    category = str(item.get("category") or "").upper()
+    source = str(item.get("source") or "").lower()
+    if event_time or category == "MACRO" or "forex factory" in source:
+        return "SCHEDULED_CALENDAR"
+    if category == "GEOPOLITICAL" or any(
+        word in f"{item.get('headline') or ''} {item.get('summary') or ''}".lower()
+        for word in ("breaking", "attack", "strike", "missile", "invasion", "sanctions", "ceasefire")
+    ):
+        return "UNSCHEDULED_BREAKING"
+    return "MARKET_CONTEXT"
+
+
+def _novelty(item: dict[str, Any], previous_items: list[dict[str, Any]]) -> tuple[str, float]:
+    """Compare with prior snapshot headlines; never call an old story new."""
+    headline = str(item.get("headline") or "").strip().lower()
+    if not headline or not previous_items:
+        return ("NEW", 1.0)
+    best = 0.0
+    for old in previous_items:
+        old_headline = str(old.get("headline") or "").strip().lower()
+        if not old_headline:
+            continue
+        best = max(best, SequenceMatcher(None, headline, old_headline, autojunk=False).ratio())
+    if best >= 0.92:
+        return ("REPEAT", best)
+    if best >= 0.78:
+        return ("UPDATE", best)
+    return ("NEW", best)
+
+
+def _impact_reason(item: dict[str, Any], surprise: dict[str, Any], source_count: int, novelty: str) -> str:
+    parts: list[str] = []
+    if surprise.get("status") == "AVAILABLE":
+        parts.append("มี Actual เทียบ Forecast")
+    if source_count >= 2:
+        parts.append(f"ยืนยันหลายแหล่ง {source_count} แหล่ง")
+    if novelty == "NEW":
+        parts.append("เป็นเรื่องใหม่จาก baseline ก่อนหน้า")
+    elif novelty == "UPDATE":
+        parts.append("มีการอัปเดตจากเรื่องเดิม")
+    if not parts:
+        parts.append("เป็นบริบทตลาดที่ยังไม่มี evidence ใหม่เพียงพอ")
+    return " · ".join(parts)
+
+def build_news_state(
+    ranked: list[dict[str, Any]],
+    *,
+    previous_items: list[dict[str, Any]] | None = None,
+    detected_at: datetime | None = None,
+) -> dict[str, Any]:
+    """Build the news state consumed by analyst/dashboard/Telegram.
+
+    The state separates scheduled macro calendar from unscheduled headlines,
+    preserves provenance, and distinguishes novelty from corroboration.
+    """
+    previous = previous_items or []
     now = detected_at or datetime.now(timezone.utc)
+    for row in ranked:
+        novelty, similarity = _novelty(row, previous)
+        row["event_type"] = _event_type(row)
+        row["novelty"] = novelty
+        row["novelty_similarity"] = round(similarity, 3)
+        row["impact_reason"] = _impact_reason(
+            row,
+            row.get("surprise") or {},
+            int(row.get("cross_source_count") or 1),
+            novelty,
+        )
+        # News is evidence. It becomes "market confirmed" only when a later
+        # market-response layer explicitly supplies a response.
+        row.setdefault("market_response_state", "UNVERIFIED")
+        row.setdefault("transmission_state", "NEWS_ONLY")
+        row.setdefault("transmission_evidence", [])
+
+    calendar = [x for x in ranked if x.get("event_type") == "SCHEDULED_CALENDAR"]
+    breaking = [x for x in ranked if x.get("event_type") == "UNSCHEDULED_BREAKING"]
+    context = [x for x in ranked if x.get("event_type") == "MARKET_CONTEXT"]
+    new_items = [x for x in ranked if x.get("novelty") == "NEW"]
+    updates = [x for x in ranked if x.get("novelty") == "UPDATE"]
+    actionable = [
+        x for x in ranked
+        if x.get("novelty") in {"NEW", "UPDATE"}
+        and x.get("impact_tier") in {"CRITICAL", "HIGH"}
+    ]
+    source_counts: dict[str, int] = defaultdict(int)
+    for row in ranked:
+        source_counts[str(row.get("source") or "UNKNOWN")] += 1
+
+    return {
+        "version": "news-state-v3",
+        "as_of": now.astimezone(timezone.utc).isoformat(),
+        "calendar": calendar[:12],
+        "breaking": breaking[:12],
+        "context": context[:12],
+        "new_items": new_items[:20],
+        "updates": updates[:20],
+        "announcement_candidates": actionable[:8],
+        "source_counts": dict(sorted(source_counts.items(), key=lambda x: (-x[1], x[0]))),
+        "stats": {
+            "total": len(ranked),
+            "calendar": len(calendar),
+            "breaking": len(breaking),
+            "context": len(context),
+            "new": len(new_items),
+            "updates": len(updates),
+            "high_impact": sum(1 for x in ranked if x.get("impact_tier") in {"CRITICAL", "HIGH"}),
+            "corroborated": sum(1 for x in ranked if int(x.get("cross_source_count") or 1) >= 2),
+        },
+        "limitations": [
+            "News direction is a hypothesis until price/volatility/flow response confirms it.",
+            "Scheduled calendar events and unscheduled headlines are intentionally separated.",
+            "Missing provider data is not treated as a neutral market signal.",
+        ],
+    }
+
+
+def rank_news(items: list[dict[str, Any]], *, detected_at: datetime | None = None, previous_items: list[dict[str, Any]] | None = None) -> list[dict[str, Any]]:
+    now = detected_at or datetime.now(timezone.utc)
+    previous_items = previous_items or []
     if now.tzinfo is None:
         raise ValueError("DETECTED_AT_MUST_BE_TIMEZONE_AWARE")
     if not items:
@@ -313,6 +434,7 @@ def rank_news(items: list[dict[str, Any]], *, detected_at: datetime | None = Non
         ))))
 
         bias, channel, evidence = _gold_bias(row, surprise, categories)
+        novelty, similarity = _novelty(row, previous_items)
         row.update({
             "news_score": score,
             "impact_tier": "CRITICAL" if score >= 85 else "HIGH" if score >= 70 else "MEDIUM" if score >= 50 else "LOW",
@@ -331,6 +453,11 @@ def rank_news(items: list[dict[str, Any]], *, detected_at: datetime | None = Non
             "cross_source_count": source_count,
             "cross_source_confirmed": source_count >= 2,
             "actionability": "WATCH_NOW" if score >= 80 else "WATCH" if score >= 60 else "CONTEXT" if score >= 40 else "BACKGROUND",
+            "event_type": _event_type(row),
+            "novelty": novelty,
+            "novelty_similarity": round(similarity, 3),
+            "market_response_state": "UNVERIFIED",
+            "transmission_state": "NEWS_ONLY",
         })
         normalized.append(row)
 
@@ -358,8 +485,9 @@ def rank_news(items: list[dict[str, Any]], *, detected_at: datetime | None = Non
     )
 
 
-def build_news_intelligence(items: list[dict[str, Any]], *, detected_at: datetime | None = None, top_n: int = 8) -> dict[str, Any]:
-    ranked = rank_news(items, detected_at=detected_at)
+def build_news_intelligence(items: list[dict[str, Any]], *, detected_at: datetime | None = None, top_n: int = 8, previous_items: list[dict[str, Any]] | None = None) -> dict[str, Any]:
+    ranked = rank_news(items, detected_at=detected_at, previous_items=previous_items)
+    news_state = build_news_state(ranked, previous_items=previous_items, detected_at=detected_at)
     primaries = []
     seen: set[str] = set()
     for row in ranked:
@@ -379,13 +507,14 @@ def build_news_intelligence(items: list[dict[str, Any]], *, detected_at: datetim
         tiers[str(row.get("source_tier") or "UNKNOWN")] += 1
 
     return {
-        "version": "news-intelligence-v2",
+        "version": "news-intelligence-v3",
         "as_of": (detected_at or datetime.now(timezone.utc)).astimezone(timezone.utc).isoformat(),
         "total_items": len(ranked),
         "primary_stories": primaries,
         "all_ranked": ranked,
         "market_categories": dict(sorted(channels.items(), key=lambda x: (-x[1], x[0]))),
         "source_tiers": dict(sorted(tiers.items(), key=lambda x: (-x[1], x[0]))),
+        "news_state": news_state,
         "limitations": [
             "gold_bias is a directional hypothesis, not observed price response",
             "headline/news does not become a trade trigger without market confirmation",
