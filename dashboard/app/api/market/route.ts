@@ -355,6 +355,7 @@ async function load() {
       positioningRows: Array.isArray(raw.oi_positioning_rows) ? raw.oi_positioning_rows.slice(0, 80) : [],
     },
     news: Array.isArray(raw.news_context) ? raw.news_context.slice(0, 30) : [],
+    newsIntelligence: raw.news_intelligence ?? {},
     historicalMemory: raw.historical_memory ?? {},
     macroRaw: raw.macro_state ?? {},
     multiDomain: raw.multi_domain ?? {},
