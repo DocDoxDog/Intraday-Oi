@@ -50,7 +50,7 @@ from src.trade_plan_engine import build_trade_execution_plan
 from src.historical_memory import load_multi_timeframe_memory
 from src.trade_plan_journal import persist_trade_plan_journal
 from intelligence.news.free_feed import collect_free_news
-from intelligence.news.ranking import build_news_intelligence, rank_news
+from intelligence.news.ranking import build_news_intelligence, rank_news, build_news_state
 
 
 def run():
@@ -330,24 +330,61 @@ def run():
             )
             deduped[key] = item
         detected_at = datetime.fromisoformat(parsed["observed_at"].replace("Z", "+00:00"))
+        # Compare against the most recent available snapshot so the news engine
+        # can distinguish NEW / UPDATE / REPEAT rather than re-announcing the
+        # same headline every run.
+        previous_news = []
+        for baseline_key in ("hour_ago", "two_hours_ago", "today", "yesterday"):
+            baseline = hist_context.get(baseline_key)
+            if isinstance(baseline, dict):
+                candidate = baseline.get("news_context")
+                if isinstance(candidate, list):
+                    previous_news.extend(candidate)
+        # Keep the closest baseline first and remove exact duplicate headlines.
+        previous_seen = set()
+        previous_news = [
+            row for row in previous_news
+            if isinstance(row, dict)
+            and (str(row.get("source") or ""), str(row.get("headline") or "").strip().lower()) not in previous_seen
+            and not previous_seen.add((str(row.get("source") or ""), str(row.get("headline") or "").strip().lower()))
+        ]
+
         news_intelligence = build_news_intelligence(
             list(deduped.values()),
             detected_at=detected_at,
             top_n=8,
+            previous_items=previous_news,
         )
         ranked_news = list(news_intelligence.get("all_ranked") or [])
         news_dicts = ranked_news[:30]
 
         new_news_rows = insert_news_announcements(news_dicts)
-        # Announcement delivery also uses the same ranking logic so a burst of
-        # minor calendar updates cannot crowd out the most market-relevant story.
-        new_news_rows = rank_news(new_news_rows, detected_at=detected_at)[:5]
+        # Announcement delivery is now driven by the upgraded news state:
+        # only new/materially-updated high-impact stories are eligible.
+        changed_ranked = rank_news(
+            new_news_rows,
+            detected_at=detected_at,
+            previous_items=previous_news,
+        )
+        announcement_candidates = [
+            row for row in changed_ranked
+            if row.get("novelty") in {"NEW", "UPDATE"}
+            and row.get("impact_tier") in {"CRITICAL", "HIGH"}
+        ][:5]
 
         news_intelligence["all_ranked"] = news_dicts
+        news_intelligence["news_state"] = build_news_state(
+            news_dicts,
+            previous_items=previous_news,
+            detected_at=detected_at,
+        )
         news_intelligence["total_items"] = len(news_dicts)
+        news_intelligence["previous_baseline_items"] = len(previous_news)
         parsed["news_context"] = news_dicts[:12]
         parsed.setdefault("raw_series", {})["news_context"] = parsed["news_context"]
         parsed["raw_series"]["news_intelligence"] = news_intelligence
+        parsed["raw_series"]["news_state"] = news_intelligence["news_state"]
+        new_news_rows = announcement_candidates
 
         top_story = (news_intelligence.get("primary_stories") or [None])[0]
         if top_story:
