@@ -19,6 +19,7 @@ Retry ladder (เรียงตามลำดับที่ get_url() ลอ�
 import os
 import re
 from pathlib import Path
+import time
 from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
 from playwright.sync_api import sync_playwright
 
@@ -47,6 +48,7 @@ FINAL_URL_TEMPLATE = (
 
 REFERER = "https://www.cmegroup.com/tools-information/quikstrike/vol2vol-expected-range.html"
 SESSION_STATE_PATH = os.environ.get("QUIKSTRIKE_SESSION_STATE", "/tmp/quikstrike_storage_state.json")
+DEFAULT_VALIDATE_TIMEOUT_SECONDS = 12
 
 
 class UrlManagerError(Exception):
@@ -85,7 +87,15 @@ class UrlManager:
     # ---------- validate ----------
 
     def validate(self, url: str) -> bool:
-        """ตรวจว่า URL เปิดหน้า OI และมี chart/data surface ที่ scraper อ่านได้จริง."""
+        """ตรวจแบบเร็วเท่านั้น; validation ห้ามกลายเป็นคอขวดของ live scrape."""
+        started = time.monotonic()
+        timeout_seconds = max(
+            5,
+            min(
+                15,
+                int(os.environ.get("QUIKSTRIKE_URL_VALIDATE_TIMEOUT_SECONDS", DEFAULT_VALIDATE_TIMEOUT_SECONDS)),
+            ),
+        )
         try:
             with sync_playwright() as p:
                 browser = p.chromium.launch(
@@ -100,19 +110,22 @@ class UrlManager:
                     context_options["storage_state"] = SESSION_STATE_PATH
                 context = browser.new_context(**context_options)
                 page = context.new_page()
-                # QuikStrike is a long-lived application page. Some deployments
-                # keep sub-resources open indefinitely, so waiting for DOMContentLoaded
-                # can time out even though the document has already committed and the
-                # chart/XHR surface is usable. Use "commit" for navigation and validate
-                # readiness from the actual data surface that scraper.py consumes.
                 try:
-                    response = page.goto(url, wait_until="commit", timeout=30_000)
+                    response = page.goto(
+                        url,
+                        wait_until="commit",
+                        timeout=timeout_seconds * 1000,
+                    )
                 except PlaywrightTimeoutError as exc:
-                    print(f"⚠️  validate() navigation timeout; probing rendered page: {exc}")
-                    response = None
+                    print(
+                        f"⚠️  validate() navigation timeout after {timeout_seconds}s: {exc}",
+                        flush=True,
+                    )
+                    browser.close()
+                    return False
 
                 if response is not None and response.status >= 400:
-                    print(f"⚠️  validate() QuikStrike HTTP status={response.status}")
+                    print(f"⚠️  validate() QuikStrike HTTP status={response.status}", flush=True)
                     browser.close()
                     return False
 
@@ -122,12 +135,39 @@ class UrlManager:
                         (typeof Highcharts !== 'undefined' && Highcharts.charts && Highcharts.charts.some(c => c)) ||
                         !!document.querySelector('img.chart') ||
                         !!document.querySelector('[dataobjectid]')""",
-                        timeout=45_000,
+                        timeout=min(8_000, timeout_seconds * 1000),
                     )
                 except Exception:
                     pass
 
-                page.wait_for_timeout(1_500)
+                has_chart = page.evaluate(
+                    "() => typeof Highcharts !== 'undefined' "
+                    "&& Highcharts.charts && Highcharts.charts.some(c => c)"
+                )
+                has_image_map = page.locator("map area[fields]").count() > 0
+                has_chart_image = page.locator("img.chart").count() > 0
+                has_data_object = page.locator("[dataobjectid]").count() > 0
+                page_text = (page.evaluate("() => document.body.innerText") or "").lower()
+                has_error_text = any(
+                    kw in page_text
+                    for kw in (
+                        "session expired",
+                        "session has expired",
+                        "not found",
+                        "an error occurred",
+                    )
+                )
+                usable = has_image_map or has_chart or (has_chart_image and has_data_object)
+                browser.close()
+                return usable and not has_error_text
+        except Exception as e:
+            print(f"⚠️  validate() เปิด URL ไม่สำเร็จ: {e}", flush=True)
+            return False
+        finally:
+            print(
+                f"    [url] validation elapsed={time.monotonic() - started:.1f}s",
+                flush=True,
+            )
 
                 has_chart = page.evaluate(
                     "() => typeof Highcharts !== 'undefined' "
@@ -332,24 +372,46 @@ class UrlManager:
     # ---------- orchestrator (retry ladder) ----------
 
     def get_url(self) -> str:
-        saved = self.get_saved_url()
-        if saved and self.validate(saved):
-            print("✅ ใช้ URL ที่เคยบันทึกไว้ใน Supabase (ยังใช้งานได้)")
-            return saved
+        started = time.monotonic()
+        env_url = os.environ.get("QUIKSTRIKE_URL", "").strip()
+        prefer_direct = os.environ.get("QUIKSTRIKE_PREFER_ENV_URL", "1").strip().lower() in {
+            "1", "true", "yes", "on"
+        }
+        validate_env = os.environ.get("QUIKSTRIKE_VALIDATE_ENV_URL", "0").strip().lower() in {
+            "1", "true", "yes", "on"
+        }
 
-        env_url = os.environ.get("QUIKSTRIKE_URL")
-        if env_url and env_url != saved and self.validate(env_url):
-            print("✅ ใช้ URL จาก env/Secret (ใช้งานได้) — บันทึกทับของเก่าใน Supabase")
-            self.save_url(env_url)
+        # A URL supplied explicitly by GitHub Secrets is already the operator's
+        # current source of truth. Do not block the live job on Supabase lookup
+        # or another Chromium validation pass unless validation is explicitly enabled.
+        if env_url and prefer_direct and not validate_env:
+            print("✅ ใช้ QUIKSTRIKE_URL จาก env/Secret โดยตรง (skip preflight validation)", flush=True)
             return env_url
 
-        print("⚠️  URL เดิมทั้งหมดใช้ไม่ได้แล้ว กำลัง discover URL ใหม่ด้วย Playwright...")
-        new_url = self.discover()
-        if new_url and self.validate(new_url):
-            self.save_url(new_url)
-            return new_url
+        saved = self.get_saved_url()
+        if saved and self.validate(saved):
+            print("✅ ใช้ URL ที่เคยบันทึกไว้ใน Supabase (ยังใช้งานได้)", flush=True)
+            return saved
 
+        if env_url:
+            if not validate_env:
+                print("✅ ใช้ URL จาก env/Secret โดยตรง (validation disabled)", flush=True)
+                return env_url
+            if self.validate(env_url):
+                print("✅ ใช้ URL จาก env/Secret (validation ผ่าน) — บันทึกทับของเก่าใน Supabase", flush=True)
+                self.save_url(env_url)
+                return env_url
+
+        print("⚠️  URL เดิมทั้งหมดใช้ไม่ได้แล้ว กำลัง discover URL ใหม่ด้วย Playwright...", flush=True)
+        new_url = self.discover()
+        if new_url:
+            if self.validate(new_url):
+                self.save_url(new_url)
+                return new_url
+            # Do not immediately validate again or enter another retry ladder.
+            # The newly discovered URL is the only fallback generated in this run.
         raise UrlManagerError(
-            "หา QuikStrike URL ที่ใช้งานได้ไม่สำเร็จเลย (saved, env, discover ล้มเหลวหมด) "
-            "— อาจต้องเช็คว่า CME เปลี่ยนโครงหน้า QuikStrike หรือ CME ล่มจริงๆ"
+            "หา QuikStrike URL ที่ใช้งานได้ไม่สำเร็จเลย "
+            "(env/saved/discover ล้มเหลวหรือ validation ไม่ผ่าน)"
         )
+        
