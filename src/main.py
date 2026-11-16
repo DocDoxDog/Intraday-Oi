@@ -222,14 +222,31 @@ def run():
         current_oi_put = _num(cur_totals.get("open_interest_view_put", cur_totals.get("open_interest_put")))
         current_oi_call = _num(cur_totals.get("open_interest_view_call", cur_totals.get("open_interest_call")))
         raw_intel["history_comparison"] = {
-            "today_price_change": _num(cur_price) - _num(today_open) if _num(cur_price) is not None and _num(today_open) is not None else None,
-            "today_oi_change": current_oi_total - _num(today_oi.get("oi_total")) if current_oi_total is not None and _num(today_oi.get("oi_total")) is not None else None,
-            "today_gex_change": _num(cur_gex.get("net_gex")) - _num(today_gex) if _num(cur_gex.get("net_gex")) is not None and _num(today_gex) is not None else None,
-            "yesterday_price_change": _num(cur_price) - _num(yesterday_last) if _num(cur_price) is not None and _num(yesterday_last) is not None else None,
-            "yesterday_oi_change": current_oi_total - _num(yesterday_oi.get("oi_total")) if current_oi_total is not None and _num(yesterday_oi.get("oi_total")) is not None else None,
-            "yesterday_gex_change": _num(cur_gex.get("net_gex")) - _num(yesterday_gex) if _num(cur_gex.get("net_gex")) is not None and _num(yesterday_gex) is not None else None,
-            "today_count": today.get("count", 0),
-            "yesterday_count": yesterday.get("count", 0),
+            "H-1": {
+                "baseline_time": (hist_context.get("hour_ago") or {}).get("captured_at"),
+                "price_change": (
+                    _num(cur_price) - _num((hist_context.get("hour_ago") or {}).get("future_price"))
+                    if _num(cur_price) is not None and _num((hist_context.get("hour_ago") or {}).get("future_price")) is not None else None
+                ),
+            },
+            "D-1": {
+                # D-1 is the first snapshot of the current trading day/session.
+                "baseline_time": today.get("first_snapshot_time"),
+                "price_change": _num(cur_price) - _num(today_open) if _num(cur_price) is not None and _num(today_open) is not None else None,
+                "oi_change": current_oi_total - _num(today_oi.get("oi_total")) if current_oi_total is not None and _num(today_oi.get("oi_total")) is not None else None,
+                "gex_change": _num(cur_gex.get("net_gex")) - _num(today_gex) if _num(cur_gex.get("net_gex")) is not None and _num(today_gex) is not None else None,
+            },
+            "PREVIOUS_SESSION": {
+                "baseline_time": yesterday.get("latest_snapshot_time"),
+                "price_change": _num(cur_price) - _num(yesterday_last) if _num(cur_price) is not None and _num(yesterday_last) is not None else None,
+                "oi_change": current_oi_total - _num(yesterday_oi.get("oi_total")) if current_oi_total is not None and _num(yesterday_oi.get("oi_total")) is not None else None,
+                "gex_change": _num(cur_gex.get("net_gex")) - _num(yesterday_gex) if _num(cur_gex.get("net_gex")) is not None and _num(yesterday_gex) is not None else None,
+            },
+            "coverage": {
+                "H-1": bool(hist_context.get("hour_ago")),
+                "D-1": bool(today.get("count")),
+                "PREVIOUS_SESSION": bool(yesterday.get("count")),
+            },
         }
     except Exception as e:
         print(f"⚠️  History comparison enrichment failed: {e}", file=sys.stderr)
