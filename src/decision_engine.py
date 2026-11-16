@@ -48,10 +48,17 @@ def _fresh_high_news(state: dict[str, Any]) -> list[dict[str, Any]]:
 
 
 def _structural_bias(state: dict[str, Any]) -> str:
+    # H4 is the primary structural anchor; H1 is the nearer structural
+    # confirmation/context layer. Do not erase a clear H4 thesis merely because
+    # H1 is transitioning the other way. The conflict is reported separately.
     h4, h1 = _trend(state, "h4"), _trend(state, "h1")
-    if h4 == h1 == "bullish":
+    if h4 == "bullish":
         return "BULLISH"
-    if h4 == h1 == "bearish":
+    if h4 == "bearish":
+        return "BEARISH"
+    if h1 == "bullish":
+        return "BULLISH"
+    if h1 == "bearish":
         return "BEARISH"
     return "MIXED"
 
