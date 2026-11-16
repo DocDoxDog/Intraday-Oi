@@ -25,6 +25,58 @@ def _technical(parsed: dict[str, Any]) -> dict[str, Any]:
     return parsed.get("technical_context") or {}
 
 
+
+def _smart_reference(parsed: dict[str, Any], history: dict[str, Any]) -> tuple[str | None, dict[str, Any] | None]:
+    """Choose the historical anchor that best explains a meaningful change."""
+    now = _num(parsed.get("future_price"))
+    candidates: list[tuple[str, dict[str, Any], float]] = []
+
+    def add(label: str, row: dict[str, Any] | None) -> None:
+        if not isinstance(row, dict):
+            return
+        price = _num(row.get("future_price"))
+        if now is None or price is None:
+            return
+        delta = abs(now - price)
+        raw = row.get("raw_series") or {}
+        gex = raw.get("gex") or {}
+        current_gex = _num(((parsed.get("raw_series") or {}).get("gex") or {}).get("net_gex"))
+        base_gex = _num(gex.get("net_gex"))
+        score = min(delta / max(now, 1.0) * 800.0, 4.0)
+        if current_gex is not None and base_gex is not None and (current_gex < 0) != (base_gex < 0):
+            score += 4.0
+        candidates.append((label, row, score))
+
+    add("ชั่วโมงก่อน", history.get("hour_ago"))
+    add("ช่วงก่อนหน้า", history.get("two_hours_ago"))
+
+    today = history.get("today") or {}
+    if today.get("first_snapshot_time") and today.get("future_price_open") is not None:
+        add("ช่วงเปิด session", {
+            "captured_at": today.get("first_snapshot_time"),
+            "future_price": today.get("future_price_open"),
+            "vol": today.get("vol_first"),
+            "raw_series": {"gex": today.get("oi_first") or {}},
+        })
+
+    yesterday = history.get("yesterday") or {}
+    if yesterday.get("count") and yesterday.get("future_price_last") is not None:
+        add("session ก่อน", {
+            "captured_at": yesterday.get("latest_snapshot_time"),
+            "future_price": yesterday.get("future_price_last"),
+            "vol": yesterday.get("vol_last"),
+            "raw_series": {"gex": yesterday.get("oi_last") or {}},
+        })
+
+    if not candidates:
+        return None, None
+    candidates.sort(key=lambda x: x[2], reverse=True)
+    label, row, score = candidates[0]
+    if score < 0.35:
+        return None, None
+    return label, row
+
+
 def build_deterministic_fallback(
     parsed: dict[str, Any],
     history: dict[str, Any] | None,
@@ -152,19 +204,21 @@ def build_deterministic_fallback(
         + ("ภาพหลักยังให้น้ำหนักฝั่งลงมากกว่าฝั่งขึ้น" if htf == "BEARISH" else "ภาพหลักยังให้น้ำหนักฝั่งขึ้นมากกว่าฝั่งลง" if htf == "BULLISH" else "ยังต้องรอการเปลี่ยนโครงสร้าง")
     )
 
+    reference_label, reference_row = _smart_reference(parsed, history)
     comparison_bits = []
-    if h1_delta is not None:
+    reference_price = _num((reference_row or {}).get("future_price"))
+    reference_delta = current_history_price - reference_price if current_history_price is not None and reference_price is not None else None
+    if reference_label and reference_delta is not None:
         comparison_bits.append(
-            f"เมื่อเทียบกับชั่วโมงก่อน ราคา{'ลดลง' if h1_delta < 0 else 'เพิ่มขึ้น' if h1_delta > 0 else 'ยังทรงตัว'} และ "
+            f"เมื่อเทียบกับ{reference_label} ราคาปัจจุบัน"
+            f"{'ลดลง' if reference_delta < 0 else 'เพิ่มขึ้น' if reference_delta > 0 else 'แทบไม่เปลี่ยน'} และ "
             + (f"ยังอยู่ต่ำกว่าโซนสำคัญ {_fmt(call_wall)}" if htf == "BEARISH" and call_wall is not None and current_price < call_wall else
                f"ยังอยู่เหนือโซนสำคัญ {_fmt(put_wall)}" if htf == "BULLISH" and put_wall is not None and current_price > put_wall else
                "ตำแหน่งเมื่อเทียบกับโซนสำคัญยังไม่เปลี่ยนชัดเจน")
         )
-    if d1_delta is not None:
-        comparison_bits.append(
-            f"เมื่อเทียบกับวันก่อน ราคาปัจจุบัน{'ต่ำลง' if d1_delta < 0 else 'สูงขึ้น' if d1_delta > 0 else 'ใกล้เคียงเดิม'}"
-        )
-    history_story = " ".join(comparison_bits) if comparison_bits else "ยังไม่มี baseline ที่เพียงพอสำหรับการเทียบช่วงก่อนหน้า"
+    else:
+        history_story = "ตั้งแต่ช่วงก่อนหน้า โครงสร้างยังไม่เปลี่ยนอย่างมีนัยสำคัญจาก baseline ที่ระบบยืนยันได้"
+    history_story = " ".join(comparison_bits) if comparison_bits else history_story
 
     why_parts = []
     if net_gex is not None:
