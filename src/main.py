@@ -7,6 +7,7 @@ Orchestrate: scrape -> parse -> analyze -> insert
 
 import sys
 import os
+import time
 from datetime import datetime, timezone
 from dotenv import load_dotenv
 
@@ -58,9 +59,16 @@ def run():
     # bot_delivery_state is reserved for delivery state, not job scheduling.
 
     print("[1/9] Resolving QuikStrike URL (self-healing)...")
+    url_started = time.monotonic()
     try:
-        url_manager = UrlManager()
-        quikstrike_url = url_manager.get_url()
+        env_url = os.environ.get("QUIKSTRIKE_URL", "").strip()
+        if env_url and os.environ.get("QUIKSTRIKE_PREFER_ENV_URL", "1").strip().lower() in {"1", "true", "yes", "on"}:
+            quikstrike_url = env_url
+            print("    [url] using explicit QUIKSTRIKE_URL from environment", flush=True)
+        else:
+            url_manager = UrlManager()
+            quikstrike_url = url_manager.get_url()
+        print(f"    [url] resolution elapsed={time.monotonic() - url_started:.1f}s", flush=True)
     except UrlManagerError as e:
         print(f"❌ URL resolution failed completely: {e}", file=sys.stderr)
         sys.exit(1)
