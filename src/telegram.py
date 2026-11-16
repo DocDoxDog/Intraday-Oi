@@ -381,6 +381,9 @@ def _format_trade_plan_message(parsed: dict, ai_result: dict) -> str:
     invalid_raw = primary.get("cancel_if") or primary.get("invalidation")
     if invalid_raw not in (None, ""):
         lines.append(f"Invalid <b>{_escape(invalid_raw)}</b>")
+    schedule = ai_result.get("desk_note_context") or desk_note_schedule(parsed.get("observed_at") or parsed.get("retrieved_at"))
+    valid_until = str(ai_result.get("valid_until_label") or schedule.get("valid_until_label") or "-")
+    lines.append(f"Valid Until <b>{_escape(valid_until)}</b>")
     return "\n".join(lines)
 
 def format_message(parsed: dict, ai_result: dict) -> str:
