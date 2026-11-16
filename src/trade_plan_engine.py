@@ -131,8 +131,33 @@ def build_trade_execution_plan(state: dict[str, Any]) -> dict[str, Any]:
             result["event_required"] = setup.get("event_required")
             result["action"] = setup.get("action")
             result["invalidation"] = setup.get("invalidation")
-            return result
-        return fallback_confirmation(side, trigger)
+        else:
+            result = fallback_confirmation(side, trigger)
+
+        # Liquidity-first execution gate:
+        # LONG requires a sell-side sweep; SHORT requires a buy-side sweep.
+        # The market can remain directionally bullish/bearish without allowing
+        # an entry before the preferred liquidity event occurs.
+        liquidity = state.get("liquidity") or {}
+        preferred_event = str(liquidity.get("preferred_event") or "").upper()
+        expected_event = (
+            "SELL_SIDE_SWEEP" if str(side).upper().startswith("LONG")
+            else "BUY_SIDE_SWEEP" if str(side).upper().startswith("SHORT")
+            else ""
+        )
+        gate = str(liquidity.get("gate") or "").upper()
+        if expected_event and preferred_event == expected_event and gate != "SWEEP_DETECTED":
+            result["state"] = "WAIT_LIQUIDITY_SWEEP"
+            result["confirmed"] = False
+            result.setdefault("conditions", []).append(
+                "waiting_for_" + expected_event.lower()
+            )
+            result["event_required"] = expected_event + " before execution"
+        elif expected_event and gate == "SWEEP_DETECTED":
+            result.setdefault("conditions", []).append(
+                "liquidity_" + expected_event.lower() + "_detected"
+            )
+        return result
 
     def target_list(prefix: str, legacy_prefix: str | None = None) -> list[float | None]:
         # Canonical market_map stores route targets as a source-derived list
