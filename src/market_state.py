@@ -1325,6 +1325,59 @@ def normalize_analyst_output(
 
     execution_plan = build_trade_execution_plan(state)
 
+    # Customer execution contract: always expose one deterministic primary route
+    # for the dominant structural side. A route may be PENDING (trigger not hit)
+    # but must not disappear merely because the execution gate is not active yet.
+    dominant = structural_bias
+    route_specs = []
+    if dominant == "BEARISH":
+        route_specs = [
+            ("SHORT_BREAKDOWN", "Breakdown", "short_breakdown_trigger", "short_breakdown_stop", "short_breakdown_tp"),
+            ("SHORT_REJECTION", "Rejection", "short_rejection_trigger", "short_rejection_stop", "short_rejection_tp"),
+            ("SHORT", "Short", "short_trigger", "short_stop", "short_tp"),
+        ]
+    elif dominant == "BULLISH":
+        route_specs = [
+            ("LONG_RECLAIM", "Reclaim", "long_reclaim_trigger", "long_reclaim_stop", "long_reclaim_tp"),
+            ("LONG_SUPPORT", "Support Reaction", "long_support_trigger", "long_support_stop", "long_support_tp"),
+            ("LONG", "Long", "long_trigger", "long_stop", "long_tp"),
+        ]
+
+    primary_setup = None
+    for route, strategy, trigger_key, stop_key, tp_prefix in route_specs:
+        trigger = deterministic.get(trigger_key)
+        stop = deterministic.get(stop_key)
+        targets = [
+            deterministic.get(f"{tp_prefix}{i}")
+            for i in range(1, 6)
+            if deterministic.get(f"{tp_prefix}{i}") is not None
+        ]
+        if _num(trigger) is None or _num(stop) is None or not targets:
+            continue
+        current = _num((state.get("price") or {}).get("cfd"))
+        side = "SHORT" if dominant == "BEARISH" else "LONG"
+        if current is None:
+            state_name = "PENDING"
+        elif side == "SHORT":
+            state_name = "ARMED" if current <= float(trigger) else "PENDING"
+        else:
+            state_name = "ARMED" if current >= float(trigger) else "PENDING"
+        primary_setup = {
+            "route": route,
+            "strategy": strategy,
+            "side": side,
+            "trigger": trigger,
+            "entry": trigger,
+            "stop": stop,
+            "targets": targets,
+            "state": state_name,
+            "action": f"{'SELL' if side == 'SHORT' else 'BUY'} at trigger",
+            "cancel_if": f"{'above' if side == 'SHORT' else 'below'} {stop}",
+        }
+        break
+
+    execution_plan["primary_setup"] = primary_setup
+
     from src.multi_domain_engine import build_multi_domain_context
     multi_domain = build_multi_domain_context(parsed, state, execution_plan)
     state["multi_domain"] = multi_domain
