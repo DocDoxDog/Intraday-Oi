@@ -169,40 +169,6 @@ class UrlManager:
                 flush=True,
             )
 
-                has_chart = page.evaluate(
-                    "() => typeof Highcharts !== 'undefined' "
-                    "&& Highcharts.charts && Highcharts.charts.some(c => c)"
-                )
-                has_image_map = page.locator("map area[fields]").count() > 0
-                has_chart_image = page.locator("img.chart").count() > 0
-                has_data_object = page.locator("[dataobjectid]").count() > 0
-                page_text = (page.evaluate("() => document.body.innerText") or "").lower()
-
-                has_error_text = any(
-                    kw in page_text
-                    for kw in (
-                        "session expired",
-                        "session has expired",
-                        "not found",
-                        "an error occurred",
-                    )
-                )
-
-                # Match scraper.py's real requirement. Do not require
-                # Expected Range/Intraday text; the free Open Interest/EOD
-                # surface is the canonical scrape target.
-                usable = (
-                    has_image_map
-                    or has_chart
-                    or (has_chart_image and has_data_object)
-                )
-
-                browser.close()
-                return usable and not has_error_text
-        except Exception as e:
-            print(f"⚠️  validate() เปิด URL ไม่สำเร็จ: {e}")
-            return False
-
     # ---------- discover ----------
 
     def _try_extract_from_html(self, page) -> tuple[str | None, str | None]:
