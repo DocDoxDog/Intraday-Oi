@@ -25,7 +25,7 @@ except ImportError:
 
 DEFAULT_GATEWAY_PATH = "/internal/v1/llm/generate"
 TASK = "market.narrative"
-PROMPT_VERSION = "intraday-oi-market-analyst-v12-desk-note-time-aware"
+PROMPT_VERSION = "intraday-oi-market-analyst-v13-smart-reference"
 DATASET_VERSION = "quikstrike-oi-view-v2"
 CALCULATION_VERSION = "intraday-oi-calcs-v1"
 
@@ -230,6 +230,147 @@ def _json_safe(value: Any) -> Any:
         return str(value)
 
 
+
+def _reference_label(dt: datetime, now: datetime) -> str:
+    """Give a human label to a historical anchor without hard-coding its use."""
+    local = dt.astimezone(timezone.utc).astimezone(timezone.utc)
+    age_hours = max(0.0, (now - dt).total_seconds() / 3600.0)
+    # Session language is descriptive only; the selector below decides whether
+    # this anchor is actually useful for the current story.
+    if age_hours <= 1.75:
+        return "ชั่วโมงก่อน"
+    if age_hours <= 3.25:
+        return "ช่วงก่อนหน้า"
+    if dt.date() != now.date():
+        return "คืนก่อน" if now.hour < 10 else "วันก่อน"
+    return "ช่วงก่อนหน้า"
+
+
+def _select_smart_reference(
+    now_row: dict[str, Any],
+    candidates: list[dict[str, Any]],
+    *,
+    now_dt: datetime | None,
+) -> dict[str, Any]:
+    """Choose the baseline that explains the largest meaningful change.
+
+    This is deliberately not tied to the 10/14/19/21 desk slots. A nearby
+    snapshot wins when the market actually changed recently; a session/day
+    anchor can win when it contains the meaningful structural transition.
+    """
+    if not candidates:
+        return {
+            "status": "UNKNOWN",
+            "selected": None,
+            "alternatives": [],
+            "reason": "ไม่มี historical baseline ที่ใช้งานได้",
+        }
+
+    current_dt = now_dt
+    current_price = now_row.get("future_price")
+    current_vol = now_row.get("vol")
+    current_gex = now_row.get("gex_net")
+    current_flip = now_row.get("gamma_flip")
+    current_call = now_row.get("call_wall")
+    current_put = now_row.get("put_wall")
+    price_scale = max(abs(float(current_price or 0.0)), 1.0)
+
+    def num(v: Any) -> float | None:
+        return float(v) if isinstance(v, (int, float)) and not isinstance(v, bool) else None
+
+    scored: list[dict[str, Any]] = []
+    for candidate in candidates:
+        base = candidate.get("baseline") or {}
+        captured = base.get("captured_at")
+        try:
+            dt = datetime.fromisoformat(str(captured).replace("Z", "+00:00")) if captured else None
+            if dt and dt.tzinfo is None:
+                dt = None
+        except (TypeError, ValueError):
+            dt = None
+        if dt is None or current_dt is None or dt >= current_dt:
+            continue
+
+        age_h = max(0.05, (current_dt - dt).total_seconds() / 3600.0)
+        bp = num(base.get("future_price"))
+        bv = num(base.get("vol"))
+        bg = num(base.get("gex_net"))
+        bf = num(base.get("gamma_flip"))
+        bc = num(base.get("call_wall"))
+        bput = num(base.get("put_wall"))
+
+        price_move = abs((num(current_price) or 0.0) - (bp or 0.0)) / price_scale if bp is not None else 0.0
+        vol_move = abs((num(current_vol) or 0.0) - (bv or 0.0)) if bv is not None else 0.0
+        gex_change = abs((num(current_gex) or 0.0) - (bg or 0.0)) if bg is not None else 0.0
+        wall_shift = 0.0
+        if bc is not None and num(current_call) is not None:
+            wall_shift += abs(num(current_call) - bc) / price_scale
+        if bput is not None and num(current_put) is not None:
+            wall_shift += abs(num(current_put) - bput) / price_scale
+
+        # Structural discontinuities are much more important than tiny price
+        # drift. The score is only a selector; it is never exposed as a claim.
+        structural = 0.0
+        if bg is not None and current_gex is not None and (bg == 0 or current_gex == 0 or (bg < 0) != (current_gex < 0)):
+            structural += 4.0
+        if bf is not None and current_flip is not None and abs(current_flip - bf) / price_scale > 0.0003:
+            structural += 2.0
+        if wall_shift > 0.0005:
+            structural += 2.0
+        if vol_move > 0.25:
+            structural += 1.5
+
+        # Meaningfulness: large enough change + structural change + freshness.
+        # Recency is a tie-breaker, not the governing rule.
+        magnitude = min(price_move * 800.0, 4.0) + min(vol_move * 2.0, 2.0) + structural
+        freshness = max(0.0, 2.0 - min(age_h / 12.0, 2.0))
+        session_anchor = 1.5 if candidate.get("kind") in {"SESSION_OPEN", "PREVIOUS_SESSION"} else 0.0
+        score = magnitude + freshness + session_anchor
+
+        label = candidate.get("label") or _reference_label(dt, current_dt)
+        scored.append({
+            **candidate,
+            "age_hours": round(age_h, 2),
+            "label": label,
+            "score": round(score, 3),
+            "change": {
+                "price": round((num(current_price) - bp), 5) if bp is not None and num(current_price) is not None else None,
+                "vol": round((num(current_vol) - bv), 5) if bv is not None and num(current_vol) is not None else None,
+                "gex_net": round((num(current_gex) - bg), 5) if bg is not None and num(current_gex) is not None else None,
+                "gamma_flip": round((num(current_flip) - bf), 5) if bf is not None and num(current_flip) is not None else None,
+                "call_wall": round((num(current_call) - bc), 5) if bc is not None and num(current_call) is not None else None,
+                "put_wall": round((num(current_put) - bput), 5) if bput is not None and num(current_put) is not None else None,
+            },
+        })
+
+    if not scored:
+        return {
+            "status": "UNKNOWN",
+            "selected": None,
+            "alternatives": [],
+            "reason": "baseline มี timestamp ที่ใช้งานไม่ได้",
+        }
+
+    scored.sort(key=lambda x: (x["score"], -x["age_hours"]), reverse=True)
+    selected = scored[0]
+
+    # If all candidates are effectively unchanged, don't force a fake comparison.
+    if selected["score"] < 1.2:
+        return {
+            "status": "NO_MEANINGFUL_CHANGE",
+            "selected": None,
+            "alternatives": scored[:2],
+            "reason": "มี baseline แต่การเปลี่ยนแปลงยังไม่มากพอจะเลือกเป็นแกนเรื่อง",
+        }
+
+    return {
+        "status": "SELECTED",
+        "selected": selected,
+        "alternatives": scored[1:3],
+        "reason": "เลือก baseline จากความมีนัยของการเปลี่ยนแปลงก่อนความใกล้ของเวลา",
+    }
+
+
 def _compact_history(parsed: dict[str, Any], history: dict[str, Any] | None) -> dict[str, Any]:
     """Build an explicit NOW vs H-1 vs D-1 vs PREVIOUS-SESSION comparison.
 
@@ -319,17 +460,42 @@ def _compact_history(parsed: dict[str, Any], history: dict[str, Any] | None) -> 
             return "UNKNOWN"
         return "UP" if value > 0 else "DOWN" if value < 0 else "FLAT"
 
-    # Canonical comparison roles:
-    # H-1 = closest snapshot about one hour ago.
-    # D-1 = latest snapshot from the prior trading session.
-    # TODAY_OPEN = first snapshot of the current session (context only).
-    # This intentionally keeps three distinct baselines instead of feeding the
-    # model a pile of loosely named history blocks.
     comparisons = {
         "H-1": {"baseline": h1, "delta": delta(h1)},
         "D-1": {"baseline": d1, "delta": delta(d1)},
         "PREVIOUS_SESSION": {"baseline": prev_session, "delta": delta(prev_session)},
     }
+
+    now_dt = None
+    try:
+        now_dt = datetime.fromisoformat(str(now.get("captured_at")).replace("Z", "+00:00"))
+        if now_dt.tzinfo is None:
+            now_dt = None
+    except (TypeError, ValueError):
+        now_dt = None
+
+    # Build a candidate pool. The selector is free to choose any usable anchor;
+    # the desk-note clock is never a hard constraint on the reference.
+    candidates = [
+        {"kind": "H-1", "label": "ชั่วโมงก่อน", "baseline": h1},
+        {"kind": "H-2", "label": "ช่วงก่อนหน้า", "baseline": h2},
+        {"kind": "SESSION_OPEN", "label": "ช่วงเปิด session", "baseline": {
+            "captured_at": today.get("first_snapshot_time"),
+            "future_price": today.get("future_price_open"),
+            "vol": today.get("vol_first"),
+            "oi_put": (today.get("oi_first") or {}).get("oi_put"),
+            "oi_call": (today.get("oi_first") or {}).get("oi_call"),
+            "oi_total": (today.get("oi_first") or {}).get("oi_total"),
+            "churn": (today.get("oi_first") or {}).get("churn"),
+            "gex_net": (today.get("oi_first") or {}).get("gex_net"),
+            "gamma_flip": (today.get("oi_first") or {}).get("gamma_flip"),
+            "call_wall": (today.get("oi_first") or {}).get("call_wall"),
+            "put_wall": (today.get("oi_first") or {}).get("put_wall"),
+        }} if today.get("first_snapshot_time") else None,
+        {"kind": "PREVIOUS_SESSION", "label": "session ก่อน", "baseline": prev_session},
+    ]
+    candidates = [x for x in candidates if x]
+    reference_selection = _select_smart_reference(now, candidates, now_dt=now_dt)
 
     # A compact transition map gives the model a direct answer to "what changed?"
     # without telling it which side to choose.
@@ -348,6 +514,7 @@ def _compact_history(parsed: dict[str, Any], history: dict[str, Any] | None) -> 
         "now": now,
         "comparisons": comparisons,
         "transition": transition,
+        "reference_selection": reference_selection,
         "coverage": {
             "H-1": bool(h1),
             "D-1": bool(d1),
@@ -554,14 +721,16 @@ Price↑ + IV↑ = upside + volatility repricing
 แต่ต้องตรวจ evidence อื่นก่อนสรุป
 
 7) COMPARATIVE MARKET STORY — ห้ามวิเคราะห์แบบ snapshot เดี่ยว
-ให้ใช้ "NOW → H-1 → D-1 → PREVIOUS SESSION" เป็นแกนหลักของบทวิเคราะห์
-ตอบให้ได้ก่อนว่า "อะไรเปลี่ยนไป และการเปลี่ยนนั้นทำให้ตลาดเปลี่ยน regime หรือไม่"
+ให้ใช้ NOW → SMART REFERENCE เป็นแกนหลักของบทวิเคราะห์
+reference ไม่ถูกผูกกับรอบ 10/14/19/21 และไม่จำเป็นต้องเป็น H-1 หรือ D-1 เสมอไป
+ระบบจะเลือก baseline จาก H-1, H-2, ช่วงเปิด session หรือ session ก่อน โดยดูว่าอันไหนอธิบาย "การเปลี่ยนแปลงที่มีนัยสำคัญ" ได้ดีที่สุด
 
-ลำดับ:
+หลักคิด:
 NOW = ราคาปัจจุบันและตำแหน่งในโครงสร้าง
-H-1 = การเปลี่ยนแปลงล่าสุด / acceleration หรือ deceleration
-D-1 = ภาพตั้งแต่ต้น session ปัจจุบัน
-PREVIOUS SESSION = จุดอ้างอิงของ session ก่อน
+SMART REFERENCE = baseline ที่มีความหมายที่สุดสำหรับการอธิบายสิ่งที่เปลี่ยน
+ถ้า H-1 แทบไม่เปลี่ยน แต่ session ก่อนมี structural break ให้เลือก session ก่อน
+ถ้า session ก่อนเก่าเกินไป แต่ H-1 มี acceleration/repricing ชัด ให้เลือก H-1
+ถ้าทุก baseline เปลี่ยนน้อย ให้บอกว่าโครงสร้างยังไม่เปลี่ยนอย่างมีนัยสำคัญ แทนการฝืนสร้าง comparison
 
 อย่าเล่าตัวเลขของแต่ละช่วงเป็นรายงาน telemetry
 ให้แปลงเป็น "change story" เช่น:
@@ -829,7 +998,9 @@ Field intent:
 - market_microstructure = Technical + liquidity + price-action interpretation
 - market_psychology = positioning/trapped participants/reflexivity mechanism
 แต่ละ field ต้องเขียนสั้นและไม่ซ้ำกัน
-- history_comparison = change story ไม่ใช่ raw table
+- history_comparison = change story จาก reference_selection ไม่ใช่ raw table
+- ห้ามพูดว่า "เมื่อเทียบกับชั่วโมงก่อน/วันก่อน" หาก reference_selection ไม่ได้เลือก baseline นั้น
+- หาก reference_selection.status = NO_MEANINGFUL_CHANGE ให้บอกว่าโครงสร้างจากช่วงก่อนหน้ายังไม่เปลี่ยนอย่างมีนัยสำคัญ
 - scenarios = Bull/Bear/Sideway conditions
 - base_case / alternative_case / invalidation_case = Case Map
 - trade_plan = conditional execution
@@ -926,6 +1097,7 @@ def analyze_with_supabot(parsed: dict[str, Any], history: dict[str, Any] | None 
         "input_payload": {
             "market_snapshot": payload["current"],
             "comparative_history": payload["history"],
+                        "reference_selection": payload["history"].get("reference_selection") or {},
             "liquidity_context": (payload["current"].get("raw_series") or {}).get("market_state", {}).get("liquidity") or {},
             "deep_reasoning_context": payload["deep_reasoning"],
             "deterministic_levels": payload["deterministic_levels"],
@@ -951,8 +1123,8 @@ def analyze_with_supabot(parsed: dict[str, Any], history: dict[str, Any] | None 
                 "comparative_history": payload["history"],
                 "desk_note_schedule": desk_context,
                 "desk_note_instruction": (
-                    f"วิเคราะห์ตามรอบ {desk_context['slot']} โดยให้ความสำคัญกับ {desk_context['comparison_priority']}. "
-                    "บทความต้องเล่าเป็นเรื่องเดียว: สิ่งที่เกิดขึ้นก่อนหน้า → สิ่งที่เปลี่ยนเมื่อเทียบกับ baseline ที่เหมาะกับรอบนี้ → "
+                    f"วิเคราะห์ตามรอบ {desk_context['slot']} แต่ห้าม fix reference ตามรอบ. ให้ใช้ reference_selection เป็นตัวตัดสิน baseline ที่เหมาะที่สุด. "
+                    "บทความต้องเล่าเป็นเรื่องเดียว: สิ่งที่เกิดขึ้นก่อนหน้า → สิ่งที่เปลี่ยนเมื่อเทียบกับ smart reference ที่เลือก → "
                     "เหตุผลที่ทำให้ thesis แข็ง/อ่อน → เงื่อนไขที่ทำให้ thesis ผิด → แผน execution. "
                     "ห้ามส่ง raw telemetry, ตาราง 1H/TODAY/YESTERDAY, หรือหัวข้อ GEX/OI/IV/Technical. "
                     "ถ้า trigger ยังไม่เกิด ให้คง directional thesis และใช้ PENDING เฉพาะ execution."
