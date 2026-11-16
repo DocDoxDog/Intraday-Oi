@@ -272,12 +272,12 @@ def _format_trade_plan_message(parsed: dict, ai_result: dict) -> str:
         lines.append(f"TP{i} <b>{_escape(_show(tp))}</b>")
     lines.append(f"R:R <b>{_escape(rr_text)}</b>")
 
-    action = _escape(primary.get("action") or primary.get("trigger") or "")
-    if action:
-        lines.append(f"Trigger <b>{action}</b>")
-    cancel_if = _escape(primary.get("cancel_if") or primary.get("invalidation") or "")
-    if cancel_if:
-        lines.append(f"Invalid <b>{cancel_if}</b>")
+    action_raw = primary.get("action") or primary.get("trigger")
+    if action_raw not in (None, ""):
+        lines.append(f"Trigger <b>{_escape(action_raw)}</b>")
+    invalid_raw = primary.get("cancel_if") or primary.get("invalidation")
+    if invalid_raw not in (None, ""):
+        lines.append(f"Invalid <b>{_escape(invalid_raw)}</b>")
     return "\n".join(lines)
 
 def format_message(parsed: dict, ai_result: dict) -> str:
