@@ -250,6 +250,7 @@ def build_decision_context(state: dict[str, Any]) -> dict[str, Any]:
     structural_bias = _structural_bias(state)
     tactical_direction = _tactical_direction(state, structural_bias)
     location = _location(state)
+    liquidity = state.get("liquidity") or {}
     options = {
         "gamma": _gamma_context(state),
         "volatility": _volatility_context(state),
@@ -273,6 +274,16 @@ def build_decision_context(state: dict[str, Any]) -> dict[str, Any]:
         conflicts.append("Gamma เป็นบวก: ใช้เป็นบริบทการชะลอการแกว่ง ไม่ใช่ข้อสรุปว่าจะเกิดกรอบราคา")
     elif options["gamma"] == "NEGATIVE_GAMMA_AMPLIFICATION_CONTEXT":
         conflicts.append("Gamma เป็นลบ: ใช้เป็นบริบทว่าการเคลื่อนไหวอาจถูกขยาย ไม่ใช่ directional signal")
+
+    liquidity_gate = str(liquidity.get("gate") or "UNKNOWN").upper()
+    if structural_bias in {"BULLISH", "BEARISH"} and liquidity_gate == "SWEEP_PENDING":
+        conflicts.append(
+            "Directional bias ยังชัด แต่ preferred liquidity sweep ยังไม่เกิด จึงไม่ไล่ราคา"
+        )
+    elif structural_bias in {"BULLISH", "BEARISH"} and liquidity_gate == "SWEEP_DETECTED":
+        conflicts.append(
+            "Preferred liquidity sweep เกิดแล้ว ใช้ M15/M5 เป็นจังหวะ execution"
+        )
 
     fresh_high = _fresh_high_news(state)
     catalyst = "ACTIVE" if fresh_high else "QUIET_OR_UNKNOWN"
@@ -321,18 +332,30 @@ def build_decision_context(state: dict[str, Any]) -> dict[str, Any]:
         else "WAIT_FOR_TRIGGER"
     )
 
+    # Direction and execution timing are separate concepts. Liquidity decides
+    # whether the directional thesis is ready to trade; it does not replace
+    # H4/H1 structure.
+    execution_direction = (
+        "LONG" if structural_bias == "BULLISH"
+        else "SHORT" if structural_bias == "BEARISH"
+        else "MIXED"
+    )
+
     # Options never override the decision. They enrich the explanation layer.
     summary = (
         f"Structural bias={structural_bias}; tactical={tactical_direction}; "
-        f"confirmation={confirmation_state}; options={options['gamma']}"
+        f"liquidity={liquidity_gate}; confirmation={confirmation_state}; "
+        f"options={options['gamma']}"
     )
 
     return {
         "version": "decision-engine-v1",
         "analysis_status": analysis_status,
         "structural_bias": structural_bias,
+        "execution_direction": execution_direction,
         "tactical_direction": tactical_direction,
         "location": location,
+        "liquidity": liquidity,
         "options_context": options,
         "confirmation_state": confirmation_state,
         "confirmation": {
