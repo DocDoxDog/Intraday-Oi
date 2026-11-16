@@ -1401,9 +1401,11 @@ def normalize_analyst_output(
     confirmed_long = bool((decision.get("confirmation") or {}).get("LONG", {}).get("confirmed"))
     confirmed_short = bool((decision.get("confirmation") or {}).get("SHORT", {}).get("confirmed"))
     structural_bias_final = str(decision.get("structural_bias") or "MIXED").upper()
+    # Direction is the structural thesis. Confirmation/liquidity gates
+    # execution readiness separately; they must never erase a clear HTF side.
     deterministic_plan["direction"] = (
-        "BUY" if confirmed_long and structural_bias_final == "BULLISH" and has_any_numeric_plan
-        else "SELL" if confirmed_short and structural_bias_final == "BEARISH" and has_any_numeric_plan
+        "BUY" if structural_bias_final == "BULLISH" and has_any_numeric_plan
+        else "SELL" if structural_bias_final == "BEARISH" and has_any_numeric_plan
         else "WAIT"
     )
     validated_plan = _validate_or_clear_trade_plan(deterministic_plan)
@@ -1460,6 +1462,7 @@ def normalize_analyst_output(
 
     primary_setup = None
     for route, strategy, trigger_key, stop_key, tp_prefix in route_specs:
+        side = "SHORT" if dominant == "BEARISH" else "LONG"
         trigger = deterministic.get(trigger_key)
         stop = deterministic.get(stop_key)
         targets = [
@@ -1490,7 +1493,6 @@ def normalize_analyst_output(
         if _num(trigger) is None or _num(stop) is None or not targets:
             continue
         current = _num((state.get("price") or {}).get("cfd"))
-        side = "SHORT" if dominant == "BEARISH" else "LONG"
         preferred_event = str(liquidity.get("preferred_event") or "")
         sweep_detected = str(liquidity.get("gate") or "").upper() == "SWEEP_DETECTED"
         if preferred_event and not sweep_detected:
