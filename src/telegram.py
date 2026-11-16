@@ -261,10 +261,22 @@ def _format_trade_plan_message(parsed: dict, ai_result: dict) -> str:
         except (TypeError, ValueError, ZeroDivisionError):
             rr_text = "-"
 
+    state_name = str(primary.get("state") or "").upper()
+    liquidity_gate = str(primary.get("liquidity_gate") or "").upper()
+    state_label = {
+        "PENDING_LIQUIDITY_SWEEP": "PENDING — รอ Liquidity Sweep",
+        "WAIT_LIQUIDITY_SWEEP": "PENDING — รอ Liquidity Sweep",
+        "ARMED": "ARMED",
+        "CONFIRMED": "EXECUTABLE",
+    }.get(state_name, state_name or "PENDING")
+    if liquidity_gate == "SWEEP_DETECTED":
+        state_label = "LIQUIDITY SWEPT" + (" • " + state_label if state_label else "")
+
     lines = [
         "<b>🎯 TRADE PLAN</b>",
         "",
         f"{emoji} <b>{title}</b> — {_escape(primary.get('strategy') or primary.get('route') or 'PRIMARY SETUP')}",
+        f"State <b>{_escape(state_label)}</b>",
         f"Entry <b>{_escape(_show(entry))}</b>",
         f"SL <b>{_escape(_show(stop))}</b>",
     ]
