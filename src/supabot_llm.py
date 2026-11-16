@@ -15,6 +15,7 @@ from datetime import datetime, timezone
 from typing import Any
 
 from .deep_reasoning import build_deep_reasoning_context
+from .market_state import desk_note_schedule
 
 try:
     from .local_supabot import LocalSupaBOTError, generate_market_narrative
@@ -24,7 +25,7 @@ except ImportError:
 
 DEFAULT_GATEWAY_PATH = "/internal/v1/llm/generate"
 TASK = "market.narrative"
-PROMPT_VERSION = "intraday-oi-market-analyst-v11-change-first-single-thesis"
+PROMPT_VERSION = "intraday-oi-market-analyst-v12-desk-note-time-aware"
 DATASET_VERSION = "quikstrike-oi-view-v2"
 CALCULATION_VERSION = "intraday-oi-calcs-v1"
 
@@ -873,7 +874,9 @@ def analyze_with_supabot(parsed: dict[str, Any], history: dict[str, Any] | None 
     now = _utc_now()
     as_of = _iso(parsed.get("observed_at") or parsed.get("retrieved_at") or now)
     product = _product(parsed)
+    desk_context = desk_note_schedule(as_of)
     payload = _summarize_input(parsed, history)
+    payload["desk_note_context"] = desk_context
     payload["deep_reasoning"] = build_deep_reasoning_context(parsed, history)
 
     input_refs = [
@@ -946,6 +949,14 @@ def analyze_with_supabot(parsed: dict[str, Any], history: dict[str, Any] | None 
                 "priority": ["LIQUIDITY_EVENT","COMPARATIVE_CHANGE","MARKET_READ_ARTICLE","CAUSAL_MECHANISM","CONFLICT","INVALIDATION","PRIMARY_TRADE_PLAN"],
                 "liquidity_context": (payload["current"].get("raw_series") or {}).get("market_state", {}).get("liquidity") or {},
                 "comparative_history": payload["history"],
+                "desk_note_schedule": desk_context,
+                "desk_note_instruction": (
+                    f"วิเคราะห์ตามรอบ {desk_context['slot']} โดยให้ความสำคัญกับ {desk_context['comparison_priority']}. "
+                    "บทความต้องเล่าเป็นเรื่องเดียว: สิ่งที่เกิดขึ้นก่อนหน้า → สิ่งที่เปลี่ยนเมื่อเทียบกับ baseline ที่เหมาะกับรอบนี้ → "
+                    "เหตุผลที่ทำให้ thesis แข็ง/อ่อน → เงื่อนไขที่ทำให้ thesis ผิด → แผน execution. "
+                    "ห้ามส่ง raw telemetry, ตาราง 1H/TODAY/YESTERDAY, หรือหัวข้อ GEX/OI/IV/Technical. "
+                    "ถ้า trigger ยังไม่เกิด ให้คง directional thesis และใช้ PENDING เฉพาะ execution."
+                ),
                 "liquidity_policy": (
                     "Direction follows H4/H1 structure. For execution, BUY requires a sell-side liquidity sweep "
                     "and SELL requires a buy-side liquidity sweep. No sweep means keep the directional thesis "
