@@ -129,6 +129,27 @@ class UrlManager:
                     browser.close()
                     return False
 
+                # QuikStrike can return a branded ErrorPage.aspx while
+                # the HTTP request itself is still 200. Detect this immediately
+                # instead of waiting for chart rendering.
+                page_url = page.url or ""
+                page_title = (page.title() or "").strip().lower()
+                page_text_now = (page.evaluate("() => document.body.innerText") or "").lower()
+                objectstore_error = (
+                    "errorpage.aspx" in page_url.lower()
+                    or "quikstrike error" in page_title
+                    or ("objectstore" in page_text_now and "not found" in page_text_now)
+                    or "stored object" in page_text_now
+                )
+                if objectstore_error:
+                    print(
+                        f"⚠️  validate() QuikStrike ObjectStore/session invalid: "
+                        f"title={page.title()!r} url={page_url!r}",
+                        flush=True,
+                    )
+                    browser.close()
+                    return False
+
                 try:
                     page.wait_for_function(
                         """() => document.querySelectorAll('map area[fields]').length > 0 ||
