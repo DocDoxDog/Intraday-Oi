@@ -62,12 +62,15 @@ def run():
     url_started = time.monotonic()
     try:
         env_url = os.environ.get("QUIKSTRIKE_URL", "").strip()
-        if env_url and os.environ.get("QUIKSTRIKE_PREFER_ENV_URL", "1").strip().lower() in {"1", "true", "yes", "on"}:
-            quikstrike_url = env_url
-            print("    [url] using explicit QUIKSTRIKE_URL from environment", flush=True)
-        else:
-            url_manager = UrlManager()
-            quikstrike_url = url_manager.get_url()
+        url_manager = UrlManager()
+        # Always let UrlManager probe the explicit Secret URL. QuikStrike can
+        # invalidate an ObjectStore/instance while the Secret string remains
+        # unchanged, so bypassing this check prevents self-healing.
+        quikstrike_url = url_manager.get_url()
+        if env_url and quikstrike_url != env_url:
+            print("    [url] self-healed QuikStrike URL; using refreshed session", flush=True)
+        elif env_url:
+            print("    [url] explicit QUIKSTRIKE_URL passed live probe", flush=True)
         print(f"    [url] resolution elapsed={time.monotonic() - url_started:.1f}s", flush=True)
     except UrlManagerError as e:
         print(f"❌ URL resolution failed completely: {e}", file=sys.stderr)
