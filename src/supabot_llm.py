@@ -24,7 +24,7 @@ except ImportError:
 
 DEFAULT_GATEWAY_PATH = "/internal/v1/llm/generate"
 TASK = "market.narrative"
-PROMPT_VERSION = "intraday-oi-market-analyst-v10-comparative-decision"
+PROMPT_VERSION = "intraday-oi-market-analyst-v11-change-first-single-thesis"
 DATASET_VERSION = "quikstrike-oi-view-v2"
 CALCULATION_VERSION = "intraday-oi-calcs-v1"
 
@@ -316,6 +316,12 @@ def _compact_history(parsed: dict[str, Any], history: dict[str, Any] | None) -> 
             return "UNKNOWN"
         return "UP" if value > 0 else "DOWN" if value < 0 else "FLAT"
 
+    # Canonical comparison roles:
+    # H-1 = the closest snapshot about one hour ago.
+    # D-1 = the first snapshot of the current trading day (day/session-open baseline).
+    # PREVIOUS_SESSION = the latest snapshot from the prior trading day/session.
+    # This intentionally keeps three distinct baselines instead of feeding the
+    # model a pile of loosely named history blocks.
     comparisons = {
         "H-1": {"baseline": h1, "delta": delta(h1)},
         "D-1": {"baseline": d1, "delta": delta(d1)},
@@ -695,6 +701,46 @@ Bias ต้องอยู่ใน narrative โดยตรง ไม่ต้
 "WAIT" ใช้เมื่อ setup ยังไม่ executable เท่านั้น ไม่ใช่ข้ออ้างที่จะไม่เลือก market direction
 ห้ามใช้ uncertainty score เป็นเหตุผลหลักในการตัดสินใจ
 
+12.2) CUSTOMER ARTICLE CONTRACT — NON-NEGOTIABLE
+ห้ามใช้โครงบทความเก่าแบบ:
+"แนวโน้ม... เพราะ H4/H1..."
+แล้วตามด้วย GEX → Technical → OI → News ทีละย่อหน้า
+นั่นถือว่า FAIL แม้ข้อมูลทุกตัวจะถูกต้อง
+
+บทความต้องเริ่มจาก "การเปลี่ยนแปลง" ไม่ใช่จาก inventory ของ indicator
+
+ลำดับบังคับของความคิด:
+A. NOW — ตอบทันทีว่าตลาดอยู่ฝั่ง Bullish หรือ Bearish และกำลังเกิดอะไร
+B. CHANGE — เปรียบเทียบ NOW กับ H-1, D-1 และ PREVIOUS_SESSION
+C. CAUSE — อธิบายว่าการเปลี่ยนแปลงใดเป็นตัวผลัก thesis และกลไกใดรองรับ
+D. CONFLICT — ระบุ evidence ที่สวน thesis และบอกว่ามันลด/ไม่ลด conviction อย่างไร
+E. INVALIDATION — ระบุเหตุการณ์/ระดับ source-derived ที่ทำให้ thesis นี้ผิด
+F. ACTION — เลือก execution route หลักเพียงฝั่งเดียวจาก deterministic execution context
+
+ห้ามเขียนบทความเป็น catalog ของข้อมูล
+ห้ามเขียน "ตลาดยังเป็นขาลง" โดยไม่มีการบอกว่า "เมื่อเทียบกับ H-1/D-1/Previous Session อะไรเปลี่ยน"
+ห้ามใช้ OI/Put-Call/GEX เพียงตัวเดียวเป็นเหตุผลเลือก direction
+ห้ามใช้คำว่า "ยังไม่มี confirmation" เป็นบทสรุปของ market direction
+ถ้า direction ชัดแต่ trigger ยังไม่ถึง ให้ direction เป็น Bullish/Bearish ต่อไป และบอกว่า execution กำลังรอ trigger
+ถ้า evidence สูสีจริง ๆ เท่านั้นจึงใช้ Neutral/Transition
+
+COMPARATIVE WRITING RULE:
+- history_comparison ต้องเป็น change story 1 ย่อหน้าหรือสั้น ๆ ไม่ใช่ตาราง
+- market_overview ต้องมี current direction + สิ่งที่เปลี่ยน
+- why ต้องอธิบาย causal link จาก change → market behavior
+- financial_engineering / positioning / macro ต้องสนับสนุน story เท่านั้น และห้ามเริ่มย่อหน้าด้วยการ dump ตัวเลข
+- ห้ามพูดข้อมูลเดียวกันซ้ำในหลาย field
+- ถ้า baseline หาย ให้พูดเฉพาะ baseline ที่มีจริง
+
+TRADE PLAN CONTRACT:
+- final_trade_idea และ trade_plan ต้องสอดคล้องกับ dominant side
+- เลือก PRIMARY ROUTE เดียวจาก deterministic execution context
+- ห้ามแสดง/แนะนำ 5 strategy candidates ใน customer article
+- ห้ามใช้ strategy ranking score เป็นเหตุผลหลัก
+- ราคา Entry/SL/TP ต้องมาจาก deterministic execution plan เท่านั้น
+- ถ้า primary route ยังไม่ executable ให้เขียน "มุมมองยัง Bullish/Bearish แต่รอ trigger" โดยไม่เปลี่ยน thesis เป็น WAIT
+- ห้ามสร้างราคาใหม่เพื่อทำให้แผนดูสมบูรณ์
+
 13) SCENARIO ENGINE
 สร้าง BULL / BEAR / SIDEWAY โดยใช้ conditional logic
 และใช้ BASE / ALT / INVALIDATION ใน schema เดิม
@@ -893,7 +939,7 @@ def analyze_with_supabot(parsed: dict[str, Any], history: dict[str, Any] | None 
             static_prefix=STATIC_PROMPT,
             dynamic={
                 "format": "human_analyst_thai_article",
-                "priority": ["MARKET_READ_ARTICLE","COMPARATIVE_CHANGE","CAUSAL_MECHANISM","CONFLICT","SCENARIO","TRADE_PLAN"],
+                "priority": ["COMPARATIVE_CHANGE","MARKET_READ_ARTICLE","CAUSAL_MECHANISM","CONFLICT","INVALIDATION","PRIMARY_TRADE_PLAN"],
                 "numeric_level_policy": "PRICE CLAIMS MAY USE ONLY VALUES PRESENT IN deterministic_levels OR current market snapshot. Do not invent, interpolate, calculate, or introduce any new price number.",
                 "derived_numeric_policy": "Do not calculate or emit new RR/R-multiple, percentages, ratios, probabilities, distances, expected-move values, or other derived numbers. The deterministic execution layer owns those calculations.",
                 "allowed_price_levels": payload["deterministic_levels"],
