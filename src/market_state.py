@@ -1467,6 +1467,26 @@ def normalize_analyst_output(
             for i in range(1, 6)
             if deterministic.get(f"{tp_prefix}{i}") is not None
         ]
+        # Liquidity-first TP map: use observed external H4/D1 liquidity as
+        # additional real targets, never synthetic RR levels.
+        external = liquidity.get("external") or {}
+        external_targets = (
+            external.get("short_targets") if side == "SHORT"
+            else external.get("long_targets") if side == "LONG"
+            else []
+        ) or []
+        combined_targets = []
+        for value in [*(targets or []), *external_targets]:
+            numeric = _num(value)
+            if numeric is None:
+                continue
+            if side == "SHORT" and trigger is not None and numeric >= float(trigger):
+                continue
+            if side == "LONG" and trigger is not None and numeric <= float(trigger):
+                continue
+            if numeric not in combined_targets:
+                combined_targets.append(numeric)
+        targets = sorted(combined_targets, reverse=side == "SHORT")[:5]
         if _num(trigger) is None or _num(stop) is None or not targets:
             continue
         current = _num((state.get("price") or {}).get("cfd"))
