@@ -134,7 +134,11 @@ class UrlManager:
                 # instead of waiting for chart rendering.
                 page_url = page.url or ""
                 page_title = (page.title() or "").strip().lower()
-                page_text_now = (page.evaluate("() => document.body.innerText") or "").lower()
+                page_text_now = (
+                    page.evaluate(
+                        "() => document.body ? document.body.innerText : ''"
+                    ) or ""
+                ).lower()
                 objectstore_error = (
                     "errorpage.aspx" in page_url.lower()
                     or "quikstrike error" in page_title
