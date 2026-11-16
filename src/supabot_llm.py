@@ -355,7 +355,14 @@ def _select_smart_reference(
     selected = scored[0]
 
     # If all candidates are effectively unchanged, don't force a fake comparison.
-    if selected["score"] < 1.2:
+    # Freshness only breaks ties; it must never turn an unchanged market
+    # into a fake comparison. Use the pre-freshness magnitude gate here.
+    selected_magnitude = min(
+        abs(float(selected.get("change", {}).get("price") or 0.0))
+        / price_scale * 800.0,
+        4.0,
+    )
+    if selected_magnitude < 0.8 and selected["score"] < 4.0:
         return {
             "status": "NO_MEANINGFUL_CHANGE",
             "selected": None,
