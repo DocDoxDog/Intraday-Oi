@@ -141,10 +141,11 @@ def build_deterministic_fallback(
     hour = history.get("hour_ago") or {}
     yesterday = history.get("yesterday") or {}
     current_price = cfd if cfd is not None else future
+    current_history_price = future if future is not None else cfd
     h1_price = _num(hour.get("future_price"))
     d1_price = _num(yesterday.get("future_price_last")) if yesterday.get("count") else None
-    h1_delta = current_price - h1_price if current_price is not None and h1_price is not None else None
-    d1_delta = current_price - d1_price if current_price is not None and d1_price is not None else None
+    h1_delta = current_history_price - h1_price if current_history_price is not None and h1_price is not None else None
+    d1_delta = current_history_price - d1_price if current_history_price is not None and d1_price is not None else None
     direction_text = "ขาขึ้น" if htf == "BULLISH" else "ขาลง" if htf == "BEARISH" else "ยังไม่ชัดเจน"
     overview = (
         f"ตอนนี้ทองอยู่แถว {_fmt(current_price)} และโครงสร้างหลักเป็น{direction_text}. "
