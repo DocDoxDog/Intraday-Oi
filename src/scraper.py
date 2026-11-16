@@ -689,8 +689,20 @@ def _discover_gold_expirations(page, limit: int = 7) -> list[dict]:
         pass
     dte_lines = [line.strip() for line in body_text.splitlines() if "DTE" in line.upper()][:12]
     anchor_count = page.locator("a").count()
-    print(f"[scrape] expiration discovery failed | title={page.title()!r} | url={page.url!r}")
+    page_title = page.title()
+    page_url = page.url or ""
+    print(f"[scrape] expiration discovery failed | title={page_title!r} | url={page_url!r}")
     print(f"[scrape] page text preview={body_text[:500]!r}")
+    if (
+        "errorpage.aspx" in page_url.lower()
+        or "quikstrike error" in page_title.lower()
+        or ("objectstore" in body_text.lower() and "not found" in body_text.lower())
+        or "stored object" in body_text.lower()
+    ):
+        raise ScrapeError(
+            "QUIKSTRIKE_SESSION_INVALID"
+            f" | title={page_title!r} | url={page_url!r}"
+        )
     raise ScrapeError(
         "ไม่พบ Gold expirations ที่มี DTE"
         f" | heading={heading!r} | anchors={anchor_count}"
