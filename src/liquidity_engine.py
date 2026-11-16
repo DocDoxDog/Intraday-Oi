@@ -167,7 +167,13 @@ def build_liquidity_context(state: dict[str, Any]) -> dict[str, Any]:
         else "BUY_SIDE_SWEEP" if structural_bias == "BEARISH"
         else None
     )
-    preferred_sweeps = [x for x in sweeps if x["event"] == preferred_event]
+    # Entry timing is internal liquidity only. H1/H4/D1 sweeps remain
+    # observable context but cannot by themselves arm an M15/M5/M1 execution.
+    internal_timeframes = {"m1", "m5", "m15"}
+    preferred_sweeps = [
+        x for x in sweeps
+        if x["event"] == preferred_event and x["timeframe"] in internal_timeframes
+    ]
     latest_preferred = preferred_sweeps[0] if preferred_sweeps else None
 
     current = _n((state.get("price") or {}).get("cfd"))
