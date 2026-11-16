@@ -206,92 +206,56 @@ def _format_path_message(parsed: dict, ai_result: dict) -> str:
     return "\n".join(lines)
 
 def _format_trade_plan_message(parsed: dict, ai_result: dict) -> str:
-    """Render up to five deterministic, distinct strategy candidates."""
-    candidates = list(ai_result.get("strategy_candidates") or [])
-    # Compatibility with the canonical deterministic execution payload used
-    # by older callers/tests. Fill the ranked list from the four deterministic
-    # routes when fewer than five ranked candidates exist. Never synthesize
-    # levels and never duplicate a route.
+    """Render one primary deterministic execution route.
+
+    Customer-facing Telegram must not expose the internal strategy ranking.
+    The deterministic execution engine already selects primary_setup from the
+    structural thesis; render only that route.
+    """
     execution = ((ai_result.get("trade_plan") or {}).get("execution_plan") or {})
-    legacy_candidates = list(execution.get("routes") or [])
-    def geometry_key(item):
-        entry = item.get("entry")
-        if entry is None:
-            entry = item.get("trigger")
-        stop = item.get("stop")
-        targets = item.get("targets") or []
-        if entry is None or stop is None or not targets:
-            return None
-        try:
-            return (
-                str(item.get("side") or "").upper(),
-                round(float(entry), 5),
-                round(float(stop), 5),
-                round(float(targets[0]), 5),
-            )
-        except (TypeError, ValueError):
-            return None
+    primary = execution.get("primary_setup")
+    if not isinstance(primary, dict):
+        # Backward compatibility for older payloads: choose the first route
+        # aligned with the current structural bias, but never rank five routes.
+        bias = str(ai_result.get("structural_bias") or ai_result.get("bias") or "").upper()
+        preferred = "SHORT" if bias == "BEARISH" else "LONG" if bias == "BULLISH" else ""
+        routes = execution.get("routes") or []
+        primary = next(
+            (x for x in routes if isinstance(x, dict) and str(x.get("side") or "").upper().startswith(preferred)),
+            None,
+        )
+    if not isinstance(primary, dict):
+        return "<b>🎯 TRADE PLAN</b>\nไม่มี Primary setup ที่ผ่าน deterministic gate"
 
-    unique_candidates = []
-    seen_geometry = set()
-    for item in candidates:
-        if not isinstance(item, dict):
-            continue
-        key = geometry_key(item)
-        if key is not None and key in seen_geometry:
-            continue
-        if key is not None:
-            seen_geometry.add(key)
-        unique_candidates.append(item)
-    candidates = unique_candidates
+    side = str(primary.get("side") or "").upper()
+    title = "BUY" if side.startswith("LONG") else "SELL" if side.startswith("SHORT") else side
+    emoji = "🟢" if title == "BUY" else "🔴" if title == "SELL" else "⚪"
+    entry = primary.get("trigger")
+    if entry is None:
+        entry = primary.get("entry_reference")
+    stop = primary.get("stop")
+    targets = [x for x in (primary.get("targets") or []) if x is not None][:3]
+    if entry is None or stop is None or not targets:
+        return "<b>🎯 TRADE PLAN</b>\nPrimary thesis มีอยู่ แต่ deterministic route ยังไม่มีราคา Entry/SL/TP ครบ"
 
-    for route in legacy_candidates:
-        if not isinstance(route, dict):
-            continue
-        key = geometry_key(route)
-        if key is not None and key in seen_geometry:
-            continue
-        candidates.append(route)
-        if key is not None:
-            seen_geometry.add(key)
-        if len(candidates) >= 5:
-            break
-    lines=["<b>🎯 TRADE PLAN</b>"]
-    shown=0
-    render_candidates = candidates[:5]
-    for item in render_candidates:
-        if not isinstance(item, dict):
-            continue
-        # Execution routes use `trigger` as the deterministic entry reference;
-        # ranked research candidates use `entry`. Accept both without creating
-        # or changing any price level.
-        entry=item.get("entry")
-        if entry is None:
-            entry=item.get("trigger")
-        stop=item.get("stop")
-        targets=item.get("targets") or []
-        if entry is None or stop is None or not targets:
-            continue
-        shown += 1
-        side=str(item.get("side") or "").upper()
-        emoji="🟢" if side.startswith("LONG") else "🔴"
-        title="BUY" if side.startswith("LONG") else "SELL"
-        strategy=_escape(item.get("strategy") or "Deterministic setup")
-        score=_escape(_show(item.get("score"),2))
-        lines += [
-            "",
-            f"<b>TOP {shown} — {strategy}</b>",
-            f"{emoji} <b>{title}</b>  | Score <b>{score}</b>",
-            f"Entry <b>{_escape(_show(entry))}</b>",
-            f"SL <b>{_escape(_show(stop))}</b>",
-        ]
-        for j,tp in enumerate(targets[:5],1):
-            lines.append(f"TP{j} <b>{_escape(_show(tp))}</b>")
-        evidence=item.get("evidence") or []
-        if evidence:
-            lines.append("Evidence: " + _escape(", ".join(str(x) for x in evidence[:4])))
-    if shown==0:
-        return "<b>🎯 TRADE PLAN</b>\nไม่มีแผนที่ผ่านเกณฑ์จากข้อมูลชุดนี้"
+    lines = [
+        "<b>🎯 TRADE PLAN</b>",
+        "",
+        f"{emoji} <b>{title}</b> — {_escape(primary.get('strategy') or primary.get('route') or 'PRIMARY SETUP')}",
+        f"Entry <b>{_escape(_show(entry))}</b>",
+        f"SL <b>{_escape(_show(stop))}</b>",
+    ]
+    for i, tp in enumerate(targets, 1):
+        lines.append(f"TP{i} <b>{_escape(_show(tp))}</b>")
+
+    state = _escape(primary.get("state") or "ARMED")
+    action = _escape(primary.get("action") or "")
+    if action:
+        lines.append(f"Trigger <b>{action}</b>")
+    lines.append(f"State <b>{state}</b>")
+    cancel_if = _escape(primary.get("cancel_if") or "")
+    if cancel_if:
+        lines.append(f"Invalid <b>{cancel_if}</b>")
     return "\n".join(lines)
 
 def format_message(parsed: dict, ai_result: dict) -> str:
