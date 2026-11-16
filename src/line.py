@@ -10,6 +10,7 @@ from datetime import datetime, timedelta, timezone
 import requests
 
 from src.customer_narrative import build_customer_narrative, _friendly_bias, _friendly_regime
+from src.telegram import _format_analysis_message as _format_desk_note_message
 
 
 LINE_BROADCAST_API = "https://api.line.me/v2/bot/message/broadcast"
@@ -50,43 +51,9 @@ def _show(value, digits=2) -> str:
 
 
 def format_message(parsed: dict, ai_result: dict) -> str:
-    """Render the same analysis-first narrative used by Telegram."""
-    raw = parsed.get("raw_series") or {}
-    state = raw.get("market_state") or {}
-    narrative = build_customer_narrative(parsed, ai_result)
-    status = str(ai_result.get("analysis_status") or "CONFIRMED").upper()
-    bias = str(ai_result.get("bias") or "WAIT").upper()
-
-    return "\n".join([
-        f"GOLD MARKET ANALYST • {_thai_datetime_str()}",
-        f"Futures {_show(parsed.get('future_price'))} | CFD {_show(parsed.get('cfd_price'))} | "
-        f"Basis {_show(parsed.get('basis_diff'))} | DTE {_show(parsed.get('dte'))}",
-        f"สถานะ: {status} | มุมมอง: {narrative_bias(bias)}",
-        f"Regime: {narrative_regime(ai_result.get('market_regime') or (state.get('regime') or {}).get('regime'))}",
-        "",
-        "MARKET READ",
-        narrative["market_read"],
-        "",
-        "VOLATILITY — ตลาดกำลังผันผวนแค่ไหน",
-        narrative["volatility"],
-        "",
-        "OI POSITIONING — ผู้เล่นกำลังเพิ่ม/ลดสถานะอย่างไร",
-        narrative["oi_positioning"],
-        "",
-        "FLOW STATEMENT — ภาพรวมแรงที่กำลังเกิดขึ้น",
-        narrative["flow_statement"],
-        "",
-        "WHY NOW — ทำไมต้องจับตาตอนนี้",
-        narrative["why_now"],
-        "",
-        "TECHNICAL",
-        narrative["technical"],
-        "",
-        "MACROECONOMIC / NEWS",
-        narrative["macro_news"],
-        "",
-        "หมายเหตุ: ตัวเลข OI / IV / Gamma เป็นหลักฐานประกอบการวิเคราะห์ ไม่ใช่สัญญาณซื้อขายโดยตรง",
-    ])
+    """Use the same time-aware Desk Note narrative as Telegram."""
+    formatted = _format_desk_note_message(parsed, ai_result)
+    return re.sub(r"<[^>]+>", "", formatted)
 
 
 def narrative_regime(value: object) -> str:
@@ -150,6 +117,7 @@ def _trade_plan_message(parsed: dict, ai_result: dict) -> str:
         "",
         "FINAL TRADE IDEA",
         ai_result.get("final_trade_idea") or trade.get("setup") or "UNKNOWN",
+        f"Valid Until: {ai_result.get('valid_until_label') or (ai_result.get('desk_note_context') or {}).get('valid_until_label') or 'UNKNOWN'}",
     ])
 
 
