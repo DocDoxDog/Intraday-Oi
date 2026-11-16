@@ -67,3 +67,18 @@ def test_structural_key_levels_are_not_automatic_trade_targets():
     assert p["long"]["rr"] == []
     # No route-specific trigger was supplied, so the v3 engine must fail closed.
     assert p["long"]["state"] == "DATA_INSUFFICIENT"
+
+
+
+def test_execution_waits_for_preferred_liquidity_sweep():
+    state = _state(price=4200.0)
+    state["decision_framework"]["steps"]["1_market_state"]["htf_structure"] = "bearish"
+    state["technical"]["m15"]["trend"] = "bearish"
+    state["technical"]["m5"]["trend"] = "bearish"
+    state["liquidity"] = {
+        "preferred_event": "BUY_SIDE_SWEEP",
+        "gate": "SWEEP_PENDING",
+    }
+    plan = build_trade_execution_plan(state)
+    assert plan["short_rejection"]["state"] == "WAIT_LIQUIDITY_SWEEP"
+    assert plan["short_rejection"]["execution_ready"] is False
