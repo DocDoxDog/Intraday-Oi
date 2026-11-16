@@ -933,7 +933,7 @@ def scrape_multi_expiration(url: str | None = None, limit: int = 7) -> dict:
                         "source_screenshot": source_screenshot,
                     }
 
-                snapshots.append(snapshot)
+                    snapshots.append(snapshot)
                 except Exception as exc:
                     print(
                         f"[scrape] skipping expiration {candidate['code']}: {exc}",
