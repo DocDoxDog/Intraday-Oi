@@ -1274,9 +1274,12 @@ def normalize_analyst_output(
     validated_plan = _validate_or_clear_trade_plan(deterministic_plan)
     plan_status = str(validated_plan.get("status") or "NO_TRADE").upper()
     requested_direction = str(validated_plan.get("direction") or structural_direction or "WAIT").upper()
+    # Market direction is a thesis, not an execution permission.
+    # Keep BUY/SELL when deterministic HTF structure is clear; execution
+    # readiness is carried separately by plan_status / execution state.
     plan_direction = (
-        "BUY" if requested_direction == "BUY" and validated_plan.get("long_status") == "CONDITIONAL"
-        else "SELL" if requested_direction == "SELL" and validated_plan.get("short_status") == "CONDITIONAL"
+        "BUY" if requested_direction == "BUY"
+        else "SELL" if requested_direction == "SELL"
         else "WAIT"
     )
 
