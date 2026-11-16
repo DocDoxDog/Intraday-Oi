@@ -495,15 +495,19 @@ def enrich_market_state(parsed: dict[str, Any], history: dict[str, Any] | None =
     )
     state["regime"] = build_market_regime(state)
     state["action_zones"] = build_action_zones(state)
-    state["liquidity"] = build_liquidity_context(state)
 
+    # Seed the HTF structural side before building liquidity. The liquidity
+    # engine must know whether the preferred event is BUY-side or SELL-side.
     from src.decision_engine import build_decision_context
 
     decision = build_decision_context(state)
     state["decision"] = decision
-    # Keep legacy consumers working while making decision the canonical source.
     state["decision_framework"] = decision["legacy_framework"]
 
+    state["liquidity"] = build_liquidity_context(state)
+    # Keep legacy consumers working while making decision the canonical source.
+    # The final decision is recomposed later after the canonical market map is
+    # built, so it will also consume the liquidity gate.
     apply_data_clock(parsed)
     return parsed
 
