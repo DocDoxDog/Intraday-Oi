@@ -94,8 +94,8 @@ def _clean_article_text(value: object) -> str:
 def _single_line(value: object) -> str:
     """Flatten analyst prose into one Desk Note line without raw telemetry."""
     text = _clean_article_text(value)
-    text = re.sub(r"(?:^|\\n)(?:NOW|CHANGE|CAUSE|CONFLICT|ACTION)\\s*[:\\-]?", " ", text, flags=re.IGNORECASE)
-    text = re.sub(r"\\s+", " ", text).strip()
+    text = re.sub(r"(?:^|\n)(?:NOW|CHANGE|CAUSE|CONFLICT|ACTION)\s*[:\-]?", " ", text, flags=re.IGNORECASE)
+    text = re.sub(r"\s+", " ", text).strip()
     return text
 
 
@@ -177,17 +177,17 @@ def _format_analysis_message(parsed: dict, ai_result: dict) -> str:
 
     # Keep the cause paragraph as a synthesis, not a telemetry list.
     if why:
-        why = re.sub(r"(?:\\bOI\\b|\\bGEX\\b|\\bIV\\b)\\s*[:=]", "", why, flags=re.IGNORECASE)
+        why = re.sub(r"(?:\bOI\b|\bGEX\b|\bIV\b)\s*[:=]", "", why, flags=re.IGNORECASE)
         why = why.replace("| Conflict:", " ขณะที่ ")
     if not why:
         vol = state.get("volatility") or {}
         gamma = state.get("gamma") or {}
         parts = []
-        if float(gamma.get("net_gex")) < 0 if gamma.get("net_gex") is not None else False:
+        if gamma.get("net_gex") is not None and float(gamma.get("net_gex")) < 0:
             parts.append("Gamma เป็นลบ ทำให้การเคลื่อนไหวมีโอกาสถูกขยาย")
         if vol.get("iv_change_1h") is not None:
             parts.append("ความผันผวนยังไม่ลดลงจากชั่วโมงก่อน" if float(vol["iv_change_1h"]) >= 0 else "ความผันผวนเริ่มลดลงจากชั่วโมงก่อน")
-        if float(vol.get("skew")) > 0 if vol.get("skew") is not None else False:
+        if vol.get("skew") is not None and float(vol.get("skew")) > 0:
             parts.append("Put Skew ยังเอียงไปทาง downside")
         why = " ขณะที่ ".join(parts)
 
@@ -236,7 +236,7 @@ def _format_analysis_message(parsed: dict, ai_result: dict) -> str:
         if value:
             lines.append(_escape(value))
     lines.append(_escape(f"Valid Until: {valid_until}"))
-    return "\\n".join(lines[:10])
+    return "\n".join(lines[:10])
 
 def _friendly_regime(state: dict, ai_result: dict) -> str:
     from src.customer_narrative import _friendly_regime as _map_regime
