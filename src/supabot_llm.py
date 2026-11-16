@@ -279,16 +279,18 @@ def _compact_history(parsed: dict[str, Any], history: dict[str, Any] | None) -> 
     h2 = snapshot(history.get("two_hours_ago"))
 
     today = history.get("today") or {}
+    # D-1 is the prior trading session, not today's first snapshot.
+    # Today's open is useful context but must not be mislabeled as yesterday.
     d1 = {
-        "captured_at": today.get("first_snapshot_time"),
-        "future_price": today.get("future_price_open"),
-        "vol": today.get("vol_first"),
-        "oi_put": (today.get("oi_first") or {}).get("oi_put"),
-        "oi_call": (today.get("oi_first") or {}).get("oi_call"),
-        "oi_total": (today.get("oi_first") or {}).get("oi_total"),
-        "churn": (today.get("oi_first") or {}).get("churn"),
-        "gex_net": (today.get("oi_first") or {}).get("gex_net"),
-    } if today.get("count") else None
+        "captured_at": (history.get("yesterday") or {}).get("latest_snapshot_time"),
+        "future_price": (history.get("yesterday") or {}).get("future_price_last"),
+        "vol": (history.get("yesterday") or {}).get("vol_last"),
+        "oi_put": ((history.get("yesterday") or {}).get("oi_last") or {}).get("oi_put"),
+        "oi_call": ((history.get("yesterday") or {}).get("oi_last") or {}).get("oi_call"),
+        "oi_total": ((history.get("yesterday") or {}).get("oi_last") or {}).get("oi_total"),
+        "churn": ((history.get("yesterday") or {}).get("oi_last") or {}).get("churn"),
+        "gex_net": ((history.get("yesterday") or {}).get("oi_last") or {}).get("gex_net"),
+    } if (history.get("yesterday") or {}).get("count") else None
 
     previous = history.get("yesterday") or {}
     prev_session = {
@@ -317,9 +319,9 @@ def _compact_history(parsed: dict[str, Any], history: dict[str, Any] | None) -> 
         return "UP" if value > 0 else "DOWN" if value < 0 else "FLAT"
 
     # Canonical comparison roles:
-    # H-1 = the closest snapshot about one hour ago.
-    # D-1 = the first snapshot of the current trading day (day/session-open baseline).
-    # PREVIOUS_SESSION = the latest snapshot from the prior trading day/session.
+    # H-1 = closest snapshot about one hour ago.
+    # D-1 = latest snapshot from the prior trading session.
+    # TODAY_OPEN = first snapshot of the current session (context only).
     # This intentionally keeps three distinct baselines instead of feeding the
     # model a pile of loosely named history blocks.
     comparisons = {
