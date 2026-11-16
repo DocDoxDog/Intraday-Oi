@@ -208,35 +208,58 @@ def _format_path_message(parsed: dict, ai_result: dict) -> str:
 def _format_trade_plan_message(parsed: dict, ai_result: dict) -> str:
     """Render one primary deterministic execution route.
 
-    Customer-facing Telegram must not expose the internal strategy ranking.
-    The deterministic execution engine already selects primary_setup from the
-    structural thesis; render only that route.
+    The customer-facing plan is intentionally singular: the structural thesis
+    chooses one primary route. Alternative routes remain internal context and
+    are never rendered as competing entries.
     """
     execution = ((ai_result.get("trade_plan") or {}).get("execution_plan") or {})
     primary = execution.get("primary_setup")
     if not isinstance(primary, dict):
-        # Backward compatibility for older payloads: choose the first route
-        # aligned with the current structural bias, but never rank five routes.
+        # Backward compatibility for payloads that only expose route arrays.
+        # Prefer the route matching the structural thesis and render exactly one.
         bias = str(ai_result.get("structural_bias") or ai_result.get("bias") or "").upper()
         preferred = "SHORT" if bias == "BEARISH" else "LONG" if bias == "BULLISH" else ""
         routes = execution.get("routes") or []
-        primary = next(
-            (x for x in routes if isinstance(x, dict) and str(x.get("side") or "").upper().startswith(preferred)),
-            None,
-        )
+        candidates = [x for x in routes if isinstance(x, dict)]
+        if preferred:
+            primary = next(
+                (x for x in candidates if str(x.get("side") or "").upper().startswith(preferred)),
+                None,
+            )
+        else:
+            primary = candidates[0] if candidates else None
+
     if not isinstance(primary, dict):
         return "<b>🎯 TRADE PLAN</b>\nไม่มี Primary setup ที่ผ่าน deterministic gate"
 
     side = str(primary.get("side") or "").upper()
     title = "BUY" if side.startswith("LONG") else "SELL" if side.startswith("SHORT") else side
     emoji = "🟢" if title == "BUY" else "🔴" if title == "SELL" else "⚪"
+
     entry = primary.get("trigger")
     if entry is None:
         entry = primary.get("entry_reference")
+    if entry is None:
+        entry = primary.get("entry")
+
     stop = primary.get("stop")
-    targets = [x for x in (primary.get("targets") or []) if x is not None][:3]
+    targets = [x for x in (primary.get("targets") or []) if x is not None][:5]
     if entry is None or stop is None or not targets:
-        return "<b>🎯 TRADE PLAN</b>\nPrimary thesis มีอยู่ แต่ deterministic route ยังไม่มีราคา Entry/SL/TP ครบ"
+        return "<b>🎯 TRADE PLAN</b>\nไม่มีแผนที่ผ่านเกณฑ์ deterministic"
+
+    rr_values = [x for x in (primary.get("rr") or []) if x is not None]
+    if rr_values:
+        rr_text = _show(rr_values[0])
+    else:
+        try:
+            entry_f = float(entry)
+            stop_f = float(stop)
+            tp_f = float(targets[0])
+            risk = (entry_f - stop_f) if title == "BUY" else (stop_f - entry_f)
+            reward = (tp_f - entry_f) if title == "BUY" else (entry_f - tp_f)
+            rr_text = f"{reward / risk:.2f}" if risk > 0 and reward > 0 else "-"
+        except (TypeError, ValueError, ZeroDivisionError):
+            rr_text = "-"
 
     lines = [
         "<b>🎯 TRADE PLAN</b>",
@@ -247,13 +270,12 @@ def _format_trade_plan_message(parsed: dict, ai_result: dict) -> str:
     ]
     for i, tp in enumerate(targets, 1):
         lines.append(f"TP{i} <b>{_escape(_show(tp))}</b>")
+    lines.append(f"R:R <b>{_escape(rr_text)}</b>")
 
-    state = _escape(primary.get("state") or "ARMED")
-    action = _escape(primary.get("action") or "")
+    action = _escape(primary.get("action") or primary.get("trigger") or "")
     if action:
         lines.append(f"Trigger <b>{action}</b>")
-    lines.append(f"State <b>{state}</b>")
-    cancel_if = _escape(primary.get("cancel_if") or "")
+    cancel_if = _escape(primary.get("cancel_if") or primary.get("invalidation") or "")
     if cancel_if:
         lines.append(f"Invalid <b>{cancel_if}</b>")
     return "\n".join(lines)
