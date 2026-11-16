@@ -582,97 +582,120 @@ def _expiration_code_from_text(text: str, dte_match: re.Match[str] | None = None
 
 
 def _discover_gold_expirations(page, limit: int = 7) -> list[dict]:
-    """Discover real expiration identities and retain enough metadata to click exactly the same entry."""
-    _open_expiration_menu(page)
+    """Discover real expiration identities despite delayed/changed QuikStrike rendering."""
+    for attempt in range(3):
+        _open_expiration_menu(page)
+        page.wait_for_timeout(1500 if attempt == 0 else 2500)
 
-    links = page.locator(EXPIRATION_LINK_SELECTOR)
-    if links.count() == 0:
-        links = page.locator("a,button,[role='option'],[role='menuitem'],li")
-    if links.count() == 0:
-        links = page.locator("a")
+        links = page.locator(EXPIRATION_LINK_SELECTOR)
+        if links.count() == 0:
+            links = page.locator("a,button,[role='option'],[role='menuitem'],li")
+        if links.count() == 0:
+            links = page.locator("a")
 
-    candidates = []
-    seen = set()
-    for i in range(links.count()):
-        link = links.nth(i)
+        candidates = []
+        seen = set()
+        for i in range(links.count()):
+            link = links.nth(i)
+            try:
+                text = (link.inner_text() or "").strip()
+                title = (link.get_attribute("title") or "").strip()
+            except Exception:
+                continue
+
+            metadata = "\n".join(x for x in (text, title) if x)
+            if not metadata or ("DTE" not in metadata.upper() and "OPTION EXPIRATION" not in metadata.upper()):
+                continue
+
+            dte = _extract_dte(metadata)
+            if dte is None or dte <= 0:
+                continue
+
+            code = ""
+            try:
+                item_name = link.locator(".item-name")
+                if item_name.count():
+                    code = (item_name.first.inner_text(timeout=2_000) or "").strip()
+            except Exception:
+                pass
+            if not code:
+                match = re.search(r"Option Symbol:\s*([A-Za-z0-9._-]+)", metadata, re.I)
+                code = match.group(1).strip() if match else ""
+            if not code:
+                code = _expiration_code_from_text(metadata, re.search(
+                    r"(?:(?:\([0-9]+(?:\.[0-9]+)?)\s*DTE\))|(?:DTE\s*[:=-]?\s*[0-9]+(?:\.[0-9]+)?))",
+                    metadata, re.I,
+                ))
+            code = code.strip()
+            if not code or code.upper() in seen:
+                continue
+
+            seen.add(code.upper())
+            candidates.append({
+                "code": code,
+                "dte": dte,
+                "title": title,
+                "text": text,
+                "id": (link.get_attribute("id") or "").strip(),
+            })
+
+        candidates.sort(key=lambda x: (x["dte"], x["code"]))
+        if candidates:
+            return candidates[: max(1, int(limit))]
+
+        # Active heading can identify the current expiry even if the dropdown
+        # itself has not rendered yet.
+        heading = ""
         try:
-            text = (link.inner_text() or "").strip()
-            title = (link.get_attribute("title") or "").strip()
-        except Exception:
-            continue
-
-        metadata = "\n".join(x for x in (text, title) if x)
-        if not metadata or ("DTE" not in metadata.upper() and "OPTION EXPIRATION" not in metadata.upper()):
-            continue
-
-        dte = _extract_dte(metadata)
-        if dte is None or dte <= 0:
-            continue
-
-        code = ""
-        try:
-            item_name = link.locator(".item-name")
-            if item_name.count():
-                code = (item_name.first.inner_text(timeout=2_000) or "").strip()
+            if page.locator(".viewheader-info h3").count():
+                heading = page.locator(".viewheader-info h3").first.inner_text(timeout=2_000)
         except Exception:
             pass
-        if not code:
-            match = re.search(r"Option Symbol:\s*([A-Za-z0-9._-]+)", metadata, re.I)
-            code = match.group(1).strip() if match else ""
-        if not code:
-            code = _expiration_code_from_text(metadata, re.search(
-                r"(?:(?:\([0-9]+(?:\.[0-9]+)?)\s*DTE\))|(?:DTE\s*[:=-]?\s*[0-9]+(?:\.[0-9]+)?)",
-                metadata, re.I,
-            ))
-        code = code.strip()
-        if not code or code.upper() in seen:
-            continue
+        match = re.search(
+            r"(?P<code>[A-Za-z0-9._-]+)\s*\((?P<dte>[0-9]+(?:\.[0-9]+)?)\s*DTE\)",
+            heading,
+            re.I,
+        )
+        if match and float(match.group("dte")) > 0:
+            code = match.group("code")
+            print(f"⚠️  QuikStrike expiration menu not rendered; using active heading {code} ({match.group('dte')} DTE)")
+            return [{"code": code, "dte": float(match.group("dte"))}]
 
-        seen.add(code.upper())
-        candidates.append({
-            "code": code,
-            "dte": dte,
-            "title": title,
-            "text": text,
-            "id": (link.get_attribute("id") or "").strip(),
-        })
-
-    candidates.sort(key=lambda x: (x["dte"], x["code"]))
-    if candidates:
-        return candidates[: max(1, int(limit))]
+        if attempt < 2:
+            try:
+                page.wait_for_function(
+                    """() => {
+                        const t = document.body?.innerText || '';
+                        return /DTE/i.test(t) ||
+                               !!document.querySelector('.viewheader-info h3') ||
+                               !!document.querySelector('img.chart') ||
+                               !!document.querySelector('map area[fields]');
+                    }""",
+                    timeout=5_000,
+                )
+            except Exception:
+                pass
 
     heading = ""
     try:
-        heading = page.locator(".viewheader-info h3").first.inner_text()
+        if page.locator(".viewheader-info h3").count():
+            heading = page.locator(".viewheader-info h3").first.inner_text(timeout=2_000)
     except Exception:
         pass
-    match = re.search(
-        r"(?P<code>[A-Za-z0-9._-]+)\s*\((?P<dte>[0-9]+(?:\.[0-9]+)?)\s*DTE\)",
-        heading,
-        re.I,
-    )
-    if match:
-        dte = float(match.group("dte"))
-        code = match.group("code")
-        if dte > 0:
-            print(
-                f"⚠️  QuikStrike expiration menu ไม่ถูก render; ใช้ active heading fallback "
-                f"{code} ({dte} DTE)"
-            )
-            return [{"code": code, "dte": dte}]
-    dte_lines = []
+    body_text = ""
     try:
-        body_text = page.locator("body").inner_text()
-        dte_lines = [line.strip() for line in body_text.splitlines() if "DTE" in line.upper()][:12]
+        body_text = page.locator("body").inner_text(timeout=2_000)
     except Exception:
         pass
+    dte_lines = [line.strip() for line in body_text.splitlines() if "DTE" in line.upper()][:12]
     anchor_count = page.locator("a").count()
+    print(f"[scrape] expiration discovery failed | title={page.title()!r} | url={page.url!r}")
+    print(f"[scrape] page text preview={body_text[:500]!r}")
     raise ScrapeError(
         "ไม่พบ Gold expirations ที่มี DTE"
         f" | heading={heading!r} | anchors={anchor_count}"
         f" | DTE_text={dte_lines!r}"
     )
-
 
 def _expiration_target(page, code: str):
     """Find the exact visible QuikStrike expiration control, never a hidden duplicate."""
