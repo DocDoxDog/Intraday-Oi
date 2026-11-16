@@ -162,6 +162,18 @@ def build_liquidity_context(state: dict[str, Any]) -> dict[str, Any]:
         (state.get("decision") or {}).get("structural_bias")
         or "MIXED"
     ).upper()
+
+    # The decision object is canonical, but lightweight/unit-test/recovery
+    # states may arrive before the decision engine has a complete technical map.
+    # In that case H4/H1 agreement remains a valid deterministic fallback.
+    if structural_bias not in {"BULLISH", "BEARISH"}:
+        h4_trend = str((technical.get("h4") or {}).get("trend") or "").lower()
+        h1_trend = str((technical.get("h1") or {}).get("trend") or "").lower()
+        if h4_trend == h1_trend == "bullish":
+            structural_bias = "BULLISH"
+        elif h4_trend == h1_trend == "bearish":
+            structural_bias = "BEARISH"
+
     preferred_event = (
         "SELL_SIDE_SWEEP" if structural_bias == "BULLISH"
         else "BUY_SIDE_SWEEP" if structural_bias == "BEARISH"
