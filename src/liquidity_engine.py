@@ -99,18 +99,34 @@ def build_liquidity_context(state: dict[str, Any]) -> dict[str, Any]:
         if tf in {"d1", "h4", "h1", "m15", "m5", "m1"}
     }
 
-    external_highs = _unique([
+    # External liquidity is ordered by timeframe authority: D1 first,
+    # then H4. Within each timeframe preserve the source's high/low hierarchy.
+    # This keeps major session targets ahead of nearer H4 levels.
+    def _priority_unique(values: list[float | None]) -> list[float]:
+        out: list[float] = []
+        seen: set[float] = set()
+        for value in values:
+            if value is None:
+                continue
+            rounded = round(float(value), 5)
+            if rounded in seen:
+                continue
+            seen.add(rounded)
+            out.append(rounded)
+        return out
+
+    external_highs = _priority_unique([
         (contexts.get("d1") or {}).get("high"),
         (contexts.get("d1") or {}).get("swing_high"),
         (contexts.get("h4") or {}).get("high"),
         (contexts.get("h4") or {}).get("swing_high"),
     ])
-    external_lows = _unique([
+    external_lows = _priority_unique([
         (contexts.get("d1") or {}).get("low"),
         (contexts.get("d1") or {}).get("swing_low"),
         (contexts.get("h4") or {}).get("low"),
         (contexts.get("h4") or {}).get("swing_low"),
-    ], reverse=True)
+    ])
 
     internal_highs = _unique([
         (contexts.get("m15") or {}).get("high"),
