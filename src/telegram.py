@@ -11,6 +11,7 @@ from datetime import datetime, timedelta, timezone
 import requests
 
 from src.customer_narrative import build_customer_narrative
+from src.market_state import desk_note_schedule
 
 
 TELEGRAM_API = "https://api.telegram.org/bot{token}/sendMessage"
@@ -90,62 +91,152 @@ def _clean_article_text(value: object) -> str:
     return "\n\n".join(unique)
 
 
-def _format_analysis_message(parsed: dict, ai_result: dict) -> str:
-    """Render the synthesized analyst article without dashboard-style headings."""
-    raw = parsed.get("raw_series") or {}
-    canonical_available = bool(raw.get("market_state") or raw.get("market_flow") or raw.get("gex"))
-    # Legacy/degraded payloads must preserve only the fields that were already
-    # customer-safe; never turn old dashboard fields back into an article.
-    if not canonical_available:
-        # Degraded/legacy payloads are not sufficiently grounded to be
-        # reassembled into a synthetic article. Preserve only the legacy
-        # market-read sentence that the customer contract explicitly allows.
-        sections = [
-            ai_result.get("what") or ai_result.get("market_overview"),
-        ]
-    else:
-        # Customer article is a single market story. Comparative change is
-        # deliberately placed immediately after the current read; individual
-        # indicator fields are supporting context, not separate telemetry blocks.
-        sections = [
-            ai_result.get("market_overview") or ai_result.get("what"),
-            ai_result.get("history_comparison"),
-            ai_result.get("why"),
-            ai_result.get("invalidation_case"),
-            ai_result.get("final_trade_idea"),
-        ]
-    paragraphs = []
-    seen = set()
-    for value in sections:
-        text = _clean_article_text(value)
-        if not text or text in seen:
-            continue
-        seen.add(text)
-        paragraphs.append(text)
-    article = "\n\n".join(paragraphs) or str(
-        ai_result.get("final_trade_idea") or "ยังไม่มีบทวิเคราะห์ที่ผ่านการตรวจสอบ"
-    ).strip()
+def _single_line(value: object) -> str:
+    """Flatten analyst prose into one Desk Note line without raw telemetry."""
+    text = _clean_article_text(value)
+    text = re.sub(r"(?:^|\\n)(?:NOW|CHANGE|CAUSE|CONFLICT|ACTION)\\s*[:\\-]?", " ", text, flags=re.IGNORECASE)
+    text = re.sub(r"\\s+", " ", text).strip()
+    return text
 
-    futures = parsed.get("future_price")
-    cfd = parsed.get("cfd_price")
-    basis = parsed.get("basis_diff", parsed.get("basis"))
-    iv = parsed.get("vol", parsed.get("iv"))
-    dte = parsed.get("dte")
-    observed = parsed.get("observed_at") or parsed.get("retrieved_at")
-    try:
-        dt = datetime.fromisoformat(str(observed).replace("Z", "+00:00")).astimezone(BANGKOK_TZ)
-        date_label = dt.strftime("%d %b %Y").upper()
-    except (TypeError, ValueError):
-        date_label = datetime.now(BANGKOK_TZ).strftime("%d %b %Y").upper()
-    lines = [
-        f"<b>GOLD MARKET — {date_label}</b>",
-        f"CFD {_show(cfd)} | FUT. {_show(futures)}",
-        f"BASIS {_show(basis)} | IV {_show(iv)}%",
-        f"DTE. {_show(dte)}",
-        "",
-        _escape(article),
+
+def _note_levels(parsed: dict, ai_result: dict) -> tuple[list[float], list[float]]:
+    raw = parsed.get("raw_series") or {}
+    state = raw.get("market_state") or {}
+    market_map = ai_result.get("market_map") or {}
+    level_sources = [
+        market_map.get("R1"), market_map.get("R2"),
+        market_map.get("S1"), market_map.get("S2"),
+        (state.get("levels") or {}).get("resistance_current"),
+        (state.get("levels") or {}).get("support_current"),
+        (state.get("levels") or {}).get("resistance_main"),
+        (state.get("levels") or {}).get("support_main"),
     ]
-    return "\n".join(lines)
+    resist = []
+    support = []
+    current = parsed.get("cfd_price")
+    try:
+        current_f = float(current) if current is not None else None
+    except (TypeError, ValueError):
+        current_f = None
+    for value in level_sources:
+        try:
+            number = float(value)
+        except (TypeError, ValueError):
+            continue
+        if current_f is None or number > current_f:
+            if number not in resist:
+                resist.append(number)
+        elif number < current_f:
+            if number not in support:
+                support.append(number)
+    return sorted(resist)[:2], sorted(support, reverse=True)[:2]
+
+
+def _format_analysis_message(parsed: dict, ai_result: dict) -> str:
+    """Render the current analysis as one time-aware institutional Desk Note."""
+    observed = parsed.get("observed_at") or parsed.get("retrieved_at")
+    schedule = ai_result.get("desk_note_context") or desk_note_schedule(observed)
+    slot = str(schedule.get("slot") or "-")
+    valid_until = str(ai_result.get("valid_until_label") or schedule.get("valid_until_label") or "-")
+
+    raw = parsed.get("raw_series") or {}
+    state = raw.get("market_state") or {}
+    decision = state.get("decision") or {}
+    structural_bias = str(
+        ai_result.get("structural_bias")
+        or decision.get("structural_bias")
+        or ai_result.get("bias")
+        or ""
+    ).upper()
+    bias_text = "Bearish" if structural_bias in {"BEARISH", "SELL"} else "Bullish" if structural_bias in {"BULLISH", "BUY"} else "ยังไม่ชัดเจน"
+
+    overview = _single_line(ai_result.get("market_overview") or ai_result.get("what"))
+    comparison = _single_line(ai_result.get("history_comparison"))
+    why = _single_line(ai_result.get("why") or ai_result.get("financial_engineering"))
+    invalidation = _single_line(ai_result.get("invalidation_case"))
+
+    if not overview:
+        current = _show(parsed.get("cfd_price") or parsed.get("future_price"))
+        overview = f"ตอนนี้ทองอยู่แถว {current} และโครงสร้างหลักเป็น{bias_text.lower()} โดยภาพรวมให้น้ำหนักฝั่ง{'ลง' if bias_text == 'Bearish' else 'ขึ้น' if bias_text == 'Bullish' else 'รอดู'}"
+    else:
+        overview = overview.replace("WAIT", "PENDING").replace("wait", "pending")
+
+    if comparison and ("1H:" in comparison or "TODAY:" in comparison or "YESTERDAY:" in comparison):
+        comparison = ""
+    if not comparison:
+        history = state.get("history") or {}
+        diff_key = "yesterday" if slot == "10:00" else "1h"
+        diff = history.get(diff_key) or {}
+        delta = diff.get("price")
+        if delta is not None:
+            comparison = (
+                f"เมื่อเทียบกับ{'วันก่อน' if diff_key == 'yesterday' else 'ชั่วโมงก่อน'} "
+                f"ราคายัง{'อ่อนตัวลง' if float(delta) < 0 else 'ฟื้นตัวขึ้น' if float(delta) > 0 else 'เคลื่อนไหวใกล้เคียงเดิม'} "
+                "และให้น้ำหนักกับโซนสำคัญเดิมต่อ"
+            )
+
+    # Keep the cause paragraph as a synthesis, not a telemetry list.
+    if why:
+        why = re.sub(r"(?:\\bOI\\b|\\bGEX\\b|\\bIV\\b)\\s*[:=]", "", why, flags=re.IGNORECASE)
+        why = why.replace("| Conflict:", " ขณะที่ ")
+    if not why:
+        vol = state.get("volatility") or {}
+        gamma = state.get("gamma") or {}
+        parts = []
+        if float(gamma.get("net_gex")) < 0 if gamma.get("net_gex") is not None else False:
+            parts.append("Gamma เป็นลบ ทำให้การเคลื่อนไหวมีโอกาสถูกขยาย")
+        if vol.get("iv_change_1h") is not None:
+            parts.append("ความผันผวนยังไม่ลดลงจากชั่วโมงก่อน" if float(vol["iv_change_1h"]) >= 0 else "ความผันผวนเริ่มลดลงจากชั่วโมงก่อน")
+        if float(vol.get("skew")) > 0 if vol.get("skew") is not None else False:
+            parts.append("Put Skew ยังเอียงไปทาง downside")
+        why = " ขณะที่ ".join(parts)
+
+    resist, support = _note_levels(parsed, ai_result)
+    resistance_line = (
+        "Resistance: " + " / ".join(_show(x) for x in resist)
+        if resist else ""
+    )
+    support_line = (
+        "Support: " + " / ".join(_show(x) for x in support)
+        if support else ""
+    )
+
+    liquidity = state.get("liquidity") or {}
+    gate = str(liquidity.get("gate") or "").upper()
+    if structural_bias == "BEARISH":
+        plan = "Plan: รอ Buy-side Liquidity Sweep ก่อน Short / ไม่ไล่ราคา"
+    elif structural_bias == "BULLISH":
+        plan = "Plan: รอ Sell-side Liquidity Sweep ก่อน Long / ไม่ไล่ราคา"
+    else:
+        plan = "Plan: รอ event ที่ทำให้ directional thesis ชัดขึ้น"
+    if gate == "SWEEP_DETECTED":
+        plan = (
+            "Plan: Liquidity Sweep เกิดแล้ว → ใช้ deterministic setup เป็นตัวกำหนดจังหวะเข้า"
+            if structural_bias in {"BEARISH", "BULLISH"}
+            else plan
+        )
+
+    invalid_line = ""
+    if invalidation and not invalidation.lower().startswith(("เมื่อ structure", "thesis")):
+        invalid_line = f"Invalidation: {invalidation}"
+    else:
+        levels = state.get("levels") or {}
+        invalid = levels.get("resistance_main") if structural_bias == "BEARISH" else levels.get("support_main") if structural_bias == "BULLISH" else None
+        if invalid is not None:
+            invalid_line = (
+                f"Invalidation: ยืนเหนือ {_show(invalid)} ได้" if structural_bias == "BEARISH"
+                else f"Invalidation: หลุด {_show(invalid)}" if structural_bias == "BULLISH" else ""
+            )
+
+    lines = [
+        f"<b>GOLD — {slot}</b>",
+        _escape(overview),
+    ]
+    for value in (comparison, why, resistance_line, support_line, invalid_line, plan):
+        if value:
+            lines.append(_escape(value))
+    lines.append(_escape(f"Valid Until: {valid_until}"))
+    return "\\n".join(lines[:10])
 
 def _friendly_regime(state: dict, ai_result: dict) -> str:
     from src.customer_narrative import _friendly_regime as _map_regime
