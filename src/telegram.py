@@ -104,15 +104,15 @@ def _format_analysis_message(parsed: dict, ai_result: dict) -> str:
             ai_result.get("what") or ai_result.get("market_overview"),
         ]
     else:
+        # Customer article is a single market story. Comparative change is
+        # deliberately placed immediately after the current read; individual
+        # indicator fields are supporting context, not separate telemetry blocks.
         sections = [
             ai_result.get("market_overview") or ai_result.get("what"),
-            ai_result.get("why"),
-            ai_result.get("financial_engineering"),
-            ai_result.get("market_microstructure"),
-            ai_result.get("positioning"),
             ai_result.get("history_comparison"),
-            ai_result.get("macro"),
-            ai_result.get("market_psychology"),
+            ai_result.get("why"),
+            ai_result.get("invalidation_case"),
+            ai_result.get("final_trade_idea"),
         ]
     paragraphs = []
     seen = set()
