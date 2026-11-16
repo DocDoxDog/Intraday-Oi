@@ -291,7 +291,7 @@ def test_telegram_never_restores_rejected_targets_from_market_map():
 
 
 
-def test_telegram_top_five_deduplicates_same_geometry_from_different_routes():
+def test_telegram_legacy_routes_render_one_primary_only():
     from src import telegram
 
     ai = {
@@ -303,16 +303,21 @@ def test_telegram_top_five_deduplicates_same_geometry_from_different_routes():
             {"route": "BOS_H1", "strategy": "BOS Continuation", "side": "SHORT",
              "entry": 105, "stop": 108, "targets": [99], "score": 80},
         ],
+        "structural_bias": "BEARISH",
         "trade_plan": {
             "execution_plan": {
                 "routes": [
                     {"route": "LEGACY_DUPLICATE", "side": "LONG",
                      "trigger": 100, "stop": 98, "targets": [104]},
+                    {"route": "SELL_REJECTION", "side": "SHORT",
+                     "trigger": 105, "stop": 108, "targets": [99]},
                 ]
             }
         },
     }
     message = telegram._format_trade_plan_message({}, ai)
-    assert message.count("Entry <b>") == 2
-    assert "TOP 1 — ICT FVG" in message
-    assert "TOP 2 — BOS Continuation" in message
+    assert message.count("Entry <b>") == 1
+    assert "SELL" in message
+    assert "TOP 1" not in message
+    assert "ICT FVG" not in message
+
