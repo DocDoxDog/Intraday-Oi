@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import os
 import re
+import time
 from datetime import datetime, timedelta, timezone
 from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
 from playwright.sync_api import sync_playwright
@@ -305,7 +306,7 @@ def _load_oi_chart(page) -> None:
         # ResizerPanel loads Chart.aspx asynchronously; GitHub Actions runners
         # are often slower than local Chromium, so give the first chart up to
         # 35 seconds to appear before deciding that a postback is necessary.
-        page.wait_for_selector(OI_SELECTOR, state="attached", timeout=35_000)
+        page.wait_for_selector(OI_SELECTOR, state="attached", timeout=15_000)
         return
     except PlaywrightTimeoutError:
         pass
@@ -758,8 +759,11 @@ def _activate_expiration(page, code: str) -> None:
                     target = _expiration_target(page, code) or target
             target.click(force=True, timeout=10_000)
             last_heading = ""
-            for _ in range(45):
-                page.wait_for_timeout(1_000)
+            # Bound each expiration transition. A QuikStrike ASP.NET postback
+            # can stall for a long time; one bad expiry must not consume the
+            # entire scheduled job.
+            for _ in range(30):
+                page.wait_for_timeout(500)
                 heading = (
                     page.locator(".viewheader-info h3").first.inner_text()
                     if page.locator(".viewheader-info h3").count()
@@ -827,95 +831,119 @@ def scrape_multi_expiration(url: str | None = None, limit: int = 7) -> dict:
                 raise ScrapeError("ไม่พบ Gold expirations ที่มี DTE")
 
             snapshots = []
+            scrape_budget_seconds = max(
+                120,
+                int(os.environ.get("QUIKSTRIKE_MULTI_EXPIRY_BUDGET_SECONDS", "840")),
+            )
+            scrape_deadline = time.monotonic() + scrape_budget_seconds
             for index, candidate in enumerate(candidates):
+                remaining = scrape_deadline - time.monotonic()
+                if remaining <= 0:
+                    print(
+                        f"[scrape] budget exhausted after {len(snapshots)} expiration(s); "
+                        f"stopping multi-expiration collection",
+                        flush=True,
+                    )
+                    break
+
                 print(f"[scrape] activating {candidate['code']} ({candidate['dte']} DTE)...", flush=True)
-                _activate_expiration(page, candidate["code"])
-                print(f"[scrape] loading OI for {candidate['code']}...", flush=True)
-                _load_oi_chart(page)
-                page.wait_for_timeout(500)
-                chart_data = page.evaluate(EXTRACT_INTRADAY_JS)
-                if not chart_data.get("strike_rows"):
-                    chart_data = page.evaluate(EXTRACT_HIGHCHARTS_JS)
+                try:
+                    _activate_expiration(page, candidate["code"])
+                    print(f"[scrape] loading OI for {candidate['code']}...", flush=True)
+                    _load_oi_chart(page)
+                    page.wait_for_timeout(500)
+                    chart_data = page.evaluate(EXTRACT_INTRADAY_JS)
+                    if not chart_data.get("strike_rows"):
+                        chart_data = page.evaluate(EXTRACT_HIGHCHARTS_JS)
 
-                if chart_data.get("error") or (
-                    not chart_data.get("strike_rows") and not chart_data.get("charts")
-                ):
-                    raise ScrapeError(
-                        f"ไม่พบข้อมูล strike สำหรับ expiration {candidate['code']}"
+                    if chart_data.get("error") or (
+                        not chart_data.get("strike_rows") and not chart_data.get("charts")
+                    ):
+                        raise ScrapeError(
+                            f"ไม่พบข้อมูล strike สำหรับ expiration {candidate['code']}"
+                        )
+
+                    heading_locator = page.locator(".viewheader-info h3")
+                    heading = (
+                        heading_locator.first.inner_text()
+                        if heading_locator.count()
+                        else ""
                     )
+                    if candidate["code"] not in heading:
+                        raise ScrapeError(
+                            f"expiration identity mismatch: requested={candidate['code']} heading={heading!r}"
+                        )
 
-                heading_locator = page.locator(".viewheader-info h3")
-                heading = (
-                    heading_locator.first.inner_text()
-                    if heading_locator.count()
-                    else ""
-                )
-                if candidate["code"] not in heading:
-                    raise ScrapeError(
-                        f"expiration identity mismatch: requested={candidate['code']} heading={heading!r}"
-                    )
-
-                # Capture the real QuikStrike OI source image BEFORE
-                # switching to OI Change / Churn secondary views.
-                source_screenshot = None
-                if index == 0:
-                    try:
-                        chart_image = page.locator("img.chart")
-                        if chart_image.count() and chart_image.first.is_visible():
-                            source_screenshot = chart_image.first.screenshot(type="png")
-                        else:
-                            chart_container = page.locator("#chart")
-                            if chart_container.count() and chart_container.first.is_visible():
-                                source_screenshot = chart_container.first.screenshot(type="png")
-                    except Exception:
-                        source_screenshot = None
-
-                    # Last-resort source capture: this is still the real QuikStrike
-                    # viewport, never a synthetic chart. Keeping it as a source
-                    # screenshot is preferable to silently sending no source image.
-                    if not source_screenshot:
+                    # Capture the real QuikStrike OI source image BEFORE
+                    # switching to OI Change / Churn secondary views.
+                    source_screenshot = None
+                    if index == 0:
                         try:
-                            source_screenshot = page.screenshot(
-                                type="png", full_page=False, animations="disabled"
-                            )
+                            chart_image = page.locator("img.chart")
+                            if chart_image.count() and chart_image.first.is_visible():
+                                source_screenshot = chart_image.first.screenshot(type="png")
+                            else:
+                                chart_container = page.locator("#chart")
+                                if chart_container.count() and chart_container.first.is_visible():
+                                    source_screenshot = chart_container.first.screenshot(type="png")
                         except Exception:
                             source_screenshot = None
 
-                # Collect secondary source views only for the primary expiry,
-                # then return to the OI view before the next expiration.
-                secondary_views = _read_secondary_oi_views(page) if index == 0 else {}
-                if index == 0:
-                    print(
-                        "[scrape] secondary views: "
-                        + ", ".join(sorted(secondary_views.keys()))
-                        if secondary_views
-                        else "[scrape] secondary views: none exposed",
-                        flush=True,
-                    )
-                if index == 0 and secondary_views:
-                    _load_oi_chart(page)
+                        # Last-resort source capture: this is still the real QuikStrike
+                        # viewport, never a synthetic chart. Keeping it as a source
+                        # screenshot is preferable to silently sending no source image.
+                        if not source_screenshot:
+                            try:
+                                source_screenshot = page.screenshot(
+                                    type="png", full_page=False, animations="disabled"
+                                )
+                            except Exception:
+                                source_screenshot = None
 
-                snapshot = {
-                    "source": (
-                        "quikstrike_open_interest_image_map"
-                        if chart_data.get("strike_rows")
-                        else "quikstrike_highcharts_fallback"
-                    ),
-                    "chart_data": chart_data,
-                    "secondary_views": secondary_views,
-                    "expiration_selection": {
-                        "selected": candidate["code"],
-                        "policy": "multi_expiry_term_structure",
-                        "dte_hint": candidate["dte"],
-                    },
-                    "page_heading": heading,
-                    "page_text": page.locator("body").inner_text(),
-                    "screenshot": source_screenshot,
-                    "source_screenshot": source_screenshot,
-                }
+                    # Collect secondary source views only for the primary expiry,
+                    # then return to the OI view before the next expiration.
+                    secondary_views = _read_secondary_oi_views(page) if index == 0 else {}
+                    if index == 0:
+                        print(
+                            "[scrape] secondary views: "
+                            + ", ".join(sorted(secondary_views.keys()))
+                            if secondary_views
+                            else "[scrape] secondary views: none exposed",
+                            flush=True,
+                        )
+                    if index == 0 and secondary_views:
+                        _load_oi_chart(page)
+
+                    snapshot = {
+                        "source": (
+                            "quikstrike_open_interest_image_map"
+                            if chart_data.get("strike_rows")
+                            else "quikstrike_highcharts_fallback"
+                        ),
+                        "chart_data": chart_data,
+                        "secondary_views": secondary_views,
+                        "expiration_selection": {
+                            "selected": candidate["code"],
+                            "policy": "multi_expiry_term_structure",
+                            "dte_hint": candidate["dte"],
+                        },
+                        "page_heading": heading,
+                        "page_text": page.locator("body").inner_text(),
+                        "screenshot": source_screenshot,
+                        "source_screenshot": source_screenshot,
+                    }
 
                 snapshots.append(snapshot)
+                except Exception as exc:
+                    print(
+                        f"[scrape] skipping expiration {candidate['code']}: {exc}",
+                        flush=True,
+                    )
+                    if index == 0:
+                        raise
 
+            if not snapshots:
+                raise ScrapeError("ไม่สามารถเก็บ Gold expiration ใดได้ภายในเวลา scrape budget")
             primary = dict(snapshots[0])
             primary["expiration_snapshots"] = snapshots
             primary["multi_expiration"] = {
