@@ -48,9 +48,13 @@ def build_deterministic_fallback(
     }
     h4, h1 = trends.get("h4"), trends.get("h1")
     m15, m5 = trends.get("m15"), trends.get("m5")
+    # H4 is the structural anchor; H1 is confirmation/transition context.
+    # Do not collapse a clear H4 thesis into MIXED merely because H1 is moving.
     htf = (
-        "BULLISH" if h4 == "bullish" and h1 == "bullish"
-        else "BEARISH" if h4 == "bearish" and h1 == "bearish"
+        "BULLISH" if h4 == "bullish"
+        else "BEARISH" if h4 == "bearish"
+        else "BULLISH" if h1 == "bullish"
+        else "BEARISH" if h1 == "bearish"
         else "MIXED"
     )
 
@@ -89,10 +93,7 @@ def build_deterministic_fallback(
 
     trigger = str((state.get("decision_framework") or {}).get("steps", {}).get("8_decision") or "")
     if not trigger:
-        if htf == "MIXED":
-            trigger = "WAIT_MIXED_STRUCTURE"
-        else:
-            trigger = "WAIT_FOR_TRIGGER"
+        trigger = "WAIT_FOR_LIQUIDITY_TRIGGER" if htf != "MIXED" else "WAIT_FOR_STRUCTURE_RESOLUTION"
 
     conflict = []
     if htf == "MIXED":
@@ -134,20 +135,54 @@ def build_deterministic_fallback(
         bias = "WAIT"
 
     status = "DEGRADED"
-    overview = (
-        f"โครงสร้าง {htf.lower()} แต่ยังเป็น conditional setup; "
-        "fallback ใช้ deterministic evidence เท่านั้น"
-    )
-    if htf == "MIXED":
-        overview = "H4/H1 ยัง mixed จึงยังไม่ให้ directional bias; รอ trigger ที่ตรวจสอบได้"
 
-    why = (
-        f"{gamma_context}; "
-        f"OI activity = Put {_fmt(put_change,0)} / Call {_fmt(call_change,0)} "
-        "บ่งชี้ activity สองฝั่ง ไม่ได้ระบุว่าใครเป็น aggressor"
+    # Build the same change-first story the live renderer expects, so an LLM
+    # outage does not send the old indicator-by-indicator fallback article.
+    hour = history.get("hour_ago") or {}
+    yesterday = history.get("yesterday") or {}
+    current_price = cfd if cfd is not None else future
+    h1_price = _num(hour.get("future_price"))
+    d1_price = _num(yesterday.get("future_price_last")) if yesterday.get("count") else None
+    h1_delta = current_price - h1_price if current_price is not None and h1_price is not None else None
+    d1_delta = current_price - d1_price if current_price is not None and d1_price is not None else None
+    direction_text = "ขาขึ้น" if htf == "BULLISH" else "ขาลง" if htf == "BEARISH" else "ยังไม่ชัดเจน"
+    overview = (
+        f"ตอนนี้ทองอยู่แถว {_fmt(current_price)} และโครงสร้างหลักเป็น{direction_text}. "
+        + ("ภาพหลักยังให้น้ำหนักฝั่งลงมากกว่าฝั่งขึ้น" if htf == "BEARISH" else "ภาพหลักยังให้น้ำหนักฝั่งขึ้นมากกว่าฝั่งลง" if htf == "BULLISH" else "ยังต้องรอการเปลี่ยนโครงสร้าง")
     )
-    if conflict:
-        why += " | Conflict: " + "; ".join(conflict)
+
+    comparison_bits = []
+    if h1_delta is not None:
+        comparison_bits.append(
+            f"เมื่อเทียบกับชั่วโมงก่อน ราคา{'ลดลง' if h1_delta < 0 else 'เพิ่มขึ้น' if h1_delta > 0 else 'ยังทรงตัว'} และ "
+            + (f"ยังอยู่ต่ำกว่าโซนสำคัญ {_fmt(call_wall)}" if htf == "BEARISH" and call_wall is not None and current_price < call_wall else
+               f"ยังอยู่เหนือโซนสำคัญ {_fmt(put_wall)}" if htf == "BULLISH" and put_wall is not None and current_price > put_wall else
+               "ตำแหน่งเมื่อเทียบกับโซนสำคัญยังไม่เปลี่ยนชัดเจน")
+        )
+    if d1_delta is not None:
+        comparison_bits.append(
+            f"เมื่อเทียบกับวันก่อน ราคาปัจจุบัน{'ต่ำลง' if d1_delta < 0 else 'สูงขึ้น' if d1_delta > 0 else 'ใกล้เคียงเดิม'}"
+        )
+    history_story = " ".join(comparison_bits) if comparison_bits else "ยังไม่มี baseline ที่เพียงพอสำหรับการเทียบช่วงก่อนหน้า"
+
+    why_parts = []
+    if net_gex is not None:
+        why_parts.append(gamma_context.replace("Positive gamma → context มีแนวโน้ม dampen/mean-revert", "Gamma เป็นบวก จึงมีแนวโน้มช่วยชะลอการแกว่ง")
+                           .replace("Negative gamma → context มีโอกาส amplify movement", "Gamma เป็นลบ จึงมีโอกาสขยายการเคลื่อนไหวของราคา"))
+    iv_change = _num((state.get("volatility") or {}).get("iv_change_1h"))
+    skew_value = _num((state.get("volatility") or {}).get("skew"))
+    if iv_change is not None and iv_change > 0:
+        why_parts.append("ความผันผวนระยะสั้นยังขยายตัวเมื่อเทียบกับชั่วโมงก่อน")
+    elif iv_change is not None and iv_change < 0:
+        why_parts.append("ความผันผวนระยะสั้นเริ่มลดลงเมื่อเทียบกับชั่วโมงก่อน")
+    if skew_value is not None and skew_value > 0:
+        why_parts.append("Put Skew ยังเอียงไปทาง downside สะท้อนการจ่าย premium เพื่อป้องกันความเสี่ยงฝั่งลง")
+    if put_change is not None and call_change is not None and put_change > 0 and call_change > 0:
+        why_parts.append("OI เพิ่มทั้งสองฝั่ง จึงสะท้อนกิจกรรมของสถานะมากกว่าจะบอกว่าใครเป็น aggressor")
+    why = " ".join(why_parts) or "หลักฐาน options/volatility ที่ใช้ขยายเหตุผลยังไม่ครบ"
+
+    # Do not dump conflict labels into the customer article. Keep them as
+    # internal evidence while the narrative states the actual implication.
 
     evidence_refs = ["itb:oi:deterministic", "itb:oi:history"]
     if news:
@@ -184,12 +219,7 @@ def build_deterministic_fallback(
             f"Call/Put OI={_fmt(q_oi.get('call_put_ratio'),2)} | OI imbalance={_fmt(q_oi.get('imbalance'),3)} | "
             f"Churn {_fmt(churn,2)}"
         ),
-        "history_comparison": (
-            f"Return 1H={_fmt(q_returns.get('1h'),4)} | 2H={_fmt(q_returns.get('2h'),4)} | "
-            f"Session={_fmt(q_returns.get('session'),4)}; "
-            "ใช้ history เพื่อยืนยัน acceleration/deceleration เมื่อ metric มี baseline; "
-            "ไม่มี baseline จะระบุ UNKNOWN เฉพาะ metric นั้น"
-        ),
+        "history_comparison": history_story,
         "levels": {
             "resistance_main": call_wall,
             "support_main": put_wall,
@@ -223,8 +253,11 @@ def build_deterministic_fallback(
             "risk_note": "Conditional roadmap only; not an execution instruction.",
         },
         "final_trade_idea": (
-            f"Bias {bias}: ไม่ไล่ราคา; รอ {'bullish' if htf == 'BULLISH' else 'bearish' if htf == 'BEARISH' else 'structure'} confirmation "
-            "แล้วค่อย activate scenario."
+            "thesis หลักยังเป็นฝั่งขาลง; ไม่ควรไล่ Short และรอ Buy-side Liquidity Sweep ก่อนเข้า" 
+            if htf == "BEARISH" else
+            "thesis หลักยังเป็นฝั่งขาขึ้น; ไม่ควรไล่ Long และรอ Sell-side Liquidity Sweep ก่อนเข้า"
+            if htf == "BULLISH" else
+            "รอการเปลี่ยนโครงสร้างที่ชัดเจนก่อนเลือกฝั่ง"
         ),
         "data_limitations": [
             "LLM output unavailable or rejected: " + str(error)[:300],
