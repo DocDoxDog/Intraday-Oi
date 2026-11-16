@@ -1060,16 +1060,17 @@ from src.trade_plan_engine import build_trade_execution_plan
 def _decision_final_idea(decision: dict[str, Any]) -> str:
     structural = str(decision.get("structural_bias") or "MIXED").upper()
     tactical = str(decision.get("tactical_direction") or "NEUTRAL").upper()
-    confirmation = str(decision.get("confirmation_state") or "NOT_CONFIRMED").upper()
-    state = str(decision.get("decision_state") or "WAIT").upper()
 
-    if confirmation == "CONFIRMED":
-        side = "ขึ้น" if structural == "BULLISH" else "ลง" if structural == "BEARISH" else "ตาม setup ที่ยืนยัน"
-        return f"โครงสร้าง {structural} และมี price confirmation แล้ว: ฝั่ง{side}อยู่ในสถานะยืนยัน"
     if structural == "MIXED":
-        return f"โครงสร้างหลักยังขัดกัน ขณะ tactical เป็น {tactical}; ตอนนี้ {state} และยังไม่ยืนยันทาง"
-    side = "ขึ้น" if structural == "BULLISH" else "ลง"
-    return f"โครงสร้างหลักยัง{side} แต่ {confirmation}; รอ price confirmation ก่อน activate ฝั่งดังกล่าว"
+        return (
+            f"โครงสร้างหลักยังขัดกัน ขณะ tactical เป็น {tactical}; "
+            "ยังไม่มีฝั่งที่ได้เปรียบชัดพอสำหรับเลือก liquidity side เดียว"
+        )
+    side = "Long" if structural == "BULLISH" else "Short"
+    return (
+        f"Thesis หลักเป็นฝั่ง {side}; execution ใช้ liquidity sweep เป็น gate "
+        "ไม่ไล่ราคาก่อน event เกิด"
+    )
 
 
 def _liquidity_market_overview(
@@ -1601,7 +1602,7 @@ def normalize_analyst_output(
         "take_profit_3": f"LONG {_fmt(plan['long']['tp3'])} | SHORT {_fmt(plan['short']['tp3'])}",
         "setup": f"LONG: break/holdเหนือ {_fmt(plan['long']['entry'])}; SHORT: break/retest fail ใต้ {_fmt(plan['short']['entry'])}",
         "trigger": f"LONG trigger {_fmt(plan['long']['entry'])} with hold/retest | SHORT trigger {_fmt(plan['short']['entry'])} with break/retest failure",
-        "confirmation": "ใช้ price action/technical confirmation จากข้อมูลที่มี; OI/ΔOI/churn เป็น context ไม่ใช่ entry โดยลำพัง",
+        "confirmation": "Execution ใช้ liquidity sweep เป็น gate; OI/ΔOI/churn เป็น context ไม่ใช่ entry โดยลำพัง",
         "invalidation": f"LONG invalidation ใต้ {_fmt(plan['long']['stop'])} | SHORT invalidation เหนือ {_fmt(plan['short']['stop'])}",
         "risk_reward": f"LONG RR1 {_fmt(long_rr[0])}R / RR2 {_fmt(long_rr[1])}R | SHORT RR1 {_fmt(short_rr[0])}R / RR2 {_fmt(short_rr[1])}R",
         "market_condition": str(ai.get("market_regime") or "UNKNOWN"),
@@ -1622,11 +1623,11 @@ def normalize_analyst_output(
         target_text = " → ".join(_fmt(v) for v in targets if v is not None)
         if side == "LONG":
             return (
-                f"{state_name} — Break/accept เหนือ {trigger} แล้ว confirmation; "
+                f"{state_name} — Break/accept เหนือ {trigger}; "
                 f"path {target_text or 'TP1 UNKNOWN'}"
             )
         return (
-            f"{state_name} — Break/retest-fail ใต้ {trigger} แล้ว confirmation; "
+            f"{state_name} — Break/retest-fail ใต้ {trigger}; "
             f"path {target_text or 'TP1 UNKNOWN'}"
         )
 
@@ -1644,9 +1645,9 @@ def normalize_analyst_output(
         ),
     }
 
-    # Replace model-authored execution language with the deterministic gate
-    # interpretation. The model still supplies the broader thesis fields.
-    ai["final_trade_idea"] = _decision_final_idea(decision)
+    # Replace model-authored execution language with the deterministic liquidity
+    # story. This keeps the thesis directional and avoids generic confirmation/WAIT prose.
+    ai["final_trade_idea"] = liquidity_story
     ai["trade_plan"]["execution_state"] = execution_plan["state"]
     ai["trade_plan"]["execution_plan"] = execution_plan
     ai["market_state"] = state
