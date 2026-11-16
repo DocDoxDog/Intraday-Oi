@@ -920,6 +920,7 @@ def analyze_with_supabot(parsed: dict[str, Any], history: dict[str, Any] | None 
         "input_refs": input_refs,
         "input_payload": {
             "market_snapshot": payload["current"],
+            "comparative_history": payload["history"],
             "deep_reasoning_context": payload["deep_reasoning"],
             "deterministic_levels": payload["deterministic_levels"],
             "data_limitations": payload["data_limitations"],
@@ -940,6 +941,7 @@ def analyze_with_supabot(parsed: dict[str, Any], history: dict[str, Any] | None 
             dynamic={
                 "format": "human_analyst_thai_article",
                 "priority": ["COMPARATIVE_CHANGE","MARKET_READ_ARTICLE","CAUSAL_MECHANISM","CONFLICT","INVALIDATION","PRIMARY_TRADE_PLAN"],
+                "comparative_history": payload["history"],
                 "numeric_level_policy": "PRICE CLAIMS MAY USE ONLY VALUES PRESENT IN deterministic_levels OR current market snapshot. Do not invent, interpolate, calculate, or introduce any new price number.",
                 "derived_numeric_policy": "Do not calculate or emit new RR/R-multiple, percentages, ratios, probabilities, distances, expected-move values, or other derived numbers. The deterministic execution layer owns those calculations.",
                 "allowed_price_levels": payload["deterministic_levels"],
