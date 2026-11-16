@@ -1068,6 +1068,107 @@ def _decision_final_idea(decision: dict[str, Any]) -> str:
     return f"โครงสร้างหลักยัง{side} แต่ {confirmation}; รอ price confirmation ก่อน activate ฝั่งดังกล่าว"
 
 
+def _liquidity_market_overview(
+    parsed: dict[str, Any],
+    state: dict[str, Any],
+    primary_setup: dict[str, Any] | None,
+) -> str:
+    """Build the customer-facing market story from structure + liquidity.
+
+    This is deterministic prose scaffolding so the article cannot fall back to
+    the old indicator-by-indicator report when the LLM chooses generic wording.
+    """
+    decision = state.get("decision") or {}
+    liquidity = state.get("liquidity") or {}
+    structural = str(decision.get("structural_bias") or "MIXED").upper()
+    current = _num(parsed.get("cfd_price")) or _num(parsed.get("future_price"))
+    side_text = "ขาขึ้น" if structural == "BULLISH" else "ขาลง" if structural == "BEARISH" else "ยังไม่ชัดเจน"
+
+    price_change = _num((state.get("history") or {}).get("1h", {}).get("price"))
+    prev_change = _num((state.get("history") or {}).get("yesterday", {}).get("price"))
+    changes = []
+    if price_change is not None:
+        changes.append(f"H-1 {price_change:+,.2f}")
+    if prev_change is not None:
+        changes.append(f"session ก่อน {prev_change:+,.2f}")
+    change_text = f" เมื่อเทียบกับ {' / '.join(changes)}" if changes else ""
+
+    preferred_event = liquidity.get("preferred_event")
+    latest = liquidity.get("latest_preferred_sweep")
+    gate = str(liquidity.get("gate") or "UNKNOWN").upper()
+    if preferred_event == "BUY_SIDE_SWEEP":
+        if latest:
+            sweep_text = (
+                f"เกิด Buy-side Sweep ที่ {latest.get('timeframe', 'M15/M5')} "
+                f"บริเวณ {_fmt(latest.get('level'))} แล้ว"
+            )
+        else:
+            sweep_text = "ยังไม่มี Buy-side Sweep ที่ M15/M5 ซึ่งเป็น event ที่ระบบต้องการก่อนตามฝั่ง Short"
+    elif preferred_event == "SELL_SIDE_SWEEP":
+        if latest:
+            sweep_text = (
+                f"เกิด Sell-side Sweep ที่ {latest.get('timeframe', 'M15/M5')} "
+                f"บริเวณ {_fmt(latest.get('level'))} แล้ว"
+            )
+        else:
+            sweep_text = "ยังไม่มี Sell-side Sweep ที่ M15/M5 ซึ่งเป็น event ที่ระบบต้องการก่อนตามฝั่ง Long"
+    else:
+        sweep_text = "โครงสร้างหลาย Timeframe ยังไม่ลงรอยพอสำหรับเลือก liquidity side เดียว"
+
+    external = liquidity.get("external") or {}
+    targets = (
+        external.get("short_targets") if structural == "BEARISH"
+        else external.get("long_targets") if structural == "BULLISH"
+        else []
+    ) or []
+    target_text = f"Liquidity ภาพใหญ่ถัดไปอยู่แถว {_fmt(targets[0])}" if targets else "ยังไม่มี External Liquidity เป้าหมายที่ยืนยันได้"
+
+    gamma = state.get("gamma") or {}
+    gamma_net = _num(gamma.get("net_gex"))
+    gamma_text = (
+        "ขณะที่ Gamma เป็นลบ ทำให้การเคลื่อนไหวมีโอกาสถูกขยาย"
+        if gamma_net is not None and gamma_net < 0
+        else "ขณะที่ Gamma เป็นบวก จึงมองเป็นแรงชะลอการแกว่งมากกว่า"
+        if gamma_net is not None and gamma_net > 0
+        else ""
+    )
+
+    if current is None:
+        opening = f"ตอนนี้โครงสร้างหลักเป็น{side_text}{change_text}"
+    else:
+        opening = f"ตอนนี้ทองอยู่แถว {_fmt(current)} และโครงสร้างหลักเป็น{side_text}{change_text}"
+
+    execution = (
+        "ดังนั้น thesis ยังเป็นฝั่ง Short แต่สถานะยัง PENDING รอ Buy-side Sweep"
+        if structural == "BEARISH" and gate == "SWEEP_PENDING"
+        else "ดังนั้น thesis ยังเป็นฝั่ง Long แต่สถานะยัง PENDING รอ Sell-side Sweep"
+        if structural == "BULLISH" and gate == "SWEEP_PENDING"
+        else "Sweep เกิดแล้ว จึงให้ M15/M5 เป็นตัวจับจังหวะเข้า"
+        if gate == "SWEEP_DETECTED"
+        else "ตอนนี้ยังรอ event ที่ทำให้ execution ชัดขึ้น"
+    )
+
+    invalid = ""
+    if primary_setup:
+        stop = _num(primary_setup.get("stop"))
+        if stop is not None:
+            invalid = (
+                f" ถ้าราคากลับผ่าน {_fmt(stop)} thesis นี้จะถูกยกเลิก."
+                if structural == "BEARISH"
+                else f" ถ้าราคาหลุด {_fmt(stop)} thesis นี้จะถูกยกเลิก."
+                if structural == "BULLISH"
+                else ""
+            )
+
+    parts = [
+        f"{opening}.",
+        f"{sweep_text}; {execution}.",
+        f"{target_text}. {gamma_text}".strip(),
+        invalid.strip(),
+    ]
+    return "\n\n".join(x for x in parts if x).strip()
+
+
 def normalize_analyst_output(
     parsed: dict[str, Any],
     history: dict[str, Any] | None,
@@ -1160,14 +1261,19 @@ def normalize_analyst_output(
         "Directional context มีอยู่ แต่ trigger/confirmation ยังไม่ครบ จึงรอ event confirmation"
     )
 
+    structural_direction = (
+        "SELL" if str(decision_context.get("structural_bias") or "").upper() == "BEARISH"
+        else "BUY" if str(decision_context.get("structural_bias") or "").upper() == "BULLISH"
+        else "WAIT"
+    )
     deterministic_plan = {
         **deterministic,
         "status": "CONDITIONAL",
-        "direction": "WAIT",
+        "direction": structural_direction,
     }
     validated_plan = _validate_or_clear_trade_plan(deterministic_plan)
     plan_status = str(validated_plan.get("status") or "NO_TRADE").upper()
-    requested_direction = str(validated_plan.get("direction") or "WAIT").upper()
+    requested_direction = str(validated_plan.get("direction") or structural_direction or "WAIT").upper()
     plan_direction = (
         "BUY" if requested_direction == "BUY" and validated_plan.get("long_status") == "CONDITIONAL"
         else "SELL" if requested_direction == "SELL" and validated_plan.get("short_status") == "CONDITIONAL"
@@ -1195,8 +1301,10 @@ def normalize_analyst_output(
 
     long_key_levels = deterministic.get("long_key_levels") or []
     short_key_levels = deterministic.get("short_key_levels") or []
+    liquidity = state.get("liquidity") or {}
     ai["market_map"] = {
         # R/S are structural key levels, not automatic trade targets.
+        "liquidity": liquidity,
         "structural_resistance_nodes": list(long_key_levels),
         "structural_support_nodes": list(short_key_levels),
         "R1": long_key_levels[0] if len(long_key_levels) > 0 else None,
@@ -1327,6 +1435,7 @@ def normalize_analyst_output(
     apply_data_clock(parsed)
 
     execution_plan = build_trade_execution_plan(state)
+    execution_plan["liquidity"] = liquidity
 
     # Customer execution contract: always expose one deterministic primary route
     # for the dominant structural side. A route may be PENDING (trigger not hit)
@@ -1335,14 +1444,14 @@ def normalize_analyst_output(
     route_specs = []
     if dominant == "BEARISH":
         route_specs = [
-            ("SHORT_BREAKDOWN", "Breakdown", "short_breakdown_trigger", "short_breakdown_stop", "short_breakdown_tp"),
-            ("SHORT_REJECTION", "Rejection", "short_rejection_trigger", "short_rejection_stop", "short_rejection_tp"),
+            ("SHORT_REJECTION", "Rejection after buy-side sweep", "short_rejection_trigger", "short_rejection_stop", "short_rejection_tp"),
+            ("SHORT_BREAKDOWN", "Breakdown after liquidity event", "short_breakdown_trigger", "short_breakdown_stop", "short_breakdown_tp"),
             ("SHORT", "Short", "short_trigger", "short_stop", "short_tp"),
         ]
     elif dominant == "BULLISH":
         route_specs = [
-            ("LONG_RECLAIM", "Reclaim", "long_reclaim_trigger", "long_reclaim_stop", "long_reclaim_tp"),
-            ("LONG_SUPPORT", "Support Reaction", "long_support_trigger", "long_support_stop", "long_support_tp"),
+            ("LONG_SUPPORT", "Support reaction after sell-side sweep", "long_support_trigger", "long_support_stop", "long_support_tp"),
+            ("LONG_RECLAIM", "Reclaim after liquidity event", "long_reclaim_trigger", "long_reclaim_stop", "long_reclaim_tp"),
             ("LONG", "Long", "long_trigger", "long_stop", "long_tp"),
         ]
 
@@ -1359,7 +1468,11 @@ def normalize_analyst_output(
             continue
         current = _num((state.get("price") or {}).get("cfd"))
         side = "SHORT" if dominant == "BEARISH" else "LONG"
-        if current is None:
+        preferred_event = str(liquidity.get("preferred_event") or "")
+        sweep_detected = str(liquidity.get("gate") or "").upper() == "SWEEP_DETECTED"
+        if preferred_event and not sweep_detected:
+            state_name = "PENDING_LIQUIDITY_SWEEP"
+        elif current is None:
             state_name = "PENDING"
         elif side == "SHORT":
             state_name = "ARMED" if current <= float(trigger) else "PENDING"
@@ -1374,12 +1487,29 @@ def normalize_analyst_output(
             "stop": stop,
             "targets": targets,
             "state": state_name,
-            "action": f"{'SELL' if side == 'SHORT' else 'BUY'} at trigger",
+            "action": (
+                f"SELL after BUY-SIDE SWEEP at trigger"
+                if side == "SHORT" and preferred_event == "BUY_SIDE_SWEEP"
+                else f"BUY after SELL-SIDE SWEEP at trigger"
+                if side == "LONG" and preferred_event == "SELL_SIDE_SWEEP"
+                else f"{'SELL' if side == 'SHORT' else 'BUY'} at trigger"
+            ),
+            "liquidity_gate": liquidity.get("gate"),
+            "preferred_liquidity_event": preferred_event,
+            "liquidity_sweep": liquidity.get("latest_preferred_sweep"),
             "cancel_if": f"{'above' if side == 'SHORT' else 'below'} {stop}",
         }
         break
 
     execution_plan["primary_setup"] = primary_setup
+    execution_plan["liquidity_gate"] = liquidity.get("gate")
+    execution_plan["preferred_liquidity_event"] = liquidity.get("preferred_event")
+
+    # Deterministic liquidity-first prose becomes the customer-facing first
+    # paragraph; the LLM supplies supporting explanation around it.
+    liquidity_story = _liquidity_market_overview(parsed, state, primary_setup)
+    ai["market_overview"] = liquidity_story
+    ai["liquidity_story"] = liquidity_story
 
     from src.multi_domain_engine import build_multi_domain_context
     multi_domain = build_multi_domain_context(parsed, state, execution_plan)
