@@ -239,3 +239,59 @@ def test_trade_plan_uses_nearest_structural_invalidation_not_distant_opposite_wa
     assert trade["long_support_trigger"] is None
     assert ai["market_map"]["put_wall"] == 4197
     assert "long_support" in trade["execution_plan"]
+
+
+
+def test_structural_direction_is_not_replaced_by_wait_when_execution_is_pending():
+    parsed = _snapshot("2026-10-02T13:00:00+00:00", 4300, 100, 200)
+    parsed.update({
+        "cfd_price": 4297,
+        "basis_diff": 3,
+        "observed_at": "2026-10-02T13:00:00+00:00",
+        "technical_context": {
+            "timeframes": {
+                "h4": {
+                    "trend": "bearish",
+                    "prior_high": 4310,
+                    "prior_low": 4200,
+                    "sweep": "none",
+                    "fibonacci": {"swing_high": 4310, "swing_low": 4200},
+                },
+                "h1": {
+                    "trend": "bearish",
+                    "prior_high": 4305,
+                    "prior_low": 4210,
+                    "sweep": "none",
+                    "fibonacci": {"swing_high": 4305, "swing_low": 4210},
+                },
+                "m15": {
+                    "trend": "bearish",
+                    "prior_high": 4300,
+                    "prior_low": 4250,
+                    "sweep": "none",
+                    "fibonacci": {"swing_high": 4300, "swing_low": 4250},
+                },
+                "m5": {
+                    "trend": "bearish",
+                    "prior_high": 4298,
+                    "prior_low": 4260,
+                    "sweep": "none",
+                    "fibonacci": {"swing_high": 4298, "swing_low": 4260},
+                },
+                "m1": {"trend": "bearish", "prior_high": 4299, "prior_low": 4265, "sweep": "none", "fibonacci": {}},
+            }
+        },
+    })
+    enrich_market_state(parsed, {})
+    ai = normalize_analyst_output(
+        parsed,
+        {},
+        {"analysis_status": "DEVELOPING", "bias": "WAIT", "trade_plan": {"status": "NO_TRADE"}},
+    )
+    assert ai["bias"] == "BEARISH"
+    assert ai["trade_plan"]["direction"] == "SELL"
+    assert ai["trade_plan"]["status"] == "CONDITIONAL"
+    assert ai["liquidity_story"]
+    assert "Buy-side Sweep" in ai["liquidity_story"]
+
+
