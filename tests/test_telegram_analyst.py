@@ -37,7 +37,7 @@ def test_telegram_renders_three_text_message_sections():
     m5=telegram._format_trade_plan_message(parsed,ai)
     assert "WHAT text" in m3 and "GOLD MARKET" in m3
     assert "TRADE PLAN" in m5 and "Entry" in m5 and "SL" in m5 and "TP1" in m5
-    assert "Confirmation" not in m5 and "Trigger" not in m5
+    assert "R:R" in m5 and "Trigger" not in m5 and "Confirmation" not in m5
 def test_line_renders_canonical_analysis_without_local_trade_plan():
     parsed = {
         "future_price": 4300, "cfd_price": 4297, "dte": 1.38, "vol": 15.2,
@@ -78,6 +78,8 @@ def test_telegram_escapes_dynamic_trade_level_text():
     ai={"trade_plan":{"execution_plan":{"routes":[{"side":"LONG","state":"ARMED","entry":"<4180","stop":4100,"targets":[4200]}]}}}
     message=telegram._format_trade_plan_message({},ai)
     assert "&lt;4180" in message
+    assert "R:R" in message
+
 def test_trade_plan_ladders_are_directionally_monotonic():
     from src.market_state import normalize_analyst_output
 
@@ -206,6 +208,7 @@ def test_telegram_renders_support_reaction_long_setup():
     assert "Entry <b>4,072.88</b>" in message
     assert "SL <b>4,067.88</b>" in message
     assert "TP1 <b>4,082.88</b>" in message
+    assert "R:R <b>2.00</b>" in message
 def test_trade_execution_plan_exposes_primary_alternative_and_non_fill_trigger():
     from src.trade_plan_engine import build_trade_execution_plan
 
@@ -258,63 +261,17 @@ def test_trade_execution_plan_exposes_primary_alternative_and_non_fill_trigger()
 
 def test_telegram_does_not_borrow_generic_targets_for_a_route_without_tp():
     from src import telegram
-    ai={"trade_plan":{"execution_plan":{"routes":[{"side":"LONG","state":"ARMED","entry":4119.86,"stop":4114.86,"targets":[]}]}}}
+    ai={"trade_plan":{"execution_plan":{"primary_setup":{"side":"LONG","state":"ARMED","trigger":4119.86,"stop":4114.86,"targets":[]}}}}
     message=telegram._format_trade_plan_message({},ai)
-    assert "ไม่มีแผนที่ผ่านเกณฑ์" in message
+    assert "ไม่มีแผนที่ผ่านเกณฑ์ deterministic" in message
     assert "4,139.86" not in message
-def test_telegram_uses_route_specific_targets_not_the_generic_side_ladder():
+
+def test_telegram_uses_route_specific_targets_only():
     from src import telegram
-    ai={"trade_plan":{"execution_plan":{"routes":[
-        {"side":"LONG","state":"ARMED","entry":4140,"stop":4130,"targets":[]},
-        {"side":"SHORT","state":"ARMED","entry":4090,"stop":4100,"targets":[]}
-    ]}}}
+    ai={"trade_plan":{"execution_plan":{"primary_setup":{"side":"LONG","state":"ARMED","trigger":4140,"stop":4130,"targets":[]}}}}
     message=telegram._format_trade_plan_message({},ai)
-    assert "ไม่มีแผนที่ผ่านเกณฑ์" in message
+    assert "ไม่มีแผนที่ผ่านเกณฑ์ deterministic" in message
     assert "4,150.00" not in message and "4,050.00" not in message
-def test_telegram_four_route_plan_renders_tp1_to_tp5():
-    from src import telegram
-    routes=[
-        {"side":"LONG","state":"ARMED","entry":4210,"stop":4205,"targets":[4215,4220,4225,4230,4235]},
-        {"side":"LONG","state":"ARMED","entry":4190,"stop":4185,"targets":[4195,4200,4205,4210,4215]},
-        {"side":"SHORT","state":"ARMED","entry":4210,"stop":4215,"targets":[4205,4200,4195,4190,4185]},
-        {"side":"SHORT","state":"ARMED","entry":4190,"stop":4195,"targets":[4185,4180,4175,4170,4165]},
-    ]
-    message=telegram._format_trade_plan_message({},{"trade_plan":{"execution_plan":{"routes":routes}}})
-    assert message.count("Entry") == 4
-    assert "TP1 <b>" in message and "TP5 <b>" in message
-    assert "confirmation" not in message.lower()
-
-
-def test_telegram_renders_up_to_five_ranked_trade_plans():
-    from src import telegram
-    candidates = [
-        {"route": f"ROUTE_{i}", "strategy": f"SETUP {i}", "side": "LONG" if i % 2 else "SHORT",
-         "entry": 4000 + i, "stop": 3995 + i, "targets": [4005 + i, 4010 + i]}
-        for i in range(1, 6)
-    ]
-    message = telegram._format_trade_plan_message({}, {"strategy_candidates": candidates})
-    assert message.count("TOP ") == 5
-    assert message.count("Entry") == 5
-    assert "TOP 5 — SETUP 5" in message
-
-
-def test_telegram_fills_ranked_plans_from_deterministic_routes_to_max_five():
-    from src import telegram
-    ranked = [
-        {"route": "SELL_REJECTION", "strategy": "Rejection", "side": "SHORT",
-         "entry": 4023, "stop": 4028, "targets": [4018]}
-    ]
-    routes = [
-        {"route": "SELL_REJECTION", "side": "SHORT", "entry": 4023, "stop": 4028, "targets": [4018]},
-        {"route": "BUY_BREAKOUT", "side": "LONG", "entry": 4038, "stop": 4033, "targets": [4043]},
-        {"route": "BUY_SUPPORT", "side": "LONG", "entry": 4020, "stop": 4015, "targets": [4028]},
-        {"route": "SELL_BREAKDOWN", "side": "SHORT", "entry": 4020, "stop": 4025, "targets": [4015]},
-    ]
-    message = telegram._format_trade_plan_message(
-        {}, {"strategy_candidates": ranked, "trade_plan": {"execution_plan": {"routes": routes}}}
-    )
-    assert message.count("Entry") == 4
-    assert "BUY" in message and "SELL" in message
 
 def test_customer_narrative_is_plain_language_and_uses_evidence_relationships():
     from src import telegram
