@@ -24,7 +24,7 @@ except ImportError:
 
 DEFAULT_GATEWAY_PATH = "/internal/v1/llm/generate"
 TASK = "market.narrative"
-PROMPT_VERSION = "intraday-oi-market-analyst-v9-deep-article"
+PROMPT_VERSION = "intraday-oi-market-analyst-v10-comparative-decision"
 DATASET_VERSION = "quikstrike-oi-view-v2"
 CALCULATION_VERSION = "intraday-oi-calcs-v1"
 
@@ -230,34 +230,27 @@ def _json_safe(value: Any) -> Any:
 
 
 def _compact_history(parsed: dict[str, Any], history: dict[str, Any] | None) -> dict[str, Any]:
+    """Build an explicit NOW vs H-1 vs D-1 vs PREVIOUS-SESSION comparison.
+
+    The old article received history as several loosely related blocks, which
+    encouraged the model to repeat telemetry. This structure makes the change
+    story the primary analytical input.
+    """
     history = history or {}
 
-    def compact_snapshot(row: Any) -> dict[str, Any] | None:
+    def snapshot(row: Any) -> dict[str, Any] | None:
         if not isinstance(row, dict):
             return None
         raw = row.get("raw_series") or {}
         totals = raw.get("totals") or {}
         gex = raw.get("gex") or {}
         return {
-            "captured_at": row.get("captured_at"),
+            "captured_at": row.get("captured_at") or row.get("observed_at"),
             "future_price": row.get("future_price"),
-            "future_chg": row.get("future_chg"),
             "vol": row.get("vol"),
-            "vol_chg": row.get("vol_chg"),
             "oi_put": totals.get("open_interest_view_put", totals.get("open_interest_put")),
             "oi_call": totals.get("open_interest_view_call", totals.get("open_interest_call")),
             "oi_total": totals.get("open_interest_view_total", totals.get("open_interest_total")),
-            "oi_change_put": (
-                totals.get("oi_delta_put")
-                if totals.get("oi_delta_put") is not None
-                else totals.get("oi_change_put")
-            ),
-            "oi_change_call": (
-                totals.get("oi_delta_call")
-                if totals.get("oi_delta_call") is not None
-                else totals.get("oi_change_call")
-            ),
-            "oi_change_total": totals.get("oi_delta_total"),
             "churn": totals.get("churn"),
             "gex_net": gex.get("net_gex"),
             "gamma_flip": gex.get("gamma_flip"),
@@ -265,93 +258,102 @@ def _compact_history(parsed: dict[str, Any], history: dict[str, Any] | None) -> 
             "put_wall": gex.get("put_wall"),
         }
 
-    current_raw = parsed.get("raw_series") or {}
-    current_totals = current_raw.get("totals") or {}
-    current_gex = current_raw.get("gex") or {}
-    current = {
+    raw = parsed.get("raw_series") or {}
+    totals = raw.get("totals") or {}
+    gex = raw.get("gex") or {}
+    now = {
+        "captured_at": parsed.get("observed_at") or parsed.get("retrieved_at"),
         "future_price": parsed.get("future_price"),
         "vol": parsed.get("vol"),
-        "oi_put": current_totals.get("open_interest_view_put", current_totals.get("open_interest_put")),
-        "oi_call": current_totals.get("open_interest_view_call", current_totals.get("open_interest_call")),
-        "oi_total": current_totals.get("open_interest_view_total", current_totals.get("open_interest_total")),
-        # QuikStrike source fields. Keep separate from EOD-baseline ΔOI.
-        "oi_change_put": current_totals.get("oi_change_put"),
-        "oi_change_call": current_totals.get("oi_change_call"),
-        "oi_change_total": current_totals.get("oi_change_total"),
-        "delta_oi_eod_put": current_totals.get("oi_delta_put"),
-        "delta_oi_eod_call": current_totals.get("oi_delta_call"),
-        "delta_oi_eod_total": current_totals.get("oi_delta_total"),
-        "churn": current_totals.get("churn"),
-        "quikstrike_churn_put": current_totals.get("quikstrike_churn_put"),
-        "quikstrike_churn_call": current_totals.get("quikstrike_churn_call"),
-        "eod_oi_put": ((current_raw.get("market_state") or {}).get("flow") or {}).get("eod_oi_put"),
-        "eod_oi_call": ((current_raw.get("market_state") or {}).get("flow") or {}).get("eod_oi_call"),
-        "eod_oi_total": ((current_raw.get("market_state") or {}).get("flow") or {}).get("eod_oi_total"),
-        "gex_net": current_gex.get("net_gex"),
-        "gamma_flip": current_gex.get("gamma_flip"),
-        "call_wall": current_gex.get("call_wall"),
-        "put_wall": current_gex.get("put_wall"),
+        "oi_put": totals.get("open_interest_view_put", totals.get("open_interest_put")),
+        "oi_call": totals.get("open_interest_view_call", totals.get("open_interest_call")),
+        "oi_total": totals.get("open_interest_view_total", totals.get("open_interest_total")),
+        "churn": totals.get("churn"),
+        "gex_net": gex.get("net_gex"),
+        "gamma_flip": gex.get("gamma_flip"),
+        "call_wall": gex.get("call_wall"),
+        "put_wall": gex.get("put_wall"),
     }
 
-    def diff(base: dict | None) -> dict:
-        if not base:
-            return {"status": "UNKNOWN"}
-        out = {"status": "VALID"}
-        for key in (
-            "future_price", "vol", "oi_put", "oi_call", "oi_total",
-            "oi_change_put", "oi_change_call", "oi_change_total",
-            "churn", "gex_net",
-        ):
-            now_value = current.get(key)
-            old_value = base.get(key)
-            if isinstance(now_value, (int, float)) and isinstance(old_value, (int, float)):
-                out[key] = round(float(now_value) - float(old_value), 6)
-            else:
-                out[key] = None
-        return out
+    h1 = snapshot(history.get("hour_ago"))
+    h2 = snapshot(history.get("two_hours_ago"))
 
-    hour = compact_snapshot(history.get("hour_ago"))
-    today = history.get("today") or {"count": 0}
-    yesterday = history.get("yesterday") or {"count": 0}
-
-    today_open = {
+    today = history.get("today") or {}
+    d1 = {
+        "captured_at": today.get("first_snapshot_time"),
         "future_price": today.get("future_price_open"),
-        "vol": today.get("vol_last") if today.get("count") == 1 else None,
+        "vol": today.get("vol_first"),
         "oi_put": (today.get("oi_first") or {}).get("oi_put"),
         "oi_call": (today.get("oi_first") or {}).get("oi_call"),
         "oi_total": (today.get("oi_first") or {}).get("oi_total"),
-        "oi_change_put": (today.get("oi_first") or {}).get("oi_change_put"),
-        "oi_change_call": (today.get("oi_first") or {}).get("oi_change_call"),
-        "oi_change_total": (today.get("oi_first") or {}).get("oi_change_total"),
         "churn": (today.get("oi_first") or {}).get("churn"),
         "gex_net": (today.get("oi_first") or {}).get("gex_net"),
+    } if today.get("count") else None
+
+    previous = history.get("yesterday") or {}
+    prev_session = {
+        "captured_at": previous.get("latest_snapshot_time"),
+        "future_price": previous.get("future_price_last"),
+        "vol": previous.get("vol_last"),
+        "oi_put": (previous.get("oi_last") or {}).get("oi_put"),
+        "oi_call": (previous.get("oi_last") or {}).get("oi_call"),
+        "oi_total": (previous.get("oi_last") or {}).get("oi_total"),
+        "churn": (previous.get("oi_last") or {}).get("churn"),
+        "gex_net": (previous.get("oi_last") or {}).get("gex_net"),
+    } if previous.get("count") else None
+
+    def delta(base: dict[str, Any] | None) -> dict[str, Any]:
+        if not base:
+            return {"status": "UNKNOWN"}
+        out: dict[str, Any] = {"status": "VALID"}
+        for key in ("future_price", "vol", "oi_put", "oi_call", "oi_total", "churn", "gex_net"):
+            a, b = now.get(key), base.get(key)
+            out[key] = round(float(a) - float(b), 6) if isinstance(a, (int, float)) and isinstance(b, (int, float)) else None
+        return out
+
+    def pct_direction(value: Any) -> str:
+        if not isinstance(value, (int, float)):
+            return "UNKNOWN"
+        return "UP" if value > 0 else "DOWN" if value < 0 else "FLAT"
+
+    comparisons = {
+        "H-1": {"baseline": h1, "delta": delta(h1)},
+        "D-1": {"baseline": d1, "delta": delta(d1)},
+        "PREVIOUS_SESSION": {"baseline": prev_session, "delta": delta(prev_session)},
     }
-    yesterday_last = today_open.copy()
-    if yesterday.get("count"):
-        yesterday_last = {
-            "future_price": yesterday.get("future_price_last"),
-            "vol": yesterday.get("vol_last"),
-            "oi_put": (yesterday.get("oi_last") or {}).get("oi_put"),
-            "oi_call": (yesterday.get("oi_last") or {}).get("oi_call"),
-            "oi_total": (yesterday.get("oi_last") or {}).get("oi_total"),
-            "oi_change_put": (yesterday.get("oi_last") or {}).get("oi_change_put"),
-            "oi_change_call": (yesterday.get("oi_last") or {}).get("oi_change_call"),
-            "oi_change_total": (yesterday.get("oi_last") or {}).get("oi_change_total"),
-            "churn": (yesterday.get("oi_last") or {}).get("churn"),
-            "gex_net": (yesterday.get("oi_last") or {}).get("gex_net"),
-        }
+
+    # A compact transition map gives the model a direct answer to "what changed?"
+    # without telling it which side to choose.
+    transition = {
+        "price_vs_h1": pct_direction((comparisons["H-1"]["delta"] or {}).get("future_price")),
+        "price_vs_d1": pct_direction((comparisons["D-1"]["delta"] or {}).get("future_price")),
+        "price_vs_previous_session": pct_direction((comparisons["PREVIOUS_SESSION"]["delta"] or {}).get("future_price")),
+        "iv_vs_h1": pct_direction((comparisons["H-1"]["delta"] or {}).get("vol")),
+        "gex_vs_h1": pct_direction((comparisons["H-1"]["delta"] or {}).get("gex_net")),
+        "oi_vs_h1": pct_direction((comparisons["H-1"]["delta"] or {}).get("oi_total")),
+        "oi_vs_previous_session": pct_direction((comparisons["PREVIOUS_SESSION"]["delta"] or {}).get("oi_total")),
+    }
 
     return {
-        "hour_ago": hour,
-        "today": today,
-        "yesterday": yesterday,
-        "changes": {
-            "vs_hour_ago": diff(hour),
-            "vs_today_open": diff(today_open),
-            "vs_yesterday_last": diff(yesterday_last if yesterday.get("count") else None),
+        "version": "comparative-history-v1",
+        "now": now,
+        "comparisons": comparisons,
+        "transition": transition,
+        "coverage": {
+            "H-1": bool(h1),
+            "D-1": bool(d1),
+            "PREVIOUS_SESSION": bool(prev_session),
+            "two_hours_ago": bool(h2),
+        },
+        # Keep the old compact blocks available for compatibility, but make the
+        # comparative map the canonical analytical input.
+        "legacy": {
+            "hour_ago": h1,
+            "today": today,
+            "yesterday": previous,
+            "two_hours_ago": h2,
         },
     }
-
 
 def _summarize_input(parsed: dict[str, Any], history: dict[str, Any] | None) -> dict[str, Any]:
     raw = parsed.get("raw_series") or {}
@@ -542,12 +544,25 @@ Price↓ + IV↑ = downside + volatility repricing
 Price↑ + IV↑ = upside + volatility repricing
 แต่ต้องตรวจ evidence อื่นก่อนสรุป
 
-7) HISTORY
-ใช้ 1H / TODAY / YESTERDAY เพื่อหา:
-acceleration, deceleration, positioning change, volatility repricing,
-regime transition และ GEX change
-ถ้า baseline ของ metric ใดไม่มี ให้ UNKNOWN เฉพาะ metric นั้น
-ห้ามทำให้ทั้ง history กลายเป็น UNKNOWN
+7) COMPARATIVE MARKET STORY — ห้ามวิเคราะห์แบบ snapshot เดี่ยว
+ให้ใช้ "NOW → H-1 → D-1 → PREVIOUS SESSION" เป็นแกนหลักของบทวิเคราะห์
+ตอบให้ได้ก่อนว่า "อะไรเปลี่ยนไป และการเปลี่ยนนั้นทำให้ตลาดเปลี่ยน regime หรือไม่"
+
+ลำดับ:
+NOW = ราคาปัจจุบันและตำแหน่งในโครงสร้าง
+H-1 = การเปลี่ยนแปลงล่าสุด / acceleration หรือ deceleration
+D-1 = ภาพตั้งแต่ต้น session ปัจจุบัน
+PREVIOUS SESSION = จุดอ้างอิงของ session ก่อน
+
+อย่าเล่าตัวเลขของแต่ละช่วงเป็นรายงาน telemetry
+ให้แปลงเป็น "change story" เช่น:
+"ตั้งแต่ session ก่อนราคาหลุดระดับสำคัญ และใน H-1 ยัง reclaim ไม่ได้"
+"จาก H-1 ถึงปัจจุบัน IV เพิ่มพร้อมราคาอ่อนลง สอดคล้องกับ volatility repricing ฝั่ง downside"
+"OI เปลี่ยน แต่ไม่มี trade-side evidence จึงใช้เป็น positioning context ไม่ใช่คำตัดสิน direction"
+
+ถ้า evidence ระหว่างช่วงขัดกัน ให้ระบุว่าเป็น transition/recovery ไม่ใช่ reversal ที่ยืนยันแล้ว
+D-1 และ PREVIOUS SESSION ต้องใช้เพื่ออธิบายบริบท ไม่ใช่แทนข้อมูล intraday ล่าสุด
+ถ้า baseline ใดหาย ให้ใช้เฉพาะ baseline ที่มีและระบุ limitation เฉพาะจุดนั้น
 
 8) MACRO / NEWS INTELLIGENCE
 ข่าวทุกชิ้นต้องผ่าน:
@@ -665,12 +680,19 @@ GATE I — CONFLICT CHECK
 ห้าม "เพิ่มความมั่นใจ" ด้วย narrative ให้ใช้ WAIT/CONDITIONAL
 
 GATE J — FINAL DECISION
-สรุปเป็น:
-- directional context
-- what must happen next
-- what invalidates the thesis
-- which side is conditional
-โดย "BUY/SELL" ใน bias เป็น market view เท่านั้น ไม่ใช่คำสั่ง execute
+ต้องเลือก "dominant side" จาก evidence ทั้งชุด ไม่ใช่สะท้อนข้อมูลกลับมาเป็น WAIT โดยอัตโนมัติ
+ถ้า evidence ให้น้ำหนัก Bearish มากกว่า ให้เขียน Bearish เป็น thesis หลัก
+ถ้า Bullish มากกว่า ให้เขียน Bullish เป็น thesis หลัก
+ถ้า evidence สนับสนุนทั้งสองฝั่งอย่างใกล้เคียงจริง ๆ จึงใช้ Neutral/Transition
+
+Bias ต้องอยู่ใน narrative โดยตรง ไม่ต้องสร้าง Bias box แยก
+ใน narrative ต้องบอก:
+1. ตลาดกำลังอยู่ฝั่งไหน
+2. หลักฐานอะไรทำให้เลือกฝั่งนั้น
+3. อะไรเปลี่ยนจาก H-1 / D-1 / PREVIOUS SESSION
+4. จุดไหนทำให้ thesis ผิด
+
+"WAIT" ใช้เมื่อ setup ยังไม่ executable เท่านั้น ไม่ใช่ข้ออ้างที่จะไม่เลือก market direction
 ห้ามใช้ uncertainty score เป็นเหตุผลหลักในการตัดสินใจ
 
 13) SCENARIO ENGINE
@@ -678,11 +700,20 @@ GATE J — FINAL DECISION
 และใช้ BASE / ALT / INVALIDATION ใน schema เดิม
 ห้ามสร้าง probability ถ้าไม่มี statistical basis
 
-14) TRADE CONSTRUCTION
-สร้าง LONG และ SHORT conditional plan จาก deterministic levels เท่านั้น
-แยก LEVEL / TRIGGER / ENTRY / INVALIDATION / TARGET
-ถ้า trigger ยังไม่เกิด Bias สามารถเป็น WAIT ได้
-แต่ต้องยังบอกว่าต้องเกิดอะไรจึงจะเปลี่ยนเป็น LONG/SHORT
+14) TRADE CONSTRUCTION — READY TO ACT
+ให้ deterministic execution engine เป็นเจ้าของราคา Entry/SL/TP
+แต่บทวิเคราะห์ต้องเลือกแผนหลักให้สอดคล้องกับ dominant side
+
+ถ้า dominant side = BEARISH:
+- final_trade_idea ต้องชี้ไปที่ SHORT plan หลัก
+- ใช้ ENTRY / SL / TP1 / TP2 / TP3 ที่ deterministic engine ให้มา
+- ระบุ trigger/invalidation สั้น ๆ โดยไม่สร้างระดับใหม่
+ถ้า dominant side = BULLISH ให้ทำ mirror เป็น LONG
+
+ถ้าราคาปัจจุบันยังไม่เข้า execution zone:
+อย่าเปลี่ยน market thesis เป็น WAIT
+ให้เขียนว่า "มุมมองยัง Bearish/Bullish แต่แผนกำลังรอ trigger ที่ deterministic engine กำหนด"
+ห้ามสร้าง Entry/SL/TP ใหม่เองและห้ามคำนวณ RR เอง
 
 FUTURES / CFD
 เมื่อมี basis:
@@ -691,9 +722,18 @@ CFD Level = Futures Level - Basis
 ห้ามสร้างราคาใหม่ที่ไม่มีใน deterministic_levels หรือ current market snapshot
 
 OUTPUT STYLE
-Output ต้องสั้น กระชับ และเป็น "analysis" มากกว่า "data dump"
-อย่าแสดง raw metrics ทั้งหมดซ้ำ
-ให้ narrative เชื่อมหลายศาสตร์เข้าด้วยกัน
+Output ต้องเป็น "market story" ไม่ใช่รายงาน indicator ทีละตัว
+ย่อหน้าแรกต้องตอบทันทีว่า "ตอนนี้ตลาดอยู่ฝั่งไหน และเกิดอะไรขึ้นก่อนหน้านี้"
+โครงเรื่อง:
+1) NOW — state ปัจจุบัน
+2) CHANGE — H-1 / D-1 / PREVIOUS SESSION เปลี่ยนอะไร
+3) CAUSE — evidence หลายชั้นอธิบายการเปลี่ยนแปลงอย่างไร
+4) CONFLICT — อะไรค้าน thesis
+5) ACTION — แผนหลักที่กดได้เมื่อ deterministic execution state พร้อม
+
+อย่าเขียนว่า "ยังไม่มีสัญญาณยืนยัน" ซ้ำ ๆ จนกลายเป็นบทสรุปหลัก
+ถ้า structural evidence ชี้ลง ให้พูดว่า "ให้น้ำหนักฝั่งลง" แล้วค่อยอธิบายเงื่อนไขที่ทำให้มุมมองผิด
+อย่าแยก Bias เป็นกล่องหรือย่อหน้า telemetry
 แทนที่จะเขียน:
 Macro...
 GEX...
@@ -853,7 +893,7 @@ def analyze_with_supabot(parsed: dict[str, Any], history: dict[str, Any] | None 
             static_prefix=STATIC_PROMPT,
             dynamic={
                 "format": "human_analyst_thai_article",
-                "priority": ["MARKET_READ_ARTICLE","CAUSAL_MECHANISM","CONFLICT","HISTORICAL_CONTEXT","SCENARIO","TRADE_PLAN"],
+                "priority": ["MARKET_READ_ARTICLE","COMPARATIVE_CHANGE","CAUSAL_MECHANISM","CONFLICT","SCENARIO","TRADE_PLAN"],
                 "numeric_level_policy": "PRICE CLAIMS MAY USE ONLY VALUES PRESENT IN deterministic_levels OR current market snapshot. Do not invent, interpolate, calculate, or introduce any new price number.",
                 "derived_numeric_policy": "Do not calculate or emit new RR/R-multiple, percentages, ratios, probabilities, distances, expected-move values, or other derived numbers. The deterministic execution layer owns those calculations.",
                 "allowed_price_levels": payload["deterministic_levels"],
