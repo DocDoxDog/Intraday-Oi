@@ -9,9 +9,48 @@ This module is the final evidence-first boundary before LLM delivery:
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any
 import os
+
+
+BANGKOK_TZ = timezone(timedelta(hours=7))
+
+
+def desk_note_schedule(observed_at: Any = None) -> dict[str, str]:
+    """Return the active analyst desk-note slot and its deterministic expiry."""
+    dt = _ts(observed_at) or datetime.now(timezone.utc)
+    local = dt.astimezone(BANGKOK_TZ)
+    h = local.hour
+
+    if 10 <= h < 14:
+        slot = "10:00"
+        valid = local.replace(hour=14, minute=0, second=0, microsecond=0)
+    elif 14 <= h < 19:
+        slot = "14:00"
+        valid = local.replace(hour=19, minute=0, second=0, microsecond=0)
+    elif 19 <= h < 21:
+        slot = "19:00"
+        valid = local.replace(hour=21, minute=0, second=0, microsecond=0)
+    elif h >= 21 or h < 10:
+        slot = "21:00"
+        valid = (local + timedelta(days=1)).replace(hour=1, minute=0, second=0, microsecond=0)
+    else:
+        slot = "10:00"
+        valid = local.replace(hour=14, minute=0, second=0, microsecond=0)
+
+    return {
+        "slot": slot,
+        "observed_at": local.isoformat(),
+        "valid_until": valid.isoformat(),
+        "valid_until_label": valid.strftime("%d %b %Y %H:%M"),
+        "comparison_priority": (
+            "D-1 + TODAY_OPEN" if slot == "10:00"
+            else "H-1 + D-1" if slot == "14:00"
+            else "H-1 + TODAY_OPEN + D-1" if slot == "19:00"
+            else "H-1 + CURRENT_SESSION"
+        ),
+    }
 
 
 def _num(value: Any) -> float | None:
@@ -1185,9 +1224,14 @@ def normalize_analyst_output(
 
     ai["levels"] = {key: _fmt(value) for key, value in levels.items()}
 
-    history_summary = (state.get("history") or {}).get("summary")
-    if history_summary:
-        ai["history_comparison"] = history_summary
+    # Do not overwrite the LLM's comparative market story with raw
+    # telemetry such as "1H | TODAY | YESTERDAY". Keep raw history inside the
+    # canonical state and let the customer renderer consume the narrative.
+    ai["desk_note_context"] = desk_note_schedule(
+        parsed.get("observed_at") or parsed.get("retrieved_at")
+    )
+    ai["valid_until"] = ai["desk_note_context"]["valid_until"]
+    ai["valid_until_label"] = ai["desk_note_context"]["valid_until_label"]
 
     if not state.get("cfd_complete") and str(ai.get("analysis_status") or "").upper() == "CONFIRMED":
         ai["analysis_status"] = "DEGRADED"
