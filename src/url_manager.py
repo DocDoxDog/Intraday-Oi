@@ -347,28 +347,28 @@ class UrlManager:
             "1", "true", "yes", "on"
         }
 
-        # A URL supplied explicitly by GitHub Secrets is already the operator's
-        # current source of truth. Do not block the live job on Supabase lookup
-        # or another Chromium validation pass unless validation is explicitly enabled.
-        if env_url and prefer_direct and not validate_env:
-            print("✅ ใช้ QUIKSTRIKE_URL จาก env/Secret โดยตรง (skip preflight validation)", flush=True)
-            return env_url
+        # Explicit env URLs can become invalid server-side during the same day
+        # (for example a QuikStrike ObjectStore/instance is removed). Never trust
+        # the secret blindly: perform one bounded probe and self-heal immediately.
+        if env_url and prefer_direct:
+            print("    [url] probing explicit QUIKSTRIKE_URL for live QuikStrike session...", flush=True)
+            if self.validate(env_url):
+                print("✅ ใช้ QUIKSTRIKE_URL จาก env/Secret (live probe ผ่าน)", flush=True)
+                self.save_url(env_url)
+                return env_url
+            print("⚠️  QUIKSTRIKE_URL ใช้งานไม่ได้/หมดอายุ — จะไม่ scrape ต่อด้วย URL เดิม", flush=True)
 
         saved = self.get_saved_url()
-        if saved and self.validate(saved):
+        if saved and (not env_url or saved != env_url) and self.validate(saved):
             print("✅ ใช้ URL ที่เคยบันทึกไว้ใน Supabase (ยังใช้งานได้)", flush=True)
             return saved
 
-        if env_url:
-            if not validate_env:
-                print("✅ ใช้ URL จาก env/Secret โดยตรง (validation disabled)", flush=True)
-                return env_url
-            if self.validate(env_url):
-                print("✅ ใช้ URL จาก env/Secret (validation ผ่าน) — บันทึกทับของเก่าใน Supabase", flush=True)
-                self.save_url(env_url)
-                return env_url
+        if env_url and not prefer_direct and validate_env and self.validate(env_url):
+            print("✅ ใช้ URL จาก env/Secret (validation ผ่าน)", flush=True)
+            self.save_url(env_url)
+            return env_url
 
-        print("⚠️  URL เดิมทั้งหมดใช้ไม่ได้แล้ว กำลัง discover URL ใหม่ด้วย Playwright...", flush=True)
+        print("⚠️  URL เดิมใช้ไม่ได้แล้ว กำลัง discover QuikStrike session ใหม่...", flush=True)
         new_url = self.discover()
         if new_url:
             if self.validate(new_url):
