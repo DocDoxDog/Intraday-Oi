@@ -84,7 +84,33 @@ def run():
             print(f"    multi-expiration enabled: {len(raw.get('expiration_snapshots') or [])} expirations")
         else:
             raw = scrape(quikstrike_url)
-    except (ScrapeError, ValueError) as e:
+    except ScrapeError as e:
+        # QuikStrike may invalidate the ObjectStore between the URL preflight
+        # and the actual scrape. Discover a fresh session and retry once.
+        if str(e).startswith("QUIKSTRIKE_SESSION_INVALID"):
+            print(
+                "⚠️  QuikStrike session became invalid during scrape; "
+                "refreshing URL and retrying once...",
+                flush=True,
+            )
+            try:
+                quikstrike_url = UrlManager().get_url()
+                if max_expirations > 1:
+                    raw = scrape_multi_expiration(quikstrike_url, limit=max_expirations)
+                    print(
+                        f"    multi-expiration retry enabled: "
+                        f"{len(raw.get('expiration_snapshots') or [])} expirations",
+                        flush=True,
+                    )
+                else:
+                    raw = scrape(quikstrike_url)
+            except (ScrapeError, UrlManagerError, ValueError) as retry_error:
+                print(f"❌ Scrape retry failed: {retry_error}", file=sys.stderr)
+                sys.exit(1)
+        else:
+            print(f"❌ Scrape failed: {e}", file=sys.stderr)
+            sys.exit(1)
+    except ValueError as e:
         print(f"❌ Scrape failed: {e}", file=sys.stderr)
         sys.exit(1)
 
