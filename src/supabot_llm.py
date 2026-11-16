@@ -333,6 +333,7 @@ def _select_smart_reference(
             "age_hours": round(age_h, 2),
             "label": label,
             "score": round(score, 3),
+            "meaningfulness": round(magnitude, 3),
             "change": {
                 "price": round((num(current_price) - bp), 5) if bp is not None and num(current_price) is not None else None,
                 "vol": round((num(current_vol) - bv), 5) if bv is not None and num(current_vol) is not None else None,
@@ -356,13 +357,8 @@ def _select_smart_reference(
 
     # If all candidates are effectively unchanged, don't force a fake comparison.
     # Freshness only breaks ties; it must never turn an unchanged market
-    # into a fake comparison. Use the pre-freshness magnitude gate here.
-    selected_magnitude = min(
-        abs(float(selected.get("change", {}).get("price") or 0.0))
-        / price_scale * 800.0,
-        4.0,
-    )
-    if selected_magnitude < 0.8 and selected["score"] < 4.0:
+    # into a fake comparison.
+    if float(selected.get("meaningfulness") or 0.0) < 0.8:
         return {
             "status": "NO_MEANINGFUL_CHANGE",
             "selected": None,
