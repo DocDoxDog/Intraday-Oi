@@ -18,7 +18,7 @@ jobs:
   scrape:
     if: ${{ !contains(github.event.head_commit.message || '', '[skip-live-scrape]') }}
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 25
     steps:
       - uses: actions/checkout@v4
 
@@ -50,7 +50,9 @@ jobs:
           LINE_GROUP_ID: ${{ secrets.LINE_GROUP_ID }}
           TWELVEDATA_API_KEY: ${{ secrets.TWELVEDATA_API_KEY }}
           TWELVEDATA_SYMBOL: XAU/USD
+          PYTHONUNBUFFERED: "1"
           SUPABOT_LLM_TIMEOUT_SECONDS: "60"
+          QUIKSTRIKE_MULTI_EXPIRY_BUDGET_SECONDS: "840"
           # The workflow already schedules each analysis every 30 minutes.
           # Do not suppress the analyst bundle at the end of a long scrape;
           # news announcements remain independently deduplicated by event.
