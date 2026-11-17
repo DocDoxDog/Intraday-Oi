@@ -199,9 +199,26 @@ def build_deterministic_fallback(
     h1_delta = current_history_price - h1_price if current_history_price is not None and h1_price is not None else None
     d1_delta = current_history_price - d1_price if current_history_price is not None and d1_price is not None else None
     direction_text = "ขาขึ้น" if htf == "BULLISH" else "ขาลง" if htf == "BEARISH" else "ยังไม่ชัดเจน"
+    call_wall_fallback = call_wall
+    put_wall_fallback = put_wall
+    range_text = (
+        f" โดยราคายังอยู่ระหว่างโซนสำคัญ {_fmt(put_wall_fallback)}–{_fmt(call_wall_fallback)}"
+        if current_price is not None and put_wall_fallback is not None and call_wall_fallback is not None
+        and put_wall_fallback < current_price < call_wall_fallback
+        else ""
+    )
+    gamma_story = (
+        " Gamma เป็นลบ ทำให้การเคลื่อนไหวมีโอกาสถูกขยาย."
+        if net_gex is not None and net_gex < 0
+        else " Gamma เป็นบวก จึงมีแรงช่วยชะลอการแกว่งมากกว่า."
+        if net_gex is not None and net_gex > 0
+        else ""
+    )
     overview = (
-        f"ตอนนี้ทองอยู่แถว {_fmt(current_price)} และโครงสร้างหลักเป็น{direction_text}. "
-        + ("ภาพหลักยังให้น้ำหนักฝั่งลงมากกว่าฝั่งขึ้น" if htf == "BEARISH" else "ภาพหลักยังให้น้ำหนักฝั่งขึ้นมากกว่าฝั่งลง" if htf == "BULLISH" else "ยังต้องรอการเปลี่ยนโครงสร้าง")
+        f"ตอนนี้ทองอยู่แถว {_fmt(current_price)} และโครงสร้างหลักเป็น{direction_text}{range_text}."
+        f"{gamma_story}"
+        + (f" IV อยู่ที่ {_fmt(iv,2)}%." if iv is not None else "")
+        + (f" DTE เหลือ {_fmt(dte,2)} วัน." if dte is not None else "")
     )
 
     reference_label, reference_row = _smart_reference(parsed, history)
@@ -308,11 +325,11 @@ def build_deterministic_fallback(
             "risk_note": "Conditional roadmap only; not an execution instruction.",
         },
         "final_trade_idea": (
-            "thesis หลักยังเป็นฝั่งขาลง; ไม่ควรไล่ Short และรอ Buy-side Liquidity Sweep ก่อนเข้า" 
+            "ดังนั้นสิ่งที่ต้องรอคือ Buy-side Liquidity Sweep แล้วเกิด bearish reaction ก่อน Short; ไม่ไล่ราคา"
             if htf == "BEARISH" else
-            "thesis หลักยังเป็นฝั่งขาขึ้น; ไม่ควรไล่ Long และรอ Sell-side Liquidity Sweep ก่อนเข้า"
+            "ดังนั้นสิ่งที่ต้องรอคือ Sell-side Liquidity Sweep แล้วเกิด bullish reaction ก่อน Long; ไม่ไล่ราคา"
             if htf == "BULLISH" else
-            "รอการเปลี่ยนโครงสร้างที่ชัดเจนก่อนเลือกฝั่ง"
+            "ดังนั้นต้องรอ liquidity event ที่ทำให้เลือกฝั่งได้ชัดเจนก่อน"
         ),
         "data_limitations": [
             "LLM output unavailable or rejected: " + str(error)[:300],
