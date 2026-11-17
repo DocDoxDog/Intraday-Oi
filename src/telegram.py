@@ -133,7 +133,13 @@ def _note_levels(parsed: dict, ai_result: dict) -> tuple[list[float], list[float
 
 
 def _format_analysis_message(parsed: dict, ai_result: dict) -> str:
-    """Render the current analysis as one time-aware institutional Desk Note."""
+    """Render one coherent customer-facing market story.
+
+    The LLM owns explanation, but the Telegram renderer owns the narrative
+    spine: NOW -> smart reference/change -> cause/conflict -> levels ->
+    invalidation -> action. Do not concatenate the LLM's schema fields as an
+    indicator-by-indicator article.
+    """
     observed = parsed.get("observed_at") or parsed.get("retrieved_at")
     schedule = ai_result.get("desk_note_context") or desk_note_schedule(observed)
     slot = str(schedule.get("slot") or "-")
@@ -148,122 +154,150 @@ def _format_analysis_message(parsed: dict, ai_result: dict) -> str:
         or ai_result.get("bias")
         or ""
     ).upper()
-    bias_text = "Bearish" if structural_bias in {"BEARISH", "SELL"} else "Bullish" if structural_bias in {"BULLISH", "BUY"} else "ยังไม่ชัดเจน"
-
-    overview = _single_line(ai_result.get("market_overview") or ai_result.get("what"))
-    comparison = _single_line(ai_result.get("history_comparison"))
-    why = _single_line(ai_result.get("why") or ai_result.get("financial_engineering"))
-    invalidation = _single_line(ai_result.get("invalidation_case"))
-
-    if not overview:
-        current = _show(parsed.get("cfd_price") or parsed.get("future_price"))
-        overview = f"ตอนนี้ทองอยู่แถว {current} และโครงสร้างหลักเป็น{bias_text.lower()} โดยภาพรวมให้น้ำหนักฝั่ง{'ลง' if bias_text == 'Bearish' else 'ขึ้น' if bias_text == 'Bullish' else 'รอดู'}"
+    if structural_bias in {"SELL", "BEARISH"}:
+        structural_bias = "BEARISH"
+    elif structural_bias in {"BUY", "BULLISH"}:
+        structural_bias = "BULLISH"
     else:
-        overview = overview.replace("WAIT", "PENDING").replace("wait", "pending")
+        structural_bias = "MIXED"
 
-    if comparison and ("1H:" in comparison or "TODAY:" in comparison or "YESTERDAY:" in comparison):
-        comparison = ""
-    if not comparison:
-        # Reference selection is evidence-driven, never fixed to a desk-note slot.
-        # Prefer the smart baseline produced upstream; otherwise use an explicit
-        # no-change statement rather than silently forcing H-1/D-1.
-        history = state.get("history") or {}
-        reference_selection = history.get("reference_selection") or ai_result.get("reference_selection") or {}
-        selected = reference_selection.get("selected") or {}
-        selected_label = selected.get("label")
-        change = selected.get("change") or {}
-        delta = change.get("price")
-        if selected_label and delta is not None:
-            comparison = (
-                f"เมื่อเทียบกับ{selected_label} ราคาปัจจุบัน"
-                f"{'ลดลง' if float(delta) < 0 else 'เพิ่มขึ้น' if float(delta) > 0 else 'แทบไม่เปลี่ยน'} "
-                "และให้น้ำหนักกับโครงสร้างสำคัญเดิมต่อ"
-            )
-        elif reference_selection.get("status") == "NO_MEANINGFUL_CHANGE":
-            comparison = "จากช่วงก่อนหน้า โครงสร้างยังไม่เปลี่ยนอย่างมีนัยสำคัญ จึงยังไม่มีเหตุผลให้เปลี่ยน thesis"
+    def clean(value: object) -> str:
+        text = _single_line(value)
+        if not text:
+            return ""
+        text = re.sub(r"(บริเวณ|ที่)\s+UNKNOWN\b", "", text, flags=re.IGNORECASE)
+        text = re.sub(r"\s{2,}", " ", text).strip()
+        return text
 
+    overview = clean(
+        ai_result.get("liquidity_story")
+        or ai_result.get("market_overview")
+        or ai_result.get("what")
+    )
 
-    # Keep the cause paragraph as a synthesis, not a telemetry list.
-    if why:
-        why = re.sub(r"(?:\bOI\b|\bGEX\b|\bIV\b)\s*[:=]", "", why, flags=re.IGNORECASE)
-        why = why.replace("| Conflict:", " ขณะที่ ")
-    if not why:
-        vol = state.get("volatility") or {}
-        gamma = state.get("gamma") or {}
-        parts = []
-        if gamma.get("net_gex") is not None and float(gamma.get("net_gex")) < 0:
-            parts.append("Gamma เป็นลบ ทำให้การเคลื่อนไหวมีโอกาสถูกขยาย")
-        if vol.get("iv_change_1h") is not None:
-            parts.append("ความผันผวนยังไม่ลดลงจากชั่วโมงก่อน" if float(vol["iv_change_1h"]) >= 0 else "ความผันผวนเริ่มลดลงจากชั่วโมงก่อน")
-        if vol.get("skew") is not None and float(vol.get("skew")) > 0:
-            parts.append("Put Skew ยังเอียงไปทาง downside")
-        why = " ขณะที่ ".join(parts)
+    # Smart reference only. Never manufacture H-1/D-1 from the desk-note slot.
+    reference_selection = (
+        ai_result.get("reference_selection")
+        or (state.get("history") or {}).get("reference_selection")
+        or {}
+    )
+    selected = reference_selection.get("selected") or {}
+    selected_label = selected.get("label")
+    change = selected.get("change") or {}
+    delta = change.get("price")
+    comparison = ""
+    if selected_label and isinstance(delta, (int, float)):
+        movement = "ลดลง" if float(delta) < 0 else "เพิ่มขึ้น" if float(delta) > 0 else "แทบไม่เปลี่ยน"
+        comparison = f"เมื่อเทียบกับ{selected_label} ราคาปัจจุบัน{movement}"
+        vol_delta = change.get("vol")
+        if isinstance(vol_delta, (int, float)) and vol_delta != 0:
+            comparison += f" และ IV {'เพิ่มขึ้น' if float(vol_delta) > 0 else 'ลดลง'}"
+        comparison += " จึงให้น้ำหนักกับการเปลี่ยนแปลงนี้เป็นแกนของ thesis"
+    elif reference_selection.get("status") == "NO_MEANINGFUL_CHANGE":
+        comparison = "จากช่วงก่อนหน้า โครงสร้างยังไม่เปลี่ยนอย่างมีนัยสำคัญ จึงยังไม่มีเหตุผลให้เปลี่ยน thesis"
+
+    # Build one causal/conflict sentence from deterministic state first. This
+    # prevents separate LLM fields from becoming another indicator catalogue.
+    technical = state.get("technical") or {}
+    h4 = (technical.get("h4") or {}).get("trend")
+    h1 = (technical.get("h1") or {}).get("trend")
+    m5 = (technical.get("m5") or {}).get("trend")
+    m1 = (technical.get("m1") or {}).get("trend")
+    gamma = state.get("gamma") or {}
+    flow = state.get("flow") or {}
+    cause_parts = []
+
+    if structural_bias == "BEARISH":
+        if str(m5 or "").lower() == "bullish" or str(m1 or "").lower() == "bullish":
+            cause_parts.append("แม้ M5/M1 ฟื้นตัวขึ้นระยะสั้น แต่ยังสวนโครงสร้าง H4/H1 จึงมองเป็นการฟื้นตัวมากกว่าการกลับทิศ")
+        elif str(h4 or "").lower() == "bearish" or str(h1 or "").lower() == "bearish":
+            cause_parts.append("โครงสร้าง H4/H1 ยังสนับสนุนฝั่งลง")
+    elif structural_bias == "BULLISH":
+        if str(m5 or "").lower() == "bearish" or str(m1 or "").lower() == "bearish":
+            cause_parts.append("แม้ M5/M1 อ่อนตัวระยะสั้น แต่ยังสวนโครงสร้าง H4/H1 จึงมองเป็น pullback มากกว่าการกลับทิศ")
+        elif str(h4 or "").lower() == "bullish" or str(h1 or "").lower() == "bullish":
+            cause_parts.append("โครงสร้าง H4/H1 ยังสนับสนุนฝั่งขึ้น")
+
+    gamma_net = gamma.get("net_gex")
+    if isinstance(gamma_net, (int, float)) and gamma_net < 0:
+        cause_parts.append("Gamma เป็นลบ จึงมีโอกาสขยายการเคลื่อนไหวเมื่อราคาเกิด break")
+    elif isinstance(gamma_net, (int, float)) and gamma_net > 0:
+        cause_parts.append("Gamma เป็นบวก จึงมีแรงช่วยชะลอการแกว่งมากกว่า")
+
+    oi_put = flow.get("oi_change_put")
+    oi_call = flow.get("oi_change_call")
+    if isinstance(oi_put, (int, float)) and isinstance(oi_call, (int, float)):
+        cause_parts.append("OI เปลี่ยนทั้งสองฝั่ง แต่ข้อมูลนี้ยังไม่บอกว่าใครเป็น aggressor จึงใช้เป็น positioning context เท่านั้น")
+
+    if not cause_parts:
+        cause_parts.append(
+            clean(ai_result.get("why") or ai_result.get("financial_engineering"))
+            or "หลักฐานปัจจุบันยังไม่มากพอที่จะเพิ่ม conviction จากข้อมูลชุดเดียว"
+        )
+    cause = " ".join(cause_parts)
 
     resist, support = _note_levels(parsed, ai_result)
-    resistance_line = (
-        "Resistance: " + " / ".join(_show(x) for x in resist)
-        if resist else ""
-    )
-    support_line = (
-        "Support: " + " / ".join(_show(x) for x in support)
-        if support else ""
-    )
+    level_values = []
+    if resist:
+        level_values.append("Resistance: " + " / ".join(_show(x) for x in resist))
+    if support:
+        level_values.append("Support: " + " / ".join(_show(x) for x in support))
+    levels_line = " | ".join(level_values)
 
     liquidity = state.get("liquidity") or {}
     gate = str(liquidity.get("gate") or "").upper()
-    if structural_bias == "BEARISH":
+    preferred_event = str(liquidity.get("preferred_event") or "").upper()
+
+    if gate == "SWEEP_DETECTED":
+        if preferred_event == "BUY_SIDE_SWEEP":
+            plan = "Plan: Buy-side Sweep เกิดแล้ว → ใช้ M15/M5 จับจังหวะ Short ตาม deterministic setup / ไม่ไล่ราคา"
+        elif preferred_event == "SELL_SIDE_SWEEP":
+            plan = "Plan: Sell-side Sweep เกิดแล้ว → ใช้ M15/M5 จับจังหวะ Long ตาม deterministic setup / ไม่ไล่ราคา"
+        else:
+            plan = "Plan: Sweep เกิดแล้ว → ใช้ M15/M5 จับจังหวะเข้าตาม deterministic setup"
+    elif structural_bias == "BEARISH":
         plan = "Plan: รอ Buy-side Liquidity Sweep ก่อน Short / ไม่ไล่ราคา"
     elif structural_bias == "BULLISH":
         plan = "Plan: รอ Sell-side Liquidity Sweep ก่อน Long / ไม่ไล่ราคา"
     else:
         plan = "Plan: รอ event ที่ทำให้ directional thesis ชัดขึ้น"
-    if gate == "SWEEP_DETECTED":
-        plan = (
-            "Plan: Liquidity Sweep เกิดแล้ว → ใช้ deterministic setup เป็นตัวกำหนดจังหวะเข้า"
-            if structural_bias in {"BEARISH", "BULLISH"}
-            else plan
-        )
 
-    invalid_line = ""
-    if invalidation and not invalidation.lower().startswith(("เมื่อ structure", "thesis")):
-        invalid_line = f"Invalidation: {invalidation}"
+    execution = (ai_result.get("trade_plan") or {}).get("execution_plan") or {}
+    primary = execution.get("primary_setup") if isinstance(execution, dict) else None
+    stop = primary.get("stop") if isinstance(primary, dict) else None
+    if isinstance(stop, (int, float)) and structural_bias == "BEARISH":
+        invalidation = f"Invalidation: กลับผ่าน {_show(stop)} แล้ว thesis Bearish ถูกยกเลิก"
+    elif isinstance(stop, (int, float)) and structural_bias == "BULLISH":
+        invalidation = f"Invalidation: หลุด {_show(stop)} แล้ว thesis Bullish ถูกยกเลิก"
     else:
-        levels = state.get("levels") or {}
-        invalid = levels.get("resistance_main") if structural_bias == "BEARISH" else levels.get("support_main") if structural_bias == "BULLISH" else None
-        if invalid is not None:
-            invalid_line = (
-                f"Invalidation: ยืนเหนือ {_show(invalid)} ได้" if structural_bias == "BEARISH"
-                else f"Invalidation: หลุด {_show(invalid)}" if structural_bias == "BULLISH" else ""
-            )
+        invalidation = ""
 
-    lines = [
-        f"<b>GOLD MARKET — {slot}</b>",
-    ]
-
+    lines = [f"<b>GOLD MARKET — {slot}</b>"]
     cfd = parsed.get("cfd_price")
     fut = parsed.get("future_price")
     dte = parsed.get("dte")
     vol = parsed.get("vol")
     basis = parsed.get("basis_diff")
-    header_market = []
     if cfd is not None or fut is not None:
-        header_market.append(
-            f"CFD {_show(cfd)} | FUT. {_show(fut)}"
-        )
+        lines.append(_escape(f"CFD {_show(cfd)} | FUT. {_show(fut)}"))
     if basis is not None or vol is not None:
         parts = []
         if basis is not None:
             parts.append(f"BASIS {_show(basis)}")
         if vol is not None:
             parts.append(f"IV {_show(vol)}%")
-        header_market.append(" | ".join(parts))
+        lines.append(_escape(" | ".join(parts)))
     if dte is not None:
-        header_market.append(f"DTE. {_show(dte, 2)}")
-    lines.extend(_escape(x) for x in header_market)
-    lines.append(_escape(overview))
-    for value in (comparison, why, resistance_line, support_line, invalid_line, plan):
-        if value:
-            lines.append(_escape(value))
+        lines.append(_escape(f"DTE. {_show(dte, 2)}"))
+    if overview:
+        lines.append(_escape(overview))
+    if comparison or cause:
+        lines.append(_escape(" ".join(x for x in (comparison, cause) if x)))
+    if levels_line:
+        lines.append(_escape(levels_line))
+    if invalidation:
+        lines.append(_escape(invalidation))
+    lines.append(_escape(plan))
     lines.append(_escape(f"Valid Until: {valid_until}"))
     return "\n".join(lines[:10])
 
