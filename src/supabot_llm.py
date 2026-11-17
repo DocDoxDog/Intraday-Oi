@@ -487,7 +487,9 @@ def _compact_history(parsed: dict[str, Any], history: dict[str, Any] | None) -> 
         "put_wall": (yesterday.get("oi_last") or {}).get("put_wall"),
         "session_key": yesterday.get("session_key"),
     } if yesterday.get("count") else None
-    prev_session = previous_day
+    # Prefer a real previous-session aggregate when the history provider supplies one.
+    # Fall back to the prior day only when no session-level baseline exists.
+    prev_session = legacy_snapshot(history.get("previous_session")) or previous_day
 
     def delta(base: dict[str, Any] | None) -> dict[str, Any]:
         if not base:
