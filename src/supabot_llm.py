@@ -25,7 +25,7 @@ except ImportError:
 
 DEFAULT_GATEWAY_PATH = "/internal/v1/llm/generate"
 TASK = "market.narrative"
-PROMPT_VERSION = "intraday-oi-market-analyst-v14-liquidity-story"
+PROMPT_VERSION = "intraday-oi-market-analyst-v15-gamma-wall-continuation"
 DATASET_VERSION = "quikstrike-oi-view-v2"
 CALCULATION_VERSION = "intraday-oi-calcs-v1"
 
@@ -703,6 +703,10 @@ History และ News
 - ไม่มี Sweep = thesis ยังอยู่ได้ แต่ execution เป็น PENDING
 - อย่าใช้คำว่า WAIT/Neutral แทน directional thesis ที่ชัด
 - External liquidity ใช้เป็น target; internal liquidity ใช้เป็น execution
+- เมื่อราคาทะลุ Gamma Wall สำคัญ ให้หา Gamma Wall ถัดไปในทิศทางเดียวกันจาก deterministic_levels / market_state.levels ทันที และใช้เป็น target ถัดไปถ้ามีข้อมูลยืนยัน
+- ถ้าราคายังอยู่ระหว่าง Gamma Walls ให้ใช้ wall ด้านบน/ด้านล่างเป็น decision zones ไม่ใช่ target ที่ผ่านไปแล้ว
+- หลัง Break + Acceptance ให้ target แรกเป็น Gamma Wall ถัดไป ไม่ใช่ตัวเลขที่เดาเอง และถัดจากนั้นค่อยดู wall ถัดไปอีกชั้น
+- ถ้าไม่มี Gamma Wall ถัดไปที่ source ยืนยันได้ ให้บอกว่า target ถัดไปยังไม่ยืนยัน แทนการสร้างราคาเอง
 - ห้ามเดา dealer position หรือ participant intent จาก OI/Gamma เพียงอย่างเดียว
 
 CUSTOMER ARTICLE CONTRACT — ต้องเขียนให้มีลักษณะเดียวกับ desk note ตัวอย่าง:
@@ -734,7 +738,9 @@ OI concentration, ΔOI, Churn, IV, DTE และ IV Skew เฉพาะสิ�
 - Bearish → รอราคาขึ้นไปกวาด Buy-side Liquidity แล้วเกิด bearish reaction ก่อน Short
 - Bullish → รอราคาลงไปกวาด Sell-side Liquidity แล้วเกิด bullish reaction ก่อน Long
 - ระบุ external liquidity target ที่ source ยืนยันได้
-- ถ้า sweep ต่อเนื่อง ให้ระบุ target ถัดไปที่ source ยืนยันได้
+- ถ้าราคา Break + Acceptance ผ่าน Gamma Wall แล้ว ให้ใช้ Gamma Wall ถัดไปที่ deterministic map ยืนยันเป็น target แรก
+- ถ้า Sweep แล้ว Reclaim กลับเข้ากรอบ ให้ target กลับไปยัง Gamma Wall ฝั่งตรงข้ามที่ source ยืนยันได้
+- ถ้า sweep ต่อเนื่อง ให้ระบุ Gamma Wall ถัดไปอีกชั้นเมื่อมีข้อมูล
 - ถ้ายังไม่มี sweep ให้บอกว่า "ไม่ไล่ราคา"
 - Invalidation ต้องเป็น source-derived และต้องทำให้ thesis ผิดจริง
 
