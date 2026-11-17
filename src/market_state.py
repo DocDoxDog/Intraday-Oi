@@ -188,6 +188,54 @@ def _history_for(parsed: dict[str, Any], history: dict[str, Any]) -> dict[str, A
     }
 
 
+def _next_gamma_walls(parsed: dict[str, Any], *, above: bool, anchor: float | None) -> list[float]:
+    """Return significant gamma walls beyond an anchor, nearest first.
+
+    These are continuation targets after a wall is broken. Only source-derived
+    multi-expiry structural nodes or real-chain GEX concentrations are used.
+    No fixed-price ladder is manufactured.
+    """
+    if anchor is None:
+        return []
+    raw = parsed.get("raw_series") or {}
+    future = _num(parsed.get("future_price"))
+    cfd = _num(parsed.get("cfd_price"))
+    if future is None or cfd is None:
+        return []
+
+    zones = raw.get("multi_expiry_gamma_zones") or {}
+    source = zones.get("resistance_nodes") if above else zones.get("support_nodes")
+    values: list[float] = []
+    for value in source or []:
+        level = _cfd_level(value, future, cfd)
+        if level is not None and ((level > anchor) if above else (level < anchor)):
+            values.append(level)
+
+    if not values:
+        rows = [
+            row for row in (raw.get("gex") or {}).get("rows", [])
+            if isinstance(row, dict) and _num(row.get("strike")) is not None
+            and _num(row.get("net_gex")) is not None
+        ]
+        candidates: list[tuple[float, float]] = []
+        for row in rows:
+            gex = _num(row.get("net_gex"))
+            if gex is None:
+                continue
+            if above and gex <= 0:
+                continue
+            if not above and gex >= 0:
+                continue
+            level = _cfd_level(row.get("strike"), future, cfd)
+            if level is None or not ((level > anchor) if above else (level < anchor)):
+                continue
+            candidates.append((level, abs(gex)))
+        candidates.sort(key=lambda item: (abs(item[0] - anchor), -item[1]))
+        values = [level for level, _ in candidates[:5]]
+
+    return _unique_sorted(values, reverse=not above)
+
+
 def _levels(parsed: dict[str, Any]) -> dict[str, Any]:
     """Expose structural trigger anchors without manufacturing a price ladder."""
     raw = parsed.get("raw_series") or {}
@@ -206,13 +254,21 @@ def _levels(parsed: dict[str, Any]) -> dict[str, Any]:
 
     call_wall = _num(gex.get("call_wall"))
     put_wall = _num(gex.get("put_wall"))
+    resistance_main = _cfd_level(call_wall, future, cfd)
+    support_main = _cfd_level(put_wall, future, cfd)
+    next_up = _next_gamma_walls(parsed, above=True, anchor=resistance_main)
+    next_down = _next_gamma_walls(parsed, above=False, anchor=support_main)
     return {
-        "resistance_far": None,
-        "resistance_main": _cfd_level(call_wall, future, cfd),
-        "resistance_current": _cfd_level(call_wall, future, cfd),
-        "support_current": _cfd_level(put_wall, future, cfd),
-        "support_main": _cfd_level(put_wall, future, cfd),
-        "support_deep": None,
+        "resistance_far": next_up[0] if next_up else None,
+        "resistance_main": resistance_main,
+        "resistance_current": resistance_main,
+        "support_current": support_main,
+        "support_main": support_main,
+        "support_deep": next_down[0] if next_down else None,
+        "gamma_wall_up_next": next_up[0] if next_up else None,
+        "gamma_wall_down_next": next_down[0] if next_down else None,
+        "gamma_wall_up_chain": next_up[:5],
+        "gamma_wall_down_chain": next_down[:5],
     }
 
 
