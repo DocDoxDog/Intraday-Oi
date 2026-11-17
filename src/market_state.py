@@ -1117,17 +1117,19 @@ def _liquidity_market_overview(
     state: dict[str, Any],
     primary_setup: dict[str, Any] | None,
 ) -> str:
-    """Build the deterministic NOW/LIQUIDITY story used by the customer renderer.
-
-    Historical comparison is supplied by the smart-reference selector. This
-    function must never invent a fixed H-1/D-1 reference or expose UNKNOWN as
-    a price.
-    """
+    """Build the deterministic NOW story; comparative CHANGE is rendered separately."""
     decision = state.get("decision") or {}
     liquidity = state.get("liquidity") or {}
     structural = str(decision.get("structural_bias") or "MIXED").upper()
     current = _num(parsed.get("cfd_price")) or _num(parsed.get("future_price"))
     side_text = "ขาขึ้น" if structural == "BULLISH" else "ขาลง" if structural == "BEARISH" else "ยังไม่ชัดเจน"
+
+    gamma = state.get("gamma") or {}
+    gamma_net = _num(gamma.get("net_gex"))
+    iv = _num((state.get("volatility") or {}).get("iv")) or _num(parsed.get("vol"))
+    dte = _num((state.get("price") or {}).get("dte")) or _num(parsed.get("dte"))
+    call_wall = _num(gamma.get("call_wall"))
+    put_wall = _num(gamma.get("put_wall"))
 
     preferred_event = str(liquidity.get("preferred_event") or "").upper()
     latest = liquidity.get("latest_preferred_sweep") or {}
@@ -1155,25 +1157,34 @@ def _liquidity_market_overview(
         else []
     ) or []
     target_text = (
-        f"Liquidity ภาพใหญ่ถัดไปอยู่แถว {_fmt(targets[0])}"
+        f"External Liquidity เป้าหมายถัดไปอยู่แถว {_fmt(targets[0])}"
         if targets and _num(targets[0]) is not None
         else "ยังไม่มี External Liquidity เป้าหมายที่ยืนยันได้"
-    )
-
-    gamma = state.get("gamma") or {}
-    gamma_net = _num(gamma.get("net_gex"))
-    gamma_text = (
-        "Gamma เป็นลบ ทำให้การเคลื่อนไหวมีโอกาสถูกขยาย"
-        if gamma_net is not None and gamma_net < 0
-        else "Gamma เป็นบวก จึงมีแรงช่วยชะลอการแกว่งมากกว่า"
-        if gamma_net is not None and gamma_net > 0
-        else ""
     )
 
     if current is None:
         opening = f"ตอนนี้โครงสร้างหลักเป็น{side_text}"
     else:
-        opening = f"ตอนนี้ทองอยู่แถว {_fmt(current)} และโครงสร้างหลักเป็น{side_text}"
+        range_text = ""
+        if call_wall is not None and put_wall is not None and put_wall < current < call_wall:
+            range_text = f" โดยราคายังอยู่ระหว่างโซนสำคัญ {_fmt(put_wall)}–{_fmt(call_wall)}"
+        opening = f"ตอนนี้ทองอยู่แถว {_fmt(current)} และโครงสร้างหลักเป็น{side_text}{range_text}"
+
+    context_parts = []
+    if gamma_net is not None:
+        context_parts.append(
+            "Gamma เป็นลบ ทำให้การเคลื่อนไหวมีโอกาสถูกขยาย"
+            if gamma_net < 0
+            else "Gamma เป็นบวก จึงมีแรงช่วยชะลอการแกว่งมากกว่า"
+        )
+    if iv is not None:
+        context_parts.append(f"IV อยู่ที่ {_fmt(iv)}%")
+    if dte is not None:
+        context_parts.append(f"DTE เหลือ {_fmt(dte)} วัน")
+    if call_wall is not None and put_wall is not None and put_wall < current < call_wall:
+        context_parts.append(
+            f"โซน {_fmt(put_wall)}–{_fmt(call_wall)} จึงเป็นพื้นที่ที่ควรรอการเลือกฝั่งก่อน"
+        )
 
     execution = (
         "Sweep เกิดแล้ว จึงให้ M15/M5 เป็นตัวจับจังหวะเข้า"
@@ -1197,14 +1208,14 @@ def _liquidity_market_overview(
                 else ""
             )
 
-    parts = [
-        f"{opening}.",
-        f"{sweep_text}; {execution}.",
-        f"{target_text}. {gamma_text}".strip(),
-        invalid.strip(),
-    ]
+    parts = [f"{opening}."]
+    if context_parts:
+        parts.append(" ".join(context_parts) + ".")
+    parts.append(f"{sweep_text}; {execution}.")
+    parts.append(f"{target_text}.")
+    if invalid:
+        parts.append(invalid)
     return " ".join(x for x in parts if x).strip()
-
 
 def normalize_analyst_output(
     parsed: dict[str, Any],
@@ -1572,8 +1583,8 @@ def normalize_analyst_output(
     execution_plan["liquidity_gate"] = liquidity.get("gate")
     execution_plan["preferred_liquidity_event"] = liquidity.get("preferred_event")
 
-    # Deterministic liquidity-first prose becomes the customer-facing first
-    # paragraph; the LLM supplies supporting explanation around it.
+    # Deterministic liquidity-first prose is the customer-facing NOW/action spine.
+    # The LLM owns CHANGE/WHY prose; Telegram renders them as one continuous story.
     liquidity_story = _liquidity_market_overview(parsed, state, primary_setup)
     ai["market_overview"] = liquidity_story
     ai["liquidity_story"] = liquidity_story
