@@ -1117,10 +1117,11 @@ def _liquidity_market_overview(
     state: dict[str, Any],
     primary_setup: dict[str, Any] | None,
 ) -> str:
-    """Build the customer-facing market story from structure + liquidity.
+    """Build the deterministic NOW/LIQUIDITY story used by the customer renderer.
 
-    This is deterministic prose scaffolding so the article cannot fall back to
-    the old indicator-by-indicator report when the LLM chooses generic wording.
+    Historical comparison is supplied by the smart-reference selector. This
+    function must never invent a fixed H-1/D-1 reference or expose UNKNOWN as
+    a price.
     """
     decision = state.get("decision") or {}
     liquidity = state.get("liquidity") or {}
@@ -1128,36 +1129,24 @@ def _liquidity_market_overview(
     current = _num(parsed.get("cfd_price")) or _num(parsed.get("future_price"))
     side_text = "ขาขึ้น" if structural == "BULLISH" else "ขาลง" if structural == "BEARISH" else "ยังไม่ชัดเจน"
 
-    price_change = _num((state.get("history") or {}).get("1h", {}).get("price"))
-    prev_change = _num((state.get("history") or {}).get("yesterday", {}).get("price"))
-    changes = []
-    if price_change is not None:
-        changes.append(f"H-1 {price_change:+,.2f}")
-    if prev_change is not None:
-        changes.append(f"session ก่อน {prev_change:+,.2f}")
-    change_text = f" เมื่อเทียบกับ {' / '.join(changes)}" if changes else ""
+    preferred_event = str(liquidity.get("preferred_event") or "").upper()
+    latest = liquidity.get("latest_preferred_sweep") or {}
+    gate = str(liquidity.get("gate") or "").upper()
 
-    preferred_event = liquidity.get("preferred_event")
-    latest = liquidity.get("latest_preferred_sweep")
-    gate = str(liquidity.get("gate") or "UNKNOWN").upper()
     if preferred_event == "BUY_SIDE_SWEEP":
-        if latest:
-            sweep_text = (
-                f"เกิด Buy-side Sweep ที่ {latest.get('timeframe', 'M15/M5')} "
-                f"บริเวณ {_fmt(latest.get('level'))} แล้ว"
-            )
-        else:
-            sweep_text = "ยังไม่มี Buy-side Sweep ที่ M15/M5 ซึ่งเป็น event ที่ระบบต้องการก่อนตามฝั่ง Short"
+        sweep_text = (
+            f"เกิด Buy-side Sweep ที่ {(latest.get('timeframe') if isinstance(latest, dict) else None) or 'M15/M5'} แล้ว"
+            if gate == "SWEEP_DETECTED"
+            else "ยังไม่มี Buy-side Sweep ที่ M15/M5 ซึ่งเป็น event ที่ต้องเกิดก่อนตามฝั่ง Short"
+        )
     elif preferred_event == "SELL_SIDE_SWEEP":
-        if latest:
-            sweep_text = (
-                f"เกิด Sell-side Sweep ที่ {latest.get('timeframe', 'M15/M5')} "
-                f"บริเวณ {_fmt(latest.get('level'))} แล้ว"
-            )
-        else:
-            sweep_text = "ยังไม่มี Sell-side Sweep ที่ M15/M5 ซึ่งเป็น event ที่ระบบต้องการก่อนตามฝั่ง Long"
+        sweep_text = (
+            f"เกิด Sell-side Sweep ที่ {(latest.get('timeframe') if isinstance(latest, dict) else None) or 'M15/M5'} แล้ว"
+            if gate == "SWEEP_DETECTED"
+            else "ยังไม่มี Sell-side Sweep ที่ M15/M5 ซึ่งเป็น event ที่ต้องเกิดก่อนตามฝั่ง Long"
+        )
     else:
-        sweep_text = "โครงสร้างหลาย Timeframe ยังไม่ลงรอยพอสำหรับเลือก liquidity side เดียว"
+        sweep_text = "ยังไม่มี liquidity event ที่เลือกเป็น trigger หลัก"
 
     external = liquidity.get("external") or {}
     targets = (
@@ -1165,31 +1154,35 @@ def _liquidity_market_overview(
         else external.get("long_targets") if structural == "BULLISH"
         else []
     ) or []
-    target_text = f"Liquidity ภาพใหญ่ถัดไปอยู่แถว {_fmt(targets[0])}" if targets else "ยังไม่มี External Liquidity เป้าหมายที่ยืนยันได้"
+    target_text = (
+        f"Liquidity ภาพใหญ่ถัดไปอยู่แถว {_fmt(targets[0])}"
+        if targets and _num(targets[0]) is not None
+        else "ยังไม่มี External Liquidity เป้าหมายที่ยืนยันได้"
+    )
 
     gamma = state.get("gamma") or {}
     gamma_net = _num(gamma.get("net_gex"))
     gamma_text = (
-        "ขณะที่ Gamma เป็นลบ ทำให้การเคลื่อนไหวมีโอกาสถูกขยาย"
+        "Gamma เป็นลบ ทำให้การเคลื่อนไหวมีโอกาสถูกขยาย"
         if gamma_net is not None and gamma_net < 0
-        else "ขณะที่ Gamma เป็นบวก จึงมองเป็นแรงชะลอการแกว่งมากกว่า"
+        else "Gamma เป็นบวก จึงมีแรงช่วยชะลอการแกว่งมากกว่า"
         if gamma_net is not None and gamma_net > 0
         else ""
     )
 
     if current is None:
-        opening = f"ตอนนี้โครงสร้างหลักเป็น{side_text}{change_text}"
+        opening = f"ตอนนี้โครงสร้างหลักเป็น{side_text}"
     else:
-        opening = f"ตอนนี้ทองอยู่แถว {_fmt(current)} และโครงสร้างหลักเป็น{side_text}{change_text}"
+        opening = f"ตอนนี้ทองอยู่แถว {_fmt(current)} และโครงสร้างหลักเป็น{side_text}"
 
     execution = (
-        "ดังนั้น thesis ยังเป็นฝั่ง Short แต่สถานะยัง PENDING รอ Buy-side Sweep"
-        if structural == "BEARISH" and gate == "SWEEP_PENDING"
-        else "ดังนั้น thesis ยังเป็นฝั่ง Long แต่สถานะยัง PENDING รอ Sell-side Sweep"
-        if structural == "BULLISH" and gate == "SWEEP_PENDING"
-        else "Sweep เกิดแล้ว จึงให้ M15/M5 เป็นตัวจับจังหวะเข้า"
+        "Sweep เกิดแล้ว จึงให้ M15/M5 เป็นตัวจับจังหวะเข้า"
         if gate == "SWEEP_DETECTED"
-        else "ตอนนี้ยังรอ event ที่ทำให้ execution ชัดขึ้น"
+        else "thesis ยังอยู่ฝั่ง Short แต่ execution รอ Buy-side Sweep"
+        if structural == "BEARISH"
+        else "thesis ยังอยู่ฝั่ง Long แต่ execution รอ Sell-side Sweep"
+        if structural == "BULLISH"
+        else "ยังรอ event ที่ทำให้ directional thesis ชัดขึ้น"
     )
 
     invalid = ""
@@ -1197,9 +1190,9 @@ def _liquidity_market_overview(
         stop = _num(primary_setup.get("stop"))
         if stop is not None:
             invalid = (
-                f" ถ้าราคากลับผ่าน {_fmt(stop)} thesis นี้จะถูกยกเลิก."
+                f"ถ้าราคากลับผ่าน {_fmt(stop)} thesis นี้จะถูกยกเลิก"
                 if structural == "BEARISH"
-                else f" ถ้าราคาหลุด {_fmt(stop)} thesis นี้จะถูกยกเลิก."
+                else f"ถ้าราคาหลุด {_fmt(stop)} thesis นี้จะถูกยกเลิก"
                 if structural == "BULLISH"
                 else ""
             )
@@ -1210,7 +1203,7 @@ def _liquidity_market_overview(
         f"{target_text}. {gamma_text}".strip(),
         invalid.strip(),
     ]
-    return "\n\n".join(x for x in parts if x).strip()
+    return " ".join(x for x in parts if x).strip()
 
 
 def normalize_analyst_output(
