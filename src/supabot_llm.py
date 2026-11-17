@@ -726,6 +726,10 @@ CUSTOMER ARTICLE CONTRACT — ต้องเขียนให้มีลั�
 อธิบายตำแหน่งปัจจุบันว่าอยู่กลาง range, เข้าใกล้ decision zone หรือกำลังออกจาก zone อย่างไร
 ถ้ายังไม่มีเหตุผลให้ไล่ราคา ให้พูดตรง ๆ ว่า "ยังไม่มีเหตุผลพอที่จะไล่ Short/Long ตรงนี้"
 
+- ก่อนเขียน CHANGE ต้องตรวจ baseline ที่มีทั้งหมดอย่างน้อย H-1, D-1 และ PREVIOUS_SESSION เมื่อมีข้อมูล แล้วเลือกเฉพาะการเปลี่ยนแปลงที่มีผลต่อ thesis; ห้ามเล่า baseline ทุกตัวเป็น catalog
+- ถ้า H-1, D-1 และ session ก่อนหน้าชี้ไปทางเดียวกัน ให้ใช้เป็น confirmation เดียว; ถ้าขัดกัน ให้บอกเฉพาะ conflict ที่มีผลต่อ conviction
+- ถ้าราคาอยู่กลางระหว่าง wall ให้ถือเป็น decision range: ห้ามออก entry เพียงเพราะ structural bias; ต้องรอ Sweep/Reaction หรือ Break + Acceptance
+- Break + Acceptance ผ่าน wall = continuation ไป wall ถัดไป; Sweep + Reclaim = reversal กลับหา wall ฝั่งตรงข้าม
 ย่อหน้า 3 — OPTIONS / CAUSE
 อธิบายว่าทำไมโซนที่กล่าวถึงจึงสำคัญ โดยเชื่อม Gamma concentration, Call/Put Wall,
 OI concentration, ΔOI, Churn, IV, DTE และ IV Skew เฉพาะสิ่งที่มีหลักฐาน
