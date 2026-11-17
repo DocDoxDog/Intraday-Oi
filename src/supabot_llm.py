@@ -25,7 +25,7 @@ except ImportError:
 
 DEFAULT_GATEWAY_PATH = "/internal/v1/llm/generate"
 TASK = "market.narrative"
-PROMPT_VERSION = "intraday-oi-market-analyst-v15-gamma-wall-continuation"
+PROMPT_VERSION = "intraday-oi-market-analyst-v16-desk-note-range-continuation"
 DATASET_VERSION = "quikstrike-oi-view-v2"
 CALCULATION_VERSION = "intraday-oi-calcs-v1"
 
@@ -892,6 +892,7 @@ def analyze_with_supabot(parsed: dict[str, Any], history: dict[str, Any] | None 
                 "desk_note_schedule": desk_context,
                 "desk_note_instruction": (
                     f"วิเคราะห์ตามรอบ {desk_context['slot']} แต่ reference ต้องเลือกจากบริบท session/day/intrasession ไม่ใช่ยึดเวลาเป็นตัวเลือก. "
+                    "ต้องอ่าน H-1 + D-1 + PREVIOUS_SESSION เป็น baseline ร่วมกันก่อนเลือกสิ่งที่เปลี่ยนสำคัญ; เลือกเพียง change ที่กระทบ thesis และอย่า dump baseline. "
                     "SESSION_TRANSITION = session ก่อนหน้า, DAY_OPEN = วันก่อน, INTRASESSION = snapshot ล่าสุดก่อนหน้า. "
                     "บทความต้องเดินเรื่อง NOW → CHANGE → WHY → CONFLICT → ACTION ตาม customer article contract. "
                     "ย่อหน้าแรกต้องบอก current price + range/liquidity สำคัญ + Gamma/IV เฉพาะข้อมูลที่มีจริง. "
