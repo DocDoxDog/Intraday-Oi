@@ -368,5 +368,5 @@ def test_telegram_customer_story_does_not_render_telemetry_or_unknown_sweep():
     assert "บริเวณ UNKNOWN" not in message
     assert "1H:" not in message
     assert "baseline" not in message.lower()
-    assert "Plan:" in message
-    assert "Invalidation:" in message
+    assert "Buy-side Sweep" in message
+    assert "Valid Until:" in message
