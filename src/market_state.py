@@ -1312,12 +1312,12 @@ def normalize_analyst_output(
         if _num(upper.get("level")) is not None:
             execution_levels["resistance_current"] = _num(upper.get("level"))
             execution_levels["resistance_main"] = _num(upper.get("level"))
-        if _num(next_up.get("level")) is not None:
+        if _num(execution_levels.get("gamma_wall_up_next")) is None and _num(next_up.get("level")) is not None:
             execution_levels["resistance_far"] = _num(next_up.get("level"))
         if _num(lower.get("level")) is not None:
             execution_levels["support_current"] = _num(lower.get("level"))
             execution_levels["support_main"] = _num(lower.get("level"))
-        if _num(next_down.get("level")) is not None:
+        if _num(execution_levels.get("gamma_wall_down_next")) is None and _num(next_down.get("level")) is not None:
             execution_levels["support_deep"] = _num(next_down.get("level"))
 
     deterministic = _deterministic_trade_levels(parsed, execution_levels, gamma)
