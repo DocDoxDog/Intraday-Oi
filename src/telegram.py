@@ -137,139 +137,112 @@ def _note_levels(parsed: dict, ai_result: dict) -> tuple[list[float], list[float
 
 
 def _format_analysis_message(parsed: dict, ai_result: dict) -> str:
-    """Render the customer desk note as NOW -> CHANGE -> WHY -> ACTION.
-
-    The model supplies the prose; this renderer only enforces the compact
-    Telegram contract and deterministic evidence. It must not turn the note
-    into an indicator catalogue.
-    """
+    """Render a deterministic trading desk note: NOW -> CHANGE -> WHY -> ACTION."""
     observed = parsed.get("observed_at") or parsed.get("retrieved_at")
     schedule = ai_result.get("desk_note_context") or desk_note_schedule(observed)
     slot = str(schedule.get("slot") or "-")
     valid_until = str(ai_result.get("valid_until_label") or schedule.get("valid_until_label") or "-")
-
     raw = parsed.get("raw_series") or {}
     state = raw.get("market_state") or {}
-    decision = state.get("decision") or {}
-
-    def clean(value: object) -> str:
-        text = _single_line(value)
-        if not text:
-            return ""
-        text = re.sub(r"(บริเวณ|ที่)\s+UNKNOWN\b", "", text, flags=re.IGNORECASE)
-        text = re.sub(r"\s{2,}", " ", text).strip()
-        return text
-
-    def first(*values: object) -> str:
-        for value in values:
-            text = clean(value)
-            if text:
-                return text
-        return ""
-
-    structural_bias = str(
-        ai_result.get("structural_bias")
-        or decision.get("structural_bias")
-        or ai_result.get("bias")
-        or ""
-    ).upper()
-    if structural_bias in {"SELL", "BEARISH"}:
-        structural_bias = "BEARISH"
-    elif structural_bias in {"BUY", "BULLISH"}:
-        structural_bias = "BULLISH"
-    else:
-        structural_bias = "MIXED"
-
-    history = state.get("history") or {}
-    reference_selection = ai_result.get("reference_selection") or history.get("reference_selection") or {}
-    selected = reference_selection.get("selected") or {}
-    change = selected.get("change") or {}
-
-    # The selector stores future_price, not "price". Keep the fallback honest:
-    # if no selected baseline exists, do not manufacture a comparison.
-    comparison = first(
-        ai_result.get("history_comparison"),
-        ai_result.get("comparison"),
-    )
-    if not comparison:
-        label = selected.get("label")
-        price_delta = change.get("future_price")
-        iv_delta = change.get("vol")
-        if label and isinstance(price_delta, (int, float)):
-            movement = "ลดลง" if price_delta < 0 else "เพิ่มขึ้น" if price_delta > 0 else "แทบไม่เปลี่ยน"
-            comparison = f"สิ่งที่เปลี่ยนสำคัญตอนนี้คือเมื่อเทียบกับ{label} ราคา{movement}"
-            if isinstance(iv_delta, (int, float)) and iv_delta != 0:
-                comparison += f" และ IV {'เพิ่มขึ้น' if iv_delta > 0 else 'ลดลง'}"
-        elif selected.get("meaningful_change") is False:
-            comparison = "สิ่งที่เปลี่ยนสำคัญตอนนี้คือโครงสร้างยังไม่เปลี่ยนอย่างมีนัยสำคัญ จึงยังไม่ควรเปลี่ยน thesis"
-
-    why = first(
-        ai_result.get("why"),
-        ai_result.get("financial_engineering"),
-        ai_result.get("market_microstructure"),
-    )
-
-    action = first(
-        ai_result.get("final_trade_idea"),
-        ai_result.get("action"),
-        ai_result.get("base_case"),
-    )
-
-    # Deterministic fallback keeps the article useful even when the LLM omits a
-    # field. It never invents a direction or a price.
+    gamma = state.get("gamma") or {}
     liquidity = state.get("liquidity") or {}
-    gate = str(liquidity.get("gate") or "").upper()
-    preferred_event = str(liquidity.get("preferred_event") or "").upper()
+    decision = state.get("decision") or {}
+    levels = state.get("levels") or {}
+    zones = raw.get("multi_expiry_gamma_zones") or {}
 
-    if not action:
-        if gate == "SWEEP_DETECTED" and preferred_event == "BUY_SIDE_SWEEP":
-            action = "Buy-side Sweep เกิดแล้ว ให้ใช้ M15/M5 จับจังหวะ Short ตาม deterministic setup"
-        elif gate == "SWEEP_DETECTED" and preferred_event == "SELL_SIDE_SWEEP":
-            action = "Sell-side Sweep เกิดแล้ว ให้ใช้ M15/M5 จับจังหวะ Long ตาม deterministic setup"
-        elif structural_bias == "BEARISH":
-            action = "โครงสร้างยังเป็นขาลง แต่ยังไม่มี Sweep จึงรอ Buy-side Liquidity Sweep ก่อน Short และไม่ไล่ราคา"
-        elif structural_bias == "BULLISH":
-            action = "โครงสร้างยังเป็นขาขึ้น แต่ยังไม่มี Sweep จึงรอ Sell-side Liquidity Sweep ก่อน Long และไม่ไล่ราคา"
+    def n(v):
+        try:
+            return float(v) if v not in (None, "") else None
+        except (TypeError, ValueError):
+            return None
+    def s(v, d=2):
+        x=n(v)
+        return f"{x:,.{d}f}" if x is not None else "-"
+    def bias():
+        x=str(decision.get("structural_bias") or ai_result.get("structural_bias") or ai_result.get("bias") or "MIXED").upper()
+        return "BEARISH" if x in {"SELL","BEARISH"} else "BULLISH" if x in {"BUY","BULLISH"} else "MIXED"
+
+    cfd, fut = n(parsed.get("cfd_price")), n(parsed.get("future_price"))
+    basis, iv, dte = n(parsed.get("basis_diff")), n(parsed.get("vol")), n(parsed.get("dte"))
+    put_wall = n(gamma.get("put_wall")) or n(levels.get("support_current"))
+    call_wall = n(gamma.get("call_wall")) or n(levels.get("resistance_current"))
+    b = bias()
+    in_range = cfd is not None and put_wall is not None and call_wall is not None and put_wall <= cfd <= call_wall
+
+    def convert(v):
+        x=n(v)
+        if x is None: return None
+        return x - fut + cfd if fut is not None and cfd is not None else x
+    ups=sorted({x for x in (convert(v) for v in (zones.get("resistance_nodes") or [])) if x is not None})
+    downs=sorted({x for x in (convert(v) for v in (zones.get("support_nodes") or [])) if x is not None}, reverse=True)
+    next_up=next((x for x in ups if call_wall is not None and x > call_wall + .01), None)
+    next_down=next((x for x in downs if put_wall is not None and x < put_wall - .01), None)
+
+    hist=ai_result.get("reference_selection") or (state.get("history") or {}).get("reference_selection") or {}
+    sel=hist.get("selected") or {}
+    ch=sel.get("change") or {}
+    dp=n(ch.get("future_price"))
+    dg=n(ch.get("gex_net"))
+    if dp is not None and abs(dp) > .0001:
+        change=f"สิ่งที่เปลี่ยนสำคัญคือ Futures {'เพิ่มขึ้น' if dp>0 else 'ลดลง'} {s(abs(dp))} เทียบกับ{sel.get('label') or 'รอบก่อนหน้า'}"
+        if dg is not None and abs(dg) > .0001:
+            change += f" ขณะที่ Net Gamma {'ดีขึ้น' if dg>0 else 'แย่ลง'}"
+    elif sel.get("meaningful_change") is False:
+        change="สิ่งที่เปลี่ยนสำคัญคือโครงสร้างยังไม่เปลี่ยนอย่างมีนัยสำคัญ จึงยังไม่ควรเปลี่ยน thesis"
+    else:
+        change="สิ่งที่เปลี่ยนสำคัญคือยังไม่มีการเปลี่ยนโครงสร้างที่มากพอให้เปลี่ยน thesis"
+
+    net_gex=n(gamma.get("net_gex"))
+    technical=state.get("technical") or {}
+    h4=str((technical.get("h4") or {}).get("trend") or "").lower()
+    h1=str((technical.get("h1") or {}).get("trend") or "").lower()
+    why=[]
+    if net_gex is not None: why.append("Gamma เป็นลบ" if net_gex<0 else "Gamma เป็นบวก" if net_gex>0 else "Gamma ใกล้สมดุล")
+    if h4 or h1: why.append(" / ".join(x for x in (f"H4 {h4}" if h4 else "", f"H1 {h1}" if h1 else "") if x))
+    if dte is not None and dte <= 1: why.append("DTE สั้น")
+    why_text=" ขณะที่ ".join(why) if why else "โครงสร้าง Options ยังไม่ให้เหตุผลเพิ่มเติม"
+
+    gate=str(liquidity.get("gate") or "").upper()
+    preferred=str(liquidity.get("preferred_event") or "").upper()
+    sweep = gate == "SWEEP_DETECTED"
+    if preferred in {"BUY_SIDE_SWEEP","BUY_SIDE_LIQUIDITY"}: event="Buy-side Sweep"
+    elif preferred in {"SELL_SIDE_SWEEP","SELL_SIDE_LIQUIDITY"}: event="Sell-side Sweep"
+    else: event="Buy-side Sweep" if b=="BEARISH" else "Sell-side Sweep" if b=="BULLISH" else "Liquidity Sweep"
+
+    actions=[]
+    if in_range:
+        actions.append(f"Decision Range {s(put_wall)}–{s(call_wall)}")
+        if b=="BEARISH":
+            actions.append(f"แผนหลัก: รอ {event} เหนือ {s(call_wall)} แล้ว Reclaim ก่อน Short → {s(put_wall)}")
+        elif b=="BULLISH":
+            actions.append(f"แผนหลัก: รอ {event} ใต้ {s(put_wall)} แล้ว Reclaim ก่อน Long → {s(call_wall)}")
         else:
-            action = "รอ event ที่ยืนยันฝั่งให้ชัดก่อนเข้า"
+            actions.append("แผนหลัก: รอ Sweep + Reaction หรือ Break + Acceptance ก่อนเข้า")
+        if not sweep: actions.append("ยังไม่มี Sweep ที่ผ่าน execution gate — ไม่ไล่ราคา")
+    elif call_wall is not None and cfd is not None and cfd > call_wall:
+        actions.append(f"Break + Acceptance เหนือ {s(call_wall)} → continuation ไป Gamma Wall ถัดไป {s(next_up) if next_up is not None else 'ยังไม่ยืนยัน'}")
+    elif put_wall is not None and cfd is not None and cfd < put_wall:
+        actions.append(f"Break + Acceptance ใต้ {s(put_wall)} → continuation ไป Gamma Wall ถัดไป {s(next_down) if next_down is not None else 'ยังไม่ยืนยัน'}")
+    else:
+        actions.append("ยังไม่มี event ยืนยัน — ไม่ไล่ราคา")
 
-    # Keep the current decision zones visible, but only use source-derived levels.
-    resist, support = _note_levels(parsed, ai_result)
-    levels_line = ""
-    if resist or support:
-        parts = []
-        if resist:
-            parts.append("บน " + " / ".join(_show(x) for x in resist[:2]))
-        if support:
-            parts.append("ล่าง " + " / ".join(_show(x) for x in support[:2]))
-        levels_line = "โซนสำคัญ: " + " | ".join(parts)
+    location = ""
+    if in_range: location=f"อยู่ในกรอบ {s(put_wall)}–{s(call_wall)}"
+    elif cfd is not None and call_wall is not None and cfd>call_wall: location=f"อยู่เหนือ Call Wall {s(call_wall)}"
+    elif cfd is not None and put_wall is not None and cfd<put_wall: location=f"อยู่ใต้ Put Wall {s(put_wall)}"
+    else: location="ยังไม่มี Decision Range ที่ยืนยันได้"
 
-    cfd = parsed.get("cfd_price")
-    fut = parsed.get("future_price")
-    dte = parsed.get("dte")
-    vol = parsed.get("vol")
-    basis = parsed.get("basis_diff")
-
-    lines = [
+    lines=[
         f"<b>GOLD MARKET — {slot}</b>",
-        _escape(f"CFD {_show(cfd)} | FUT. {_show(fut)}"),
-        _escape(" | ".join(x for x in (
-            f"BASIS {_show(basis)}" if basis is not None else "",
-            f"IV {_show(vol)}%" if vol is not None else "",
-        ) if x)),
-        _escape(f"DTE. {_show(dte, 2)}") if dte is not None else "",
-        _escape(first(
-            ai_result.get("market_overview"),
-            ai_result.get("liquidity_story"),
-            ai_result.get("what"),
-        )),
-        _escape(comparison),
-        _escape(why),
-        _escape(levels_line),
-        _escape(action),
+        _escape(f"CFD {s(cfd)} | FUT. {s(fut)} | BASIS {s(basis)} | IV {s(iv)}%"),
+        _escape(f"DTE. {s(dte)}"),
+        _escape(f"NOW: โครงสร้าง {b} และราคาปัจจุบัน {s(cfd)} {location}"),
+        _escape(change),
+        _escape(f"WHY: {why_text}"),
+        _escape("ACTION: " + " | ".join(actions)),
         _escape(f"Valid Until: {valid_until}"),
     ]
-    return "\n".join(line for line in lines if line)
+    return "\n".join(lines)
 
 def _friendly_regime(state: dict, ai_result: dict) -> str:
     from src.customer_narrative import _friendly_regime as _map_regime
