@@ -137,7 +137,7 @@ def _note_levels(parsed: dict, ai_result: dict) -> tuple[list[float], list[float
 
 
 def _format_analysis_message(parsed: dict, ai_result: dict) -> str:
-    """Render a deterministic trading desk note: NOW -> CHANGE -> WHY -> ACTION."""
+    """Render a deterministic trading desk note: NOW -> CHANGE -> WHY -> ACTION."""  # [run-live] verify customer contract
     observed = parsed.get("observed_at") or parsed.get("retrieved_at")
     schedule = ai_result.get("desk_note_context") or desk_note_schedule(observed)
     slot = str(schedule.get("slot") or "-")
