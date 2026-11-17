@@ -375,9 +375,11 @@ def _select_smart_reference(
         label = "วันก่อน" if previous_day else "session ก่อนหน้า" if previous_session else "รอบก่อนหน้า"
     elif previous_row and current_session and prev_session_key and current_session != prev_session_key:
         mode = "SESSION_TRANSITION"
-        chosen = previous_session or previous_day or previous_row
-        ref_type = "PREVIOUS_SESSION" if previous_session else "PREVIOUS_DAY" if previous_day else "LATEST_ROW"
-        label = "session ก่อนหน้า" if previous_session else "วันก่อน" if previous_day else "รอบก่อนหน้า"
+        # The latest snapshot from the just-ended session is the correct
+        # previous-session reference. Fall back only when that row is missing.
+        chosen = previous_row or previous_session or previous_day
+        ref_type = "PREVIOUS_SESSION" if previous_row or previous_session else "PREVIOUS_DAY"
+        label = "session ก่อนหน้า" if previous_row or previous_session else "วันก่อน"
     else:
         mode = "INTRASESSION"
         chosen = previous_row or previous_session or previous_day or session_open
