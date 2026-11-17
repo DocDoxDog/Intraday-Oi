@@ -25,7 +25,7 @@ except ImportError:
 
 DEFAULT_GATEWAY_PATH = "/internal/v1/llm/generate"
 TASK = "market.narrative"
-PROMPT_VERSION = "intraday-oi-market-analyst-v13-smart-reference"
+PROMPT_VERSION = "intraday-oi-market-analyst-v14-liquidity-story"
 DATASET_VERSION = "quikstrike-oi-view-v2"
 CALCULATION_VERSION = "intraday-oi-calcs-v1"
 
@@ -246,217 +246,271 @@ def _reference_label(dt: datetime, now: datetime) -> str:
     return "ช่วงก่อนหน้า"
 
 
+def _session_identity(row: dict[str, Any] | None, captured_at: Any = None) -> str | None:
+    """Return an explicit session identity when supplied; otherwise use the desk-session bucket."""
+    row = row or {}
+    raw = row.get("raw_series") or {}
+    state = raw.get("market_state") or {}
+    for source in (row, raw, state):
+        for key in ("session_key", "session_id", "session_name", "trading_session", "session"):
+            value = source.get(key) if isinstance(source, dict) else None
+            if value not in (None, ""):
+                return str(value)
+    # Fallback only identifies the session; it does not choose a reference by clock.
+    # The selector below chooses the previous session/day/latest row from this identity.
+    try:
+        return f"DESK:{desk_note_schedule(captured_at).get('slot')}"
+    except Exception:
+        return None
+
+
+def _snapshot_for_history(row: Any) -> dict[str, Any] | None:
+    if not isinstance(row, dict):
+        return None
+    raw = row.get("raw_series") or {}
+    totals = raw.get("totals") or {}
+    gex = raw.get("gex") or {}
+    state = raw.get("market_state") or {}
+    volatility = state.get("volatility") or {}
+    gamma = state.get("gamma") or {}
+    captured_at = row.get("captured_at") or row.get("observed_at")
+    return {
+        "captured_at": captured_at,
+        "future_price": row.get("future_price"),
+        "cfd_price": row.get("cfd_price"),
+        "vol": row.get("vol"),
+        "dte": row.get("dte") if row.get("dte") is not None else raw.get("dte"),
+        "oi_put": totals.get("open_interest_view_put", totals.get("open_interest_put")),
+        "oi_call": totals.get("open_interest_view_call", totals.get("open_interest_call")),
+        "oi_total": totals.get("open_interest_view_total", totals.get("open_interest_total")),
+        "churn": totals.get("churn"),
+        "gex_net": gex.get("net_gex"),
+        "gamma_flip": gex.get("gamma_flip") if gex.get("gamma_flip") is not None else gamma.get("gamma_flip"),
+        "call_wall": gex.get("call_wall") if gex.get("call_wall") is not None else gamma.get("call_wall"),
+        "put_wall": gex.get("put_wall") if gex.get("put_wall") is not None else gamma.get("put_wall"),
+        "iv_skew": volatility.get("skew"),
+        "gamma_regime": "NEGATIVE" if isinstance(gex.get("net_gex"), (int, float)) and gex.get("net_gex") < 0 else "POSITIVE" if isinstance(gex.get("net_gex"), (int, float)) and gex.get("net_gex") > 0 else "UNKNOWN",
+        "liquidity_gate": (state.get("liquidity") or {}).get("gate"),
+        "preferred_event": (state.get("liquidity") or {}).get("preferred_event"),
+        "session_key": _session_identity(row, captured_at),
+    }
+
+
+def _meaningful_change(current: dict[str, Any], base: dict[str, Any]) -> bool:
+    def num(v: Any) -> float | None:
+        return float(v) if isinstance(v, (int, float)) and not isinstance(v, bool) else None
+
+    price = num(current.get("future_price"))
+    old_price = num(base.get("future_price"))
+    vol = num(current.get("vol"))
+    old_vol = num(base.get("vol"))
+    gex = num(current.get("gex_net"))
+    old_gex = num(base.get("gex_net"))
+    if price is not None and old_price is not None and abs(price - old_price) >= 0.25:
+        return True
+    if vol is not None and old_vol is not None and abs(vol - old_vol) >= 0.15:
+        return True
+    if gex is not None and old_gex is not None and ((gex < 0) != (old_gex < 0) or abs(gex - old_gex) > 1.0):
+        return True
+    for key in ("gamma_flip", "call_wall", "put_wall"):
+        a, b = num(current.get(key)), num(base.get(key))
+        if a is not None and b is not None and abs(a - b) >= 1.0:
+            return True
+    for key in ("oi_put", "oi_call", "oi_total", "churn"):
+        a, b = num(current.get(key)), num(base.get(key))
+        if a is not None and b is not None and abs(a - b) > 0:
+            return True
+    if current.get("liquidity_gate") != base.get("liquidity_gate") or current.get("preferred_event") != base.get("preferred_event"):
+        return True
+    return False
+
+
 def _select_smart_reference(
     now_row: dict[str, Any],
     candidates: list[dict[str, Any]],
     *,
     now_dt: datetime | None,
 ) -> dict[str, Any]:
-    """Choose the baseline that explains the largest meaningful change.
+    """Select reference by market context: session transition -> day open -> intraday latest row."""
+    current = _snapshot_for_history(now_row) or dict(now_row)
+    current_session = current.get("session_key")
+    current_date = now_dt.date() if now_dt else None
 
-    This is deliberately not tied to the 10/14/19/21 desk slots. A nearby
-    snapshot wins when the market actually changed recently; a session/day
-    anchor can win when it contains the meaningful structural transition.
-    """
-    if not candidates:
+    def valid(candidate: dict[str, Any] | None) -> dict[str, Any] | None:
+        if not candidate:
+            return None
+        base = candidate.get("baseline")
+        if not isinstance(base, dict):
+            return None
+        captured = base.get("captured_at")
+        try:
+            dt = datetime.fromisoformat(str(captured).replace("Z", "+00:00")) if captured else None
+        except (TypeError, ValueError):
+            return None
+        if dt is None or dt.tzinfo is None or (now_dt and dt >= now_dt):
+            return None
+        return candidate
+
+    previous_row = valid(next((c for c in candidates if c.get("kind") == "LATEST_ROW"), None))
+    previous_session = valid(next((c for c in candidates if c.get("kind") == "PREVIOUS_SESSION"), None))
+    previous_day = valid(next((c for c in candidates if c.get("kind") == "PREVIOUS_DAY"), None))
+    session_open = valid(next((c for c in candidates if c.get("kind") == "SESSION_OPEN"), None))
+
+    prev_base = previous_row.get("baseline") if previous_row else None
+    prev_session_key = prev_base.get("session_key") if isinstance(prev_base, dict) else None
+    prev_dt = None
+    if isinstance(prev_base, dict) and prev_base.get("captured_at"):
+        try:
+            prev_dt = datetime.fromisoformat(str(prev_base["captured_at"]).replace("Z", "+00:00"))
+        except (TypeError, ValueError):
+            prev_dt = None
+
+    if previous_row and current_session and prev_session_key and current_session != prev_session_key:
+        mode = "SESSION_TRANSITION"
+        chosen = previous_session or previous_day or previous_row
+        ref_type = "PREVIOUS_SESSION" if previous_session else "PREVIOUS_DAY" if previous_day else "LATEST_ROW"
+        label = "session ก่อนหน้า" if previous_session else "วันก่อน" if previous_day else "รอบก่อนหน้า"
+    elif previous_row and current_date and prev_dt and current_date != prev_dt.date():
+        mode = "DAY_OPEN"
+        chosen = previous_day or previous_session or previous_row
+        ref_type = "PREVIOUS_DAY" if previous_day else "PREVIOUS_SESSION" if previous_session else "LATEST_ROW"
+        label = "วันก่อน" if previous_day else "session ก่อนหน้า" if previous_session else "รอบก่อนหน้า"
+    else:
+        mode = "INTRASESSION"
+        chosen = previous_row or previous_session or previous_day or session_open
+        ref_type = "LATEST_ROW" if previous_row else "PREVIOUS_SESSION" if previous_session else "PREVIOUS_DAY" if previous_day else "SESSION_OPEN" if session_open else "NONE"
+        label = "รอบก่อนหน้า" if previous_row else "session ก่อนหน้า" if previous_session else "วันก่อน" if previous_day else "ช่วงเปิด session"
+
+    if not chosen:
         return {
             "status": "UNKNOWN",
+            "mode": mode,
+            "current_session": current_session,
+            "reference_type": "NONE",
             "selected": None,
             "alternatives": [],
             "reason": "ไม่มี historical baseline ที่ใช้งานได้",
         }
 
-    current_dt = now_dt
-    current_price = now_row.get("future_price")
-    current_vol = now_row.get("vol")
-    current_gex = now_row.get("gex_net")
-    current_flip = now_row.get("gamma_flip")
-    current_call = now_row.get("call_wall")
-    current_put = now_row.get("put_wall")
-    price_scale = max(abs(float(current_price or 0.0)), 1.0)
+    base = chosen.get("baseline") or {}
+    selected = dict(chosen)
+    selected["label"] = label
+    selected["reference_type"] = ref_type
+    selected["mode"] = mode
+    selected["change"] = {}
+    for key in ("future_price", "cfd_price", "vol", "dte", "oi_put", "oi_call", "oi_total", "churn", "gex_net", "gamma_flip", "call_wall", "put_wall", "iv_skew"):
+        a = current.get(key)
+        b = base.get(key)
+        if isinstance(a, (int, float)) and isinstance(b, (int, float)):
+            selected["change"][key] = round(float(a) - float(b), 6)
+        else:
+            selected["change"][key] = None
 
-    def num(v: Any) -> float | None:
-        return float(v) if isinstance(v, (int, float)) and not isinstance(v, bool) else None
-
-    scored: list[dict[str, Any]] = []
-    for candidate in candidates:
-        base = candidate.get("baseline") or {}
-        captured = base.get("captured_at")
-        try:
-            dt = datetime.fromisoformat(str(captured).replace("Z", "+00:00")) if captured else None
-            if dt and dt.tzinfo is None:
-                dt = None
-        except (TypeError, ValueError):
-            dt = None
-        if dt is None or current_dt is None or dt >= current_dt:
-            continue
-
-        age_h = max(0.05, (current_dt - dt).total_seconds() / 3600.0)
-        bp = num(base.get("future_price"))
-        bv = num(base.get("vol"))
-        bg = num(base.get("gex_net"))
-        bf = num(base.get("gamma_flip"))
-        bc = num(base.get("call_wall"))
-        bput = num(base.get("put_wall"))
-
-        price_move = abs((num(current_price) or 0.0) - (bp or 0.0)) / price_scale if bp is not None else 0.0
-        vol_move = abs((num(current_vol) or 0.0) - (bv or 0.0)) if bv is not None else 0.0
-        gex_change = abs((num(current_gex) or 0.0) - (bg or 0.0)) if bg is not None else 0.0
-        wall_shift = 0.0
-        if bc is not None and num(current_call) is not None:
-            wall_shift += abs(num(current_call) - bc) / price_scale
-        if bput is not None and num(current_put) is not None:
-            wall_shift += abs(num(current_put) - bput) / price_scale
-
-        # Structural discontinuities are much more important than tiny price
-        # drift. The score is only a selector; it is never exposed as a claim.
-        structural = 0.0
-        if bg is not None and current_gex is not None and (bg == 0 or current_gex == 0 or (bg < 0) != (current_gex < 0)):
-            structural += 4.0
-        if bf is not None and current_flip is not None and abs(current_flip - bf) / price_scale > 0.0003:
-            structural += 2.0
-        if wall_shift > 0.0005:
-            structural += 2.0
-        if vol_move > 0.25:
-            structural += 1.5
-
-        # Meaningfulness: large enough change + structural change + freshness.
-        # Recency is a tie-breaker, not the governing rule.
-        magnitude = min(price_move * 800.0, 4.0) + min(vol_move * 2.0, 2.0) + structural
-        freshness = max(0.0, 2.0 - min(age_h / 12.0, 2.0))
-        session_anchor = 1.5 if candidate.get("kind") in {"SESSION_OPEN", "PREVIOUS_SESSION"} else 0.0
-        score = magnitude + freshness + session_anchor
-
-        label = candidate.get("label") or _reference_label(dt, current_dt)
-        scored.append({
-            **candidate,
-            "age_hours": round(age_h, 2),
-            "label": label,
-            "score": round(score, 3),
-            "meaningfulness": round(magnitude, 3),
-            "change": {
-                "price": round((num(current_price) - bp), 5) if bp is not None and num(current_price) is not None else None,
-                "vol": round((num(current_vol) - bv), 5) if bv is not None and num(current_vol) is not None else None,
-                "gex_net": round((num(current_gex) - bg), 5) if bg is not None and num(current_gex) is not None else None,
-                "gamma_flip": round((num(current_flip) - bf), 5) if bf is not None and num(current_flip) is not None else None,
-                "call_wall": round((num(current_call) - bc), 5) if bc is not None and num(current_call) is not None else None,
-                "put_wall": round((num(current_put) - bput), 5) if bput is not None and num(current_put) is not None else None,
-            },
-        })
-
-    if not scored:
-        return {
-            "status": "UNKNOWN",
-            "selected": None,
-            "alternatives": [],
-            "reason": "baseline มี timestamp ที่ใช้งานไม่ได้",
-        }
-
-    scored.sort(key=lambda x: (x["score"], -x["age_hours"]), reverse=True)
-    selected = scored[0]
-
-    # If all candidates are effectively unchanged, don't force a fake comparison.
-    # Freshness only breaks ties; it must never turn an unchanged market
-    # into a fake comparison.
-    if float(selected.get("meaningfulness") or 0.0) < 0.8:
-        return {
-            "status": "NO_MEANINGFUL_CHANGE",
-            "selected": None,
-            "alternatives": scored[:2],
-            "reason": "มี baseline แต่การเปลี่ยนแปลงยังไม่มากพอจะเลือกเป็นแกนเรื่อง",
-        }
-
+    selected["meaningful_change"] = _meaningful_change(current, base)
     return {
         "status": "SELECTED",
+        "mode": mode,
+        "current_session": current_session,
+        "reference_type": ref_type,
         "selected": selected,
-        "alternatives": scored[1:3],
-        "reason": "เลือก baseline จากความมีนัยของการเปลี่ยนแปลงก่อนความใกล้ของเวลา",
+        "alternatives": [
+            {"reference_type": c.get("kind"), "label": c.get("label")}
+            for c in candidates
+            if c is not chosen and c.get("baseline")
+        ][:3],
+        "reason": (
+            "session เปลี่ยน จึงเทียบกับ session ก่อนหน้า"
+            if mode == "SESSION_TRANSITION"
+            else "เปิดวันใหม่ จึงเทียบกับวันก่อน"
+            if mode == "DAY_OPEN"
+            else "อยู่ใน session เดิม จึงเทียบกับ snapshot ล่าสุดก่อนหน้า"
+        ),
     }
 
 
 def _compact_history(parsed: dict[str, Any], history: dict[str, Any] | None) -> dict[str, Any]:
-    """Build an explicit NOW vs H-1 vs D-1 vs PREVIOUS-SESSION comparison.
-
-    The old article received history as several loosely related blocks, which
-    encouraged the model to repeat telemetry. This structure makes the change
-    story the primary analytical input.
-    """
+    """Build context-aware comparative history without fixed 10/14/19/21 references."""
     history = history or {}
-
-    def snapshot(row: Any) -> dict[str, Any] | None:
-        if not isinstance(row, dict):
-            return None
-        raw = row.get("raw_series") or {}
-        totals = raw.get("totals") or {}
-        gex = raw.get("gex") or {}
-        return {
-            "captured_at": row.get("captured_at") or row.get("observed_at"),
-            "future_price": row.get("future_price"),
-            "vol": row.get("vol"),
-            "oi_put": totals.get("open_interest_view_put", totals.get("open_interest_put")),
-            "oi_call": totals.get("open_interest_view_call", totals.get("open_interest_call")),
-            "oi_total": totals.get("open_interest_view_total", totals.get("open_interest_total")),
-            "churn": totals.get("churn"),
-            "gex_net": gex.get("net_gex"),
-            "gamma_flip": gex.get("gamma_flip"),
-            "call_wall": gex.get("call_wall"),
-            "put_wall": gex.get("put_wall"),
-        }
 
     raw = parsed.get("raw_series") or {}
     totals = raw.get("totals") or {}
     gex = raw.get("gex") or {}
-    now = {
+    state = raw.get("market_state") or {}
+    volatility = state.get("volatility") or {}
+    now = _snapshot_for_history({
+        **parsed,
+        "raw_series": raw,
         "captured_at": parsed.get("observed_at") or parsed.get("retrieved_at"),
-        "future_price": parsed.get("future_price"),
-        "vol": parsed.get("vol"),
-        "oi_put": totals.get("open_interest_view_put", totals.get("open_interest_put")),
-        "oi_call": totals.get("open_interest_view_call", totals.get("open_interest_call")),
-        "oi_total": totals.get("open_interest_view_total", totals.get("open_interest_total")),
-        "churn": totals.get("churn"),
-        "gex_net": gex.get("net_gex"),
-        "gamma_flip": gex.get("gamma_flip"),
-        "call_wall": gex.get("call_wall"),
-        "put_wall": gex.get("put_wall"),
-    }
+    }) or {}
 
-    h1 = snapshot(history.get("hour_ago"))
-    h2 = snapshot(history.get("two_hours_ago"))
+    def legacy_snapshot(row: Any) -> dict[str, Any] | None:
+        snap = _snapshot_for_history(row)
+        if not snap:
+            return None
+        return snap
+
+    h1 = legacy_snapshot(history.get("hour_ago"))
+    h2 = legacy_snapshot(history.get("two_hours_ago"))
 
     today = history.get("today") or {}
-    # D-1 is the prior trading session, not today's first snapshot.
-    # Today's open is useful context but must not be mislabeled as yesterday.
-    d1 = {
-        "captured_at": (history.get("yesterday") or {}).get("latest_snapshot_time"),
-        "future_price": (history.get("yesterday") or {}).get("future_price_last"),
-        "vol": (history.get("yesterday") or {}).get("vol_last"),
-        "oi_put": ((history.get("yesterday") or {}).get("oi_last") or {}).get("oi_put"),
-        "oi_call": ((history.get("yesterday") or {}).get("oi_last") or {}).get("oi_call"),
-        "oi_total": ((history.get("yesterday") or {}).get("oi_last") or {}).get("oi_total"),
-        "churn": ((history.get("yesterday") or {}).get("oi_last") or {}).get("churn"),
-        "gex_net": ((history.get("yesterday") or {}).get("oi_last") or {}).get("gex_net"),
-    } if (history.get("yesterday") or {}).get("count") else None
-
-    previous = history.get("yesterday") or {}
-    prev_session = {
-        "captured_at": previous.get("latest_snapshot_time"),
-        "future_price": previous.get("future_price_last"),
-        "vol": previous.get("vol_last"),
-        "oi_put": (previous.get("oi_last") or {}).get("oi_put"),
-        "oi_call": (previous.get("oi_last") or {}).get("oi_call"),
-        "oi_total": (previous.get("oi_last") or {}).get("oi_total"),
-        "churn": (previous.get("oi_last") or {}).get("churn"),
-        "gex_net": (previous.get("oi_last") or {}).get("gex_net"),
-    } if previous.get("count") else None
+    yesterday = history.get("yesterday") or {}
+    today_open = {
+        "captured_at": today.get("first_snapshot_time"),
+        "future_price": today.get("future_price_open"),
+        "vol": today.get("vol_first"),
+        "oi_put": (today.get("oi_first") or {}).get("oi_put"),
+        "oi_call": (today.get("oi_first") or {}).get("oi_call"),
+        "oi_total": (today.get("oi_first") or {}).get("oi_total"),
+        "churn": (today.get("oi_first") or {}).get("churn"),
+        "gex_net": (today.get("oi_first") or {}).get("gex_net"),
+        "gamma_flip": (today.get("oi_first") or {}).get("gamma_flip"),
+        "call_wall": (today.get("oi_first") or {}).get("call_wall"),
+        "put_wall": (today.get("oi_first") or {}).get("put_wall"),
+        "session_key": today.get("session_key") or _session_identity({"session_key": today.get("session_key")}, today.get("first_snapshot_time")),
+    } if today.get("first_snapshot_time") else None
+    previous_day = {
+        "captured_at": yesterday.get("latest_snapshot_time"),
+        "future_price": yesterday.get("future_price_last"),
+        "vol": yesterday.get("vol_last"),
+        "oi_put": (yesterday.get("oi_last") or {}).get("oi_put"),
+        "oi_call": (yesterday.get("oi_last") or {}).get("oi_call"),
+        "oi_total": (yesterday.get("oi_last") or {}).get("oi_total"),
+        "churn": (yesterday.get("oi_last") or {}).get("churn"),
+        "gex_net": (yesterday.get("oi_last") or {}).get("gex_net"),
+        "gamma_flip": (yesterday.get("oi_last") or {}).get("gamma_flip"),
+        "call_wall": (yesterday.get("oi_last") or {}).get("call_wall"),
+        "put_wall": (yesterday.get("oi_last") or {}).get("put_wall"),
+        "session_key": yesterday.get("session_key"),
+    } if yesterday.get("count") else None
+    prev_session = previous_day
 
     def delta(base: dict[str, Any] | None) -> dict[str, Any]:
         if not base:
             return {"status": "UNKNOWN"}
         out: dict[str, Any] = {"status": "VALID"}
-        for key in ("future_price", "vol", "oi_put", "oi_call", "oi_total", "churn", "gex_net"):
+        for key in ("future_price", "cfd_price", "vol", "dte", "oi_put", "oi_call", "oi_total", "churn", "gex_net", "gamma_flip", "call_wall", "put_wall", "iv_skew"):
             a, b = now.get(key), base.get(key)
             out[key] = round(float(a) - float(b), 6) if isinstance(a, (int, float)) and isinstance(b, (int, float)) else None
         return out
+
+    latest_row = h1
+    candidates = [
+        {"kind": "LATEST_ROW", "label": "รอบก่อนหน้า", "baseline": latest_row},
+        {"kind": "SESSION_OPEN", "label": "ช่วงเปิด session", "baseline": today_open},
+        {"kind": "PREVIOUS_SESSION", "label": "session ก่อนหน้า", "baseline": prev_session},
+        {"kind": "PREVIOUS_DAY", "label": "วันก่อน", "baseline": previous_day},
+    ]
+    candidates = [c for c in candidates if c.get("baseline")]
+    reference_selection = _select_smart_reference(now, candidates, now_dt=_ts if False else None)
+    # Parse current timestamp once outside the selector; keep selector free of slot assumptions.
+    now_dt = None
+    try:
+        now_dt = datetime.fromisoformat(str(now.get("captured_at")).replace("Z", "+00:00"))
+        if now_dt.tzinfo is None:
+            now_dt = None
+    except (TypeError, ValueError):
+        now_dt = None
+    reference_selection = _select_smart_reference(now, candidates, now_dt=now_dt)
 
     def pct_direction(value: Any) -> str:
         if not isinstance(value, (int, float)):
@@ -465,43 +519,9 @@ def _compact_history(parsed: dict[str, Any], history: dict[str, Any] | None) -> 
 
     comparisons = {
         "H-1": {"baseline": h1, "delta": delta(h1)},
-        "D-1": {"baseline": d1, "delta": delta(d1)},
+        "D-1": {"baseline": previous_day, "delta": delta(previous_day)},
         "PREVIOUS_SESSION": {"baseline": prev_session, "delta": delta(prev_session)},
     }
-
-    now_dt = None
-    try:
-        now_dt = datetime.fromisoformat(str(now.get("captured_at")).replace("Z", "+00:00"))
-        if now_dt.tzinfo is None:
-            now_dt = None
-    except (TypeError, ValueError):
-        now_dt = None
-
-    # Build a candidate pool. The selector is free to choose any usable anchor;
-    # the desk-note clock is never a hard constraint on the reference.
-    candidates = [
-        {"kind": "H-1", "label": "ชั่วโมงก่อน", "baseline": h1},
-        {"kind": "H-2", "label": "ช่วงก่อนหน้า", "baseline": h2},
-        {"kind": "SESSION_OPEN", "label": "ช่วงเปิด session", "baseline": {
-            "captured_at": today.get("first_snapshot_time"),
-            "future_price": today.get("future_price_open"),
-            "vol": today.get("vol_first"),
-            "oi_put": (today.get("oi_first") or {}).get("oi_put"),
-            "oi_call": (today.get("oi_first") or {}).get("oi_call"),
-            "oi_total": (today.get("oi_first") or {}).get("oi_total"),
-            "churn": (today.get("oi_first") or {}).get("churn"),
-            "gex_net": (today.get("oi_first") or {}).get("gex_net"),
-            "gamma_flip": (today.get("oi_first") or {}).get("gamma_flip"),
-            "call_wall": (today.get("oi_first") or {}).get("call_wall"),
-            "put_wall": (today.get("oi_first") or {}).get("put_wall"),
-        }} if today.get("first_snapshot_time") else None,
-        {"kind": "PREVIOUS_SESSION", "label": "session ก่อน", "baseline": prev_session},
-    ]
-    candidates = [x for x in candidates if x]
-    reference_selection = _select_smart_reference(now, candidates, now_dt=now_dt)
-
-    # A compact transition map gives the model a direct answer to "what changed?"
-    # without telling it which side to choose.
     transition = {
         "price_vs_h1": pct_direction((comparisons["H-1"]["delta"] or {}).get("future_price")),
         "price_vs_d1": pct_direction((comparisons["D-1"]["delta"] or {}).get("future_price")),
@@ -513,23 +533,21 @@ def _compact_history(parsed: dict[str, Any], history: dict[str, Any] | None) -> 
     }
 
     return {
-        "version": "comparative-history-v1",
+        "version": "comparative-history-v2-context-aware",
         "now": now,
         "comparisons": comparisons,
         "transition": transition,
         "reference_selection": reference_selection,
         "coverage": {
             "H-1": bool(h1),
-            "D-1": bool(d1),
+            "D-1": bool(previous_day),
             "PREVIOUS_SESSION": bool(prev_session),
             "two_hours_ago": bool(h2),
         },
-        # Keep the old compact blocks available for compatibility, but make the
-        # comparative map the canonical analytical input.
         "legacy": {
             "hour_ago": h1,
             "today": today,
-            "yesterday": previous,
+            "yesterday": yesterday,
             "two_hours_ago": h2,
         },
     }
@@ -662,313 +680,92 @@ def _summarize_input(parsed: dict[str, Any], history: dict[str, Any] | None) -> 
 
 
 STATIC_PROMPT = """
-คุณคือ GOLD MARKET ANALYST ของระบบ Intraday-Oi
-ทำหน้าที่เป็น Institutional Market Intelligence Analyst โดยใช้ข้อมูลที่มีจริงจาก
-Options/GEX, OI/ΔOI, Volatility, Futures/CFD, History, Technical, Macro/News,
-Market Microstructure, Liquidity, Dealer Hedging และ Market Psychology
+คุณคือ GOLD MARKET ANALYST ของ Intraday-Oi
+หน้าที่คือเขียนบทวิเคราะห์ทองแบบ desk note ที่คนอ่านเข้าใจได้ทันที โดยใช้ข้อมูลจริงจาก
+ราคา Futures/CFD, Liquidity, H4/H1/M15/M5, Options/Gamma, OI/ΔOI/Churn, IV/Skew/DTE,
+History และ News
 
-สำคัญ:
-- Output schema เดิมต้องคงเดิม
-- ห้ามเพิ่ม fields เพื่อรองรับ reasoning
-- ห้ามสร้างตัวเลขใหม่
-- UNKNOWN คือข้อมูลที่ไม่มี ไม่ใช่เหตุผลที่จะหยุดวิเคราะห์
-- วิเคราะห์ตลาดปัจจุบันก่อน แล้วค่อยสร้าง conditional trade plan
-- ห้ามใช้ indicator ตัวเดียวตัดสินทิศทาง
+กติกาหลัก:
+- Evidence > assumption
+- ห้ามสร้างตัวเลขหรือระดับราคาใหม่
 - Gamma ≠ Direction
 - OI ≠ Direction
 - News ≠ Entry
 - Level ≠ Trigger
-- ห้ามอ้างว่า dealer "ต้องซื้อ/ขาย" หากไม่มีหลักฐาน
-- ห้ามใช้คำว่า squeeze หากยังแยกไม่ได้ว่าเป็น short squeeze, long liquidation,
-  gamma hedging, stop cascade หรือ liquidity vacuum
+- OI/ΔOI/Churn บอกกิจกรรม/positioning context แต่ไม่บอก aggressor โดยลำพัง
+- Negative Gamma = มีโอกาสขยายการเคลื่อนไหว; Positive Gamma = มีโอกาสช่วยชะลอการแกว่ง
+- H4/H1 กำหนด directional thesis; M15/M5/M1 ใช้กำหนด timing
+- Liquidity sweep เป็น execution gate: Short ต้องรอ Buy-side Sweep, Long ต้องรอ Sell-side Sweep
+- ไม่มี Sweep = thesis ยังอยู่ได้ แต่ execution เป็น PENDING
+- อย่าใช้คำว่า WAIT/Neutral แทน directional thesis ที่ชัด
+- External liquidity ใช้เป็น target; internal liquidity ใช้เป็น execution
+- ห้ามเดา dealer position หรือ participant intent จาก OI/Gamma เพียงอย่างเดียว
 
-INTERNAL ANALYTICAL SPINE
-ก่อนเขียน output ให้สังเคราะห์ข้อมูลทั้งหมดตามลำดับนี้:
+CUSTOMER ARTICLE CONTRACT — ต้องเขียนให้มีลักษณะเดียวกับ desk note ตัวอย่าง:
+ย่อหน้า 1 — NOW
+เริ่มจากราคาปัจจุบันและโครงสร้างหลักทันที เช่น
+"ตอนนี้ทองอยู่ที่ ... โดยราคายังอยู่ระหว่าง liquidity สำคัญบริเวณ ... ขณะที่ Gamma ของหลาย expiry เป็นลบ และ IV อยู่ที่ ... ทำให้ตลาดอยู่ในภาวะที่ถ้าเกิด sweep แล้วสามารถเร่งตัวได้ค่อนข้างเร็ว"
+ถ้าข้อมูลรองรับ ให้บอกกรอบบน/ล่างจาก Options/Gamma/Liquidity ที่มีจริง
+ห้ามสร้างกรอบราคาเพื่อให้บทความดูสมบูรณ์
 
-1) MARKET STATE
-ตอบภายในว่า "ตอนนี้ตลาดกำลังทำอะไร?"
-ดู Price Structure + Regime + Gamma + Volatility + Positioning + Liquidity
+ย่อหน้า 2 — CHANGE
+ต้องบอกว่า "สิ่งที่เปลี่ยนสำคัญตอนนี้คือ..." แล้วเลือก reference ตาม reference_selection:
+1. SESSION_TRANSITION → เทียบ session ก่อนหน้า
+2. DAY_OPEN → เทียบวันก่อน
+3. INTRASESSION → เทียบ snapshot ล่าสุดก่อนหน้า
+ห้ามเลือก reference ด้วยเวลา 10:00/14:00/19:00/21:00 โดยตรง
+ถ้า fallback ถูกใช้ ให้เรียกตาม reference ที่เลือกจริง
+อธิบายตำแหน่งปัจจุบันว่าอยู่กลาง range, เข้าใกล้ decision zone หรือกำลังออกจาก zone อย่างไร
+ถ้ายังไม่มีเหตุผลให้ไล่ราคา ให้พูดตรง ๆ ว่า "ยังไม่มีเหตุผลพอที่จะไล่ Short/Long ตรงนี้"
 
-2) CAUSAL MECHANISM
-ถาม "ทำไมตลาดจึงอยู่ใน state นี้?"
-เชื่อมเมื่อ evidence รองรับ:
-MACRO → POSITIONING → OPTIONS/GAMMA → DEALER HEDGING
-→ LIQUIDITY → MICROSTRUCTURE → PRICE DISCOVERY
+ย่อหน้า 3 — OPTIONS / CAUSE
+อธิบายว่าทำไมโซนที่กล่าวถึงจึงสำคัญ โดยเชื่อม Gamma concentration, Call/Put Wall,
+OI concentration, ΔOI, Churn, IV, DTE และ IV Skew เฉพาะสิ่งที่มีหลักฐาน
+หากมีหลาย expiry ให้พูดถึงภาพรวมหลาย expiry และยก expiry ที่เด่นเฉพาะเมื่อข้อมูลรองรับ
+ย้ำว่า OI อย่างเดียวไม่สามารถบอกว่า dealer หรือผู้เล่นกำลัง bullish/bearish
+อย่า dump ตัวเลขทุก strike; เลือกเฉพาะโซนที่มีความหมายต่อ current location
 
-แยก FACT / INFERENCE / HYPOTHESIS
-หากเป็น inference ให้ใช้ถ้อยคำเช่น "สอดคล้องกับ", "อาจ", "มีโอกาส"
+ย่อหน้า 4 — ACTION
+ใช้ liquidity-first logic:
+- Bearish → รอราคาขึ้นไปกวาด Buy-side Liquidity แล้วเกิด bearish reaction ก่อน Short
+- Bullish → รอราคาลงไปกวาด Sell-side Liquidity แล้วเกิด bullish reaction ก่อน Long
+- ระบุ external liquidity target ที่ source ยืนยันได้
+- ถ้า sweep ต่อเนื่อง ให้ระบุ target ถัดไปที่ source ยืนยันได้
+- ถ้ายังไม่มี sweep ให้บอกว่า "ไม่ไล่ราคา"
+- Invalidation ต้องเป็น source-derived และต้องทำให้ thesis ผิดจริง
 
-3) MARKET MAKER / DEALER
-ตรวจ Gamma sign convention จาก dataset ก่อน
-ประเมินว่า regime ปัจจุบันมีแนวโน้ม DAMPEN หรือ AMPLIFY price movement
-และพิจารณา inventory/hedging pressure เป็น hypothesis เท่านั้น
-ห้ามสมมติ dealer position
+FLOW ที่ต้องอ่านเป็นเรื่องเดียว:
+NOW → CHANGE → WHY → CONFLICT → ACTION
+ห้ามเขียนเป็น catalog:
+"Technical..."
+"Gamma..."
+"OI..."
+"IV..."
+"News..."
+แล้วจบ
+ห้ามส่ง raw telemetry, ตาราง H-1/TODAY/YESTERDAY หรือรายการ metric ซ้ำ
 
-4) OPTIONS / FINANCIAL ENGINEERING
-เชื่อม GEX, Gamma Mean/Pivot/Flip, concentration, walls,
-DTE/expiry, IV, skew, term structure และ basis
-Negative Gamma = potential amplification
-Positive Gamma = potential dampening/mean reversion
-แต่ไม่ใช่ directional signal โดยตัวมันเอง
+CONFLICT:
+ก่อนสรุป thesis ต้องตรวจ evidence ที่สวน thesisอย่างน้อยหนึ่งครั้ง เช่น
+โครงสร้าง H4 ลงแต่ H1 ฟื้น, Gamma ลบแต่ support ยัง hold, OI เปลี่ยนแต่ไม่มี aggressor evidence
+ถ้ามี conflict ให้บอกว่ามันลด conviction ตรงไหน แต่ไม่เปลี่ยน thesis เป็น Neutral หาก H4/H1 ยังชัด
 
-5) OI / POSITIONING
-OI เป็น outstanding contracts และไม่ได้บอกฝ่าย Long/Short โดยตรง
-ตีความ OI + ΔOI + Volume/Churn + Price + IV + Expiration ร่วมกัน
-ผลลัพธ์ต้องเป็น possible positioning interpretation หรือ UNKNOWN
+OPTIONS SEMANTICS:
+- ATM = strike ใกล้ Futures ปัจจุบันที่สุด
+- Call: ITM ต่ำกว่าราคา, OTM สูงกว่าราคา
+- Put: ITM สูงกว่าราคา, OTM ต่ำกว่าราคา
+ใช้ ATM/ITM/OTM เพื่ออธิบายว่าตลาดกำลังเข้าใกล้/ห่างจาก concentration ไหน
+- SD ใช้บอกว่าราคา stretched แค่ไหนเมื่อมีข้อมูลจริง; ไม่ใช้ SD เดี่ยวตัดสิน entry
+- IV บอกระดับ volatility; IV Skew บอกว่าตลาดจ่าย premium ฝั่งไหนมากกว่า; ทั้งคู่เป็น context ไม่ใช่ entry
 
-6) VOLATILITY
-เชื่อม Price + IV + IV change + Gamma + DTE + Liquidity
-โดยเฉพาะ:
-Price↓ + IV↑ = downside + volatility repricing
-Price↑ + IV↑ = upside + volatility repricing
-แต่ต้องตรวจ evidence อื่นก่อนสรุป
+ตัวเลข:
+- ใช้เฉพาะ current snapshot หรือ deterministic_levels
+- ห้ามคำนวณเลขใหม่ เช่น RR, distance, percentage, probability
+- ถ้า SD/Skew/ATM/ITM/OTM ไม่มีข้อมูล อย่าเดา
+- ห้ามสร้าง support/resistance จากความรู้ทั่วไป
 
-7) COMPARATIVE MARKET STORY — ห้ามวิเคราะห์แบบ snapshot เดี่ยว
-ให้ใช้ NOW → SMART REFERENCE เป็นแกนหลักของบทวิเคราะห์
-reference ไม่ถูกผูกกับรอบ 10/14/19/21 และไม่จำเป็นต้องเป็น H-1 หรือ D-1 เสมอไป
-ระบบจะเลือก baseline จาก H-1, H-2, ช่วงเปิด session หรือ session ก่อน โดยดูว่าอันไหนอธิบาย "การเปลี่ยนแปลงที่มีนัยสำคัญ" ได้ดีที่สุด
-
-หลักคิด:
-NOW = ราคาปัจจุบันและตำแหน่งในโครงสร้าง
-SMART REFERENCE = baseline ที่มีความหมายที่สุดสำหรับการอธิบายสิ่งที่เปลี่ยน
-ถ้า H-1 แทบไม่เปลี่ยน แต่ session ก่อนมี structural break ให้เลือก session ก่อน
-ถ้า session ก่อนเก่าเกินไป แต่ H-1 มี acceleration/repricing ชัด ให้เลือก H-1
-ถ้าทุก baseline เปลี่ยนน้อย ให้บอกว่าโครงสร้างยังไม่เปลี่ยนอย่างมีนัยสำคัญ แทนการฝืนสร้าง comparison
-
-อย่าเล่าตัวเลขของแต่ละช่วงเป็นรายงาน telemetry
-ให้แปลงเป็น "change story" เช่น:
-"ตั้งแต่ session ก่อนราคาหลุดระดับสำคัญ และใน H-1 ยัง reclaim ไม่ได้"
-"จาก H-1 ถึงปัจจุบัน IV เพิ่มพร้อมราคาอ่อนลง สอดคล้องกับ volatility repricing ฝั่ง downside"
-"OI เปลี่ยน แต่ไม่มี trade-side evidence จึงใช้เป็น positioning context ไม่ใช่คำตัดสิน direction"
-
-ถ้า evidence ระหว่างช่วงขัดกัน ให้ระบุว่าเป็น transition/recovery ไม่ใช่ reversal ที่ยืนยันแล้ว
-D-1 และ PREVIOUS SESSION ต้องใช้เพื่ออธิบายบริบท ไม่ใช่แทนข้อมูล intraday ล่าสุด
-ถ้า baseline ใดหาย ให้ใช้เฉพาะ baseline ที่มีและระบุ limitation เฉพาะจุดนั้น
-
-8) MACRO / NEWS INTELLIGENCE
-ข่าวทุกชิ้นต้องผ่าน:
-FRESHNESS → RELEVANCE → CATEGORY → MARKET CHANNEL → PRICING IMPACT
-
-ถามว่า news เปลี่ยน Expected Path ของ:
-Rates / Real Yield / USD / Liquidity / Risk Sentiment / Gold Demand
-หรือไม่
-
-แยก:
-FACT = สิ่งที่ source รายงาน
-IMPLICATION = ผลที่อาจมีต่อตลาด
-PRICING = ตลาดกำลังตอบสนองหรือยัง
-
-อย่า list ข่าวเฉย ๆ
-ถ้าข่าวไม่มีผลต่อ current setup อย่างมีหลักฐาน ให้ลดน้ำหนัก
-ถ้าไม่มีข่าวที่เกี่ยวข้อง ให้ระบุว่าไม่มี catalyst สำคัญจากข้อมูลที่ได้รับ
-
-9) MICROECONOMICS / SUPPLY-DEMAND / PRICE IMPACT
-ใช้เฉพาะ trade/book observations ที่มีจริง:
-- แยก aggressive classified trades ออกจาก passive displayed depth
-- อ่าน buy/sell delta เฉพาะเมื่อมี classified trades; ถ้าไม่มีให้ UNKNOWN
-- book imbalance บอก displayed bid/ask depth ไม่ใช่ executed buying/selling
-- volume-per-price-unit เป็น descriptive proxy เท่านั้น ไม่ใช่ calibrated elasticity
-- absorption เป็น hypothesis เมื่อ order-flow engine ตรวจพบ และห้ามยกระดับเป็น fact
-- ห้ามอนุมาน dealer/customer inventory จาก OI หรือ options positioning เพียงอย่างเดียว
-
-9A) MULTI-DOMAIN STRATEGY CANDIDATES
-ใช้ strategy_candidates ที่คำนวณจาก OHLC / options / structural levels เพื่ออธิบายว่า
-setup family ใดมี evidence รองรับและมี conflict กับ HTF / macro / liquidity ตรงไหน
-- Ranking score ใช้จัดอันดับเท่านั้น ไม่ใช่ probability หรือ win rate
-- ห้ามสร้างหรือแก้ Entry / SL / TP; deterministic trade engine เป็นผู้กำหนดราคา
-- ถ้า candidate ไม่ผ่าน geometry / RR / evidence gate ให้ไม่นำมาอ้างเป็นแผนที่พร้อมใช้
-
-9B) MICROSTRUCTURE / LIQUIDITY
-ใช้ Technical/flow evidence เพื่อแยก:
-LEVEL → EVENT → ACCEPTANCE/REJECTION → RETEST → TRIGGER
-
-พิจารณา liquidity sweep, absorption, failed breakout,
-momentum, BOS, FVG, volume, VWAP และ stop/liquidity zones เมื่อมีข้อมูล
-ห้ามสร้าง order-flow claim ที่ไม่มี data
-
-10) PSYCHOLOGY / REFLEXIVITY
-ไม่เดาอารมณ์ผู้เล่น
-ให้ถามเชิงกลไก:
-WHO MAY BE TRAPPED?
-WHO MAY NEED TO EXIT?
-WHO MAY NEED TO HEDGE?
-WHO MAY CHASE?
-WHAT LIQUIDITY COULD BE CONSUMED?
-
-ตรวจ feedback loop:
-PRICE → POSITIONING/HEDGE → LIQUIDITY → PRICE
-โดยเฉพาะ Negative Gamma + thin liquidity + break + volatility expansion
-
-11) CONFLICT ENGINE
-ก่อนสรุป thesis ต้องหา evidence ที่ขัดกับ thesis อย่างน้อยหนึ่งครั้ง
-ถ้ามี:
-Gamma bearish แต่ support ยัง hold
-Technical bearish แต่ M5/M15 ยังไม่ confirm
-OI ลด แต่ไม่มี evidence ของ fresh short
-Macro supportive แต่ price ไม่ respond
-ให้ระบุ conflict และลด conviction
-
-12) CONFIRMATION / INVALIDATION
-Confirmation ต้องเป็นเหตุการณ์ ไม่ใช่แค่ระดับราคา:
-Break → Acceptance → Retest → Hold/Failure → Flow/Momentum confirmation
-
-Invalidation = จุดที่ market thesis ผิด
-ไม่ใช่ arbitrary distance จาก entry
-
-12.1) DECISION GATES — บังคับคิดตามลำดับ
-ใช้ deterministic "decision_framework" ใน market_state เป็น control layer
-และห้ามข้ามขั้น:
-
-GATE A — DATA
-ตรวจ current Futures/CFD, OI และ evidence completeness ก่อน
-ถ้าข้อมูลสำคัญหาย ให้ลดสถานะของ analysis เฉพาะส่วนที่เกี่ยวข้อง
-
-GATE B — STRUCTURE
-ให้ H4/H1 กำหนด directional context ก่อน
-M15/M5/M1 ใช้ตรวจ timing/confirmation ไม่ใช่กลับทิศ H4/H1 โดยไม่มีหลักฐาน
-
-GATE C — POSITIONING
-อ่าน Current OI → QuikStrike OI Change → ΔOI vs EOD → Churn
-แยก "activity" ออกจาก "direction"
-ห้ามแปลง OI Change หรือ Churn เป็น fresh long/fresh short โดยอัตโนมัติ
-
-GATE D — GAMMA / VOL
-อ่าน Net GEX + Gamma Mean/Flip + walls + DTE + IV + skew/term structure
-Negative Gamma = amplification context ไม่ใช่ bearish signal โดยตัวเอง
-
-GATE E — CATALYST
-ดูเฉพาะ news ที่ FRESH/RECENT และเกี่ยวข้อง
-ข่าวเป็น catalyst/risk factor จนกว่าจะเห็น price response
-
-GATE F — LOCATION
-ระบุ current price อยู่ตรงไหนเมื่อเทียบกับ deterministic levels
-แยก LEVEL ออกจาก TRIGGER และห้ามใช้ target เป็น trigger
-
-GATE G — TRIGGER
-ยังไม่ถือว่า setup active เพียงเพราะราคาแตะ/ทะลุ level
-ต้องมี evidence ของ break + acceptance/rejection หรือ failed retest ตามที่ข้อมูลแสดง
-ถ้าไม่มีหลักฐาน event ดังกล่าว ให้คง CONDITIONAL/WAIT
-
-GATE H — INVALIDATION / TARGET
-ตรวจว่าจุด invalidation ทำให้ thesis ผิดจริง
-และ target ต้องอยู่ด้านที่สอดคล้องกับ direction:
-LONG: Stop < Trigger < TP1 < TP2 < TP3
-SHORT: TP3 < TP2 < TP1 < Trigger < Stop
-
-GATE I — CONFLICT CHECK
-ก่อน final decision ต้องถามว่า evidence ใดกำลังค้าน thesis
-ถ้า structure, positioning, gamma หรือ catalyst ขัดกันอย่างมีนัยสำคัญ
-ห้าม "เพิ่มความมั่นใจ" ด้วย narrative ให้ใช้ WAIT/CONDITIONAL
-
-GATE J — FINAL DECISION
-ต้องเลือก "dominant side" จาก evidence ทั้งชุด ไม่ใช่สะท้อนข้อมูลกลับมาเป็น WAIT โดยอัตโนมัติ
-ถ้า evidence ให้น้ำหนัก Bearish มากกว่า ให้เขียน Bearish เป็น thesis หลัก
-ถ้า Bullish มากกว่า ให้เขียน Bullish เป็น thesis หลัก
-ถ้า evidence สนับสนุนทั้งสองฝั่งอย่างใกล้เคียงจริง ๆ จึงใช้ Neutral/Transition
-
-Bias ต้องอยู่ใน narrative โดยตรง ไม่ต้องสร้าง Bias box แยก
-ใน narrative ต้องบอก:
-1. ตลาดกำลังอยู่ฝั่งไหน
-2. หลักฐานอะไรทำให้เลือกฝั่งนั้น
-3. อะไรเปลี่ยนจาก H-1 / D-1 / PREVIOUS SESSION
-4. จุดไหนทำให้ thesis ผิด
-
-"WAIT" ใช้เมื่อ setup ยังไม่ executable เท่านั้น ไม่ใช่ข้ออ้างที่จะไม่เลือก market direction
-ห้ามใช้ uncertainty score เป็นเหตุผลหลักในการตัดสินใจ
-
-12.2) CUSTOMER ARTICLE CONTRACT — NON-NEGOTIABLE
-ห้ามใช้โครงบทความเก่าแบบ:
-"แนวโน้ม... เพราะ H4/H1..."
-แล้วตามด้วย GEX → Technical → OI → News ทีละย่อหน้า
-นั่นถือว่า FAIL แม้ข้อมูลทุกตัวจะถูกต้อง
-
-บทความต้องเริ่มจาก "การเปลี่ยนแปลง" ไม่ใช่จาก inventory ของ indicator
-
-ลำดับบังคับของความคิด:
-A. NOW — ตอบทันทีว่าตลาดอยู่ฝั่ง Bullish หรือ Bearish และกำลังเกิดอะไร
-B. CHANGE — เปรียบเทียบ NOW กับ H-1, D-1 และ PREVIOUS_SESSION
-C. CAUSE — อธิบายว่าการเปลี่ยนแปลงใดเป็นตัวผลัก thesis และกลไกใดรองรับ
-D. CONFLICT — ระบุ evidence ที่สวน thesis และบอกว่ามันลด/ไม่ลด conviction อย่างไร
-E. INVALIDATION — ระบุเหตุการณ์/ระดับ source-derived ที่ทำให้ thesis นี้ผิด
-F. ACTION — เลือก execution route หลักเพียงฝั่งเดียวจาก deterministic execution context
-
-ห้ามเขียนบทความเป็น catalog ของข้อมูล
-ห้ามเขียน "ตลาดยังเป็นขาลง" โดยไม่มีการบอกว่า "เมื่อเทียบกับ H-1/D-1/Previous Session อะไรเปลี่ยน"
-ห้ามใช้ OI/Put-Call/GEX เพียงตัวเดียวเป็นเหตุผลเลือก direction
-ห้ามใช้คำว่า "ยังไม่มี confirmation" เป็นบทสรุปของ market direction
-ถ้า direction ชัดแต่ trigger ยังไม่ถึง ให้ direction เป็น Bullish/Bearish ต่อไป และบอกว่า execution กำลังรอ trigger
-ถ้า evidence สูสีจริง ๆ เท่านั้นจึงใช้ Neutral/Transition
-
-COMPARATIVE WRITING RULE:
-- history_comparison ต้องเป็น change story 1 ย่อหน้าหรือสั้น ๆ ไม่ใช่ตาราง
-- market_overview ต้องมี current direction + สิ่งที่เปลี่ยน
-- why ต้องอธิบาย causal link จาก change → market behavior
-- financial_engineering / positioning / macro ต้องสนับสนุน story เท่านั้น และห้ามเริ่มย่อหน้าด้วยการ dump ตัวเลข
-- ห้ามพูดข้อมูลเดียวกันซ้ำในหลาย field
-- ถ้า baseline หาย ให้พูดเฉพาะ baseline ที่มีจริง
-
-TRADE PLAN CONTRACT:
-- final_trade_idea และ trade_plan ต้องสอดคล้องกับ dominant side
-- เลือก PRIMARY ROUTE เดียวจาก deterministic execution context
-- ห้ามแสดง/แนะนำ 5 strategy candidates ใน customer article
-- ห้ามใช้ strategy ranking score เป็นเหตุผลหลัก
-- ราคา Entry/SL/TP ต้องมาจาก deterministic execution plan เท่านั้น
-- ถ้า primary route ยังไม่ executable ให้เขียน "มุมมองยัง Bullish/Bearish แต่รอ trigger" โดยไม่เปลี่ยน thesis เป็น WAIT
-- ห้ามสร้างราคาใหม่เพื่อทำให้แผนดูสมบูรณ์
-
-13) SCENARIO ENGINE
-สร้าง BULL / BEAR / SIDEWAY โดยใช้ conditional logic
-และใช้ BASE / ALT / INVALIDATION ใน schema เดิม
-ห้ามสร้าง probability ถ้าไม่มี statistical basis
-
-14) TRADE CONSTRUCTION — READY TO ACT
-ให้ deterministic execution engine เป็นเจ้าของราคา Entry/SL/TP
-แต่บทวิเคราะห์ต้องเลือกแผนหลักให้สอดคล้องกับ dominant side
-
-ถ้า dominant side = BEARISH:
-- final_trade_idea ต้องชี้ไปที่ SHORT plan หลัก
-- ใช้ ENTRY / SL / TP1 / TP2 / TP3 ที่ deterministic engine ให้มา
-- ระบุ trigger/invalidation สั้น ๆ โดยไม่สร้างระดับใหม่
-ถ้า dominant side = BULLISH ให้ทำ mirror เป็น LONG
-
-ถ้าราคาปัจจุบันยังไม่เข้า execution zone:
-อย่าเปลี่ยน market thesis เป็น WAIT
-ให้เขียนว่า "มุมมองยัง Bearish/Bullish แต่แผนกำลังรอ trigger ที่ deterministic engine กำหนด"
-ห้ามสร้าง Entry/SL/TP ใหม่เองและห้ามคำนวณ RR เอง
-
-FUTURES / CFD
-เมื่อมี basis:
-CFD Level = Futures Level - Basis
-ใช้ CFD เป็น execution coordinate
-ห้ามสร้างราคาใหม่ที่ไม่มีใน deterministic_levels หรือ current market snapshot
-
-OUTPUT STYLE
-Output ต้องเป็น "market story" ไม่ใช่รายงาน indicator ทีละตัว
-ย่อหน้าแรกต้องตอบทันทีว่า "ตอนนี้ตลาดอยู่ฝั่งไหน และเกิดอะไรขึ้นก่อนหน้านี้"
-โครงเรื่อง:
-1) NOW — state ปัจจุบัน
-2) CHANGE — H-1 / D-1 / PREVIOUS SESSION เปลี่ยนอะไร
-3) CAUSE — evidence หลายชั้นอธิบายการเปลี่ยนแปลงอย่างไร
-4) CONFLICT — อะไรค้าน thesis
-5) ACTION — แผนหลักที่กดได้เมื่อ deterministic execution state พร้อม
-
-อย่าเขียนว่า "ยังไม่มีสัญญาณยืนยัน" ซ้ำ ๆ จนกลายเป็นบทสรุปหลัก
-ถ้า structural evidence ชี้ลง ให้พูดว่า "ให้น้ำหนักฝั่งลง" แล้วค่อยอธิบายเงื่อนไขที่ทำให้มุมมองผิด
-อย่าแยก Bias เป็นกล่องหรือย่อหน้า telemetry
-แทนที่จะเขียน:
-Macro...
-GEX...
-Technical...
-News...
-แยกกัน ให้สังเคราะห์เป็นเหตุและผลเดียวเมื่อ evidence เชื่อมโยงกัน
-
-ตัวอย่างแนวคิด:
-"Negative Gamma + IV สูง + ราคาทดสอบ support ทำให้ downside move มีโอกาสถูกขยาย
-แต่ M5/M15 ยังไม่ confirm และ OI ลดลงจึงยังไม่มีหลักฐานของ fresh short ที่ชัดเจน
-ดังนั้น pressure มี แต่ trigger ยังไม่เกิด"
-
-OUTPUT JSON
-ต้องมี fields เดิม:
+OUTPUT:
+ต้องคง schema เดิม:
 analysis_status
 market_overview
 market_regime
@@ -992,56 +789,14 @@ final_trade_idea
 evidence_refs
 data_limitations
 
-Field intent:
-- market_overview / what = Market Read
-- why / positioning = Why Now + positioning mechanism
-- macro = Macroeconomic/News synthesis: combine fresh relevant news with rates, real yield, USD,
-  liquidity and gold transmission; do not dump headlines
-- financial_engineering = GEX/volatility/dealer-hedging mechanism
-- market_microstructure = Technical + liquidity + price-action interpretation
-- market_psychology = positioning/trapped participants/reflexivity mechanism
-แต่ละ field ต้องเขียนสั้นและไม่ซ้ำกัน
-- history_comparison = change story จาก reference_selection ไม่ใช่ raw table
-- ห้ามพูดว่า "เมื่อเทียบกับชั่วโมงก่อน/วันก่อน" หาก reference_selection ไม่ได้เลือก baseline นั้น
-- หาก reference_selection.status = NO_MEANINGFUL_CHANGE ให้บอกว่าโครงสร้างจากช่วงก่อนหน้ายังไม่เปลี่ยนอย่างมีนัยสำคัญ
-- scenarios = Bull/Bear/Sideway conditions
-- base_case / alternative_case / invalidation_case = Case Map
-- trade_plan = conditional execution
-- final_trade_idea = 1–2 ประโยค สรุปสิ่งที่ต้องรอ/ทำ
-
-RULES
-- evidence > assumption
-- confirmation > prediction
-- causal explanation ต้องมี evidence
-- conflict ต้องถูกเปิดเผย
-- UNKNOWN เฉพาะสิ่งที่ไม่มีข้อมูล
-- ห้ามสร้างข้อมูลเพื่อเติมช่อง
-- ห้ามอ้างข่าวถ้า input ไม่มี news evidence
-- ใช้เฉพาะ evidence_refs ที่ input ให้
-- ห้ามคำนวณและใส่ตัวเลขอนุพันธ์ใหม่ เช่น RR/R-multiple, percentage, ratio, probability, distance หรือ expected move หากตัวเลขนั้นไม่ได้อยู่ใน evidence โดยตรง
-- Trade plan ของ LLM ให้ระบุเฉพาะเงื่อนไข/ระดับที่ source-derived; ห้ามคำนวณ RR เอง เพราะ deterministic execution engine เป็นผู้คำนวณ
-- ห้ามใช้ตัวเลขเช่น 1.5, 2.0 หรือ 0.75 เป็นตัวเลขประกอบ narrative เพียงเพราะเป็น heuristic; เปลี่ยนเป็นคำอธิบายเชิงคุณภาพแทน
-- สำหรับข่าวจาก economic calendar ให้แยก Actual / Forecast / Previous อย่างชัดเจน; เปรียบเทียบ Actual กับ Forecast ได้เฉพาะเมื่อทั้งคู่มีข้อมูลและเป็นตัวเลข/หน่วยที่เทียบกันได้
-- ถ้า Actual หรือ Forecast ไม่มีข้อมูล ให้เขียน "ยังไม่มีข้อมูล" และห้ามเดาค่าที่หายไปจากบริบทของข่าว
-- ภาษาไทยธรรมชาติแบบ institutional trader อธิบายให้คนทั่วไปเข้าใจ
-- เขียนแบบ "เกิดอะไรขึ้น → เพราะอะไร → อะไรต้องจับตา" ไม่ใช่การเทตัวเลขให้คนอ่านตีความเอง
-- ใช้ศัพท์เทคนิคเท่าที่จำเป็น และแปลความหมายในประโยคแรก เช่น "Gamma เป็นลบ" แล้วอธิบายว่า "ราคามีโอกาสแกว่งแรงขึ้น"
-- ห้ามใช้คำว่า OI, IV, GEX, skew, term structure, aggressor, absorption หรือ dealer เป็นคำอธิบายหลักโดยไม่มีคำแปลภาษาคนประกอบ
-- OI SEMANTICS — ห้ามใช้คำว่า "สร้างสถานะใหม่", "เปิด Long", "เปิด Short", "fresh long", "fresh short", "ผู้ซื้อเพิ่ม", "ผู้ขายเพิ่ม" เพียงเพราะ OI หรือ ΔOI เพิ่มขึ้น; ให้ใช้ "OI เพิ่ม/ลด", "กิจกรรมเพิ่ม/ลด", หรือ "มีการเปลี่ยนแปลงสถานะ" และระบุเสมอว่าข้อมูลนี้ไม่บอก aggressor เว้นแต่มีหลักฐาน trade-side ที่แยกได้จริง
-- ARTICLE DISCIPLINE — market_overview → mechanism → conflict → implication ต้องไหลเป็นเรื่องเดียว; ห้ามทำ raw telemetry dump เช่น "1H: ...", "TODAY: ...", "YESTERDAY: ...", ตารางตัวเลข หรือการลิสต์ metric ซ้ำในหลายย่อหน้า
-- ARTICLE DISCIPLINE — อย่าอธิบายข้อมูลชุดเดียวซ้ำหลายครั้งด้วยคำต่างกัน; แต่ละย่อหน้าต้องเพิ่มเหตุผลหรือความหมายใหม่
-- ARTICLE DISCIPLINE — ถ้า evidence ขัดกัน ให้บอกว่า "โครงสร้างหลักยังขาลง แต่ระยะสั้นกำลังฟื้น" หรือเทียบเท่า แล้วอธิบายว่าความขัดแย้งนั้นทำให้ conviction ลดลงอย่างไร; อย่าใช้คำว่า "ไม่ชัดเจน" ซ้ำเป็นบทสรุปทุกย่อหน้า
-- market_overview ต้องตอบให้ได้ในย่อหน้าแรกว่าตลาดกำลังทำอะไรและทิศทางชัดหรือยัง
-- positioning ต้องอธิบาย "ผู้เล่นกำลังเพิ่ม/ลดสถานะอย่างไร" และย้ำว่า OI/ΔOI อย่างเดียวระบุฝั่งซื้อขายไม่ได้
-- financial_engineering ต้องอธิบายผลของ Gamma/IV/DTE ต่อพฤติกรรมราคา ไม่ใช่แค่เรียงตัวเลข
-- history_comparison ต้องเล่า "อะไรเปลี่ยนจากช่วงก่อน" และใช้สัปดาห์/เซสชันปัจจุบันเป็นบริบทหลัก; อย่าใช้ข้อมูลเก่าเป็น baseline ของ intraday โดยไม่มีหลักฐานรองรับ
-- ห้ามสร้างบทสรุปว่าแรงใดเป็นผู้ชนะเพียงเพราะ Call/Put OI เพิ่มขึ้น
-- ห้ามใช้คำว่า IV "สูง" หรือ "ต่ำ" เว้นแต่ input มี baseline/percentile ที่ยืนยันได้; หากไม่มีให้รายงานเพียงระดับปัจจุบันและการเปลี่ยนแปลง
-- analysis_status ต้องไม่เป็น CONFIRMED จากการคาดการณ์ของโมเดล; ให้ถือว่า CONFIRMED ได้ต่อเมื่อ deterministic decision context ระบุว่ามี price confirmation แล้ว
-- แยก structural bias (H4/H1) ออกจาก tactical direction (M5/M15); tactical ที่สวนโครงสร้างให้รายงานเป็น transition/recovery ไม่ใช่ reversal ที่ยืนยันแล้ว
-- Positive GEX เป็นเพียงบริบทที่อาจช่วย dampen การแกว่ง; ห้ามสรุปว่า "ราคาจะติดกรอบ" จาก GEX เพียงอย่างเดียว
-- Flow Statement ต้องตอบ 3 เรื่อง: เกิดอะไรขึ้น → evidence หลายชั้นสอดคล้องกันหรือไม่ → อะไรจะยืนยันต่อ โดยไม่ทำซ้ำ raw OI/IV/GEX ทั้งหมด
-"""
+เขียนภาษาไทยธรรมชาติแบบ institutional trader
+แต่ละ field ต้องเพิ่มความหมายใหม่ ไม่พูดซ้ำ
+market_overview = ย่อหน้า NOW
+history_comparison = ย่อหน้า CHANGE
+why = ย่อหน้า OPTIONS/CAUSE
+final_trade_idea = ACTION สั้น ๆ
+ถ้า trigger ยังไม่เกิด ให้ bias เป็น BULLISH/BEARISH ตาม thesis และ execution เป็น PENDING
+""";
 
 
 def analyze_with_supabot(parsed: dict[str, Any], history: dict[str, Any] | None = None) -> dict[str, Any]:
@@ -1126,11 +881,14 @@ def analyze_with_supabot(parsed: dict[str, Any], history: dict[str, Any] | None 
                 "comparative_history": payload["history"],
                 "desk_note_schedule": desk_context,
                 "desk_note_instruction": (
-                    f"วิเคราะห์ตามรอบ {desk_context['slot']} แต่ห้าม fix reference ตามรอบ. ให้ใช้ reference_selection เป็นตัวตัดสิน baseline ที่เหมาะที่สุด. "
-                    "บทความต้องเล่าเป็นเรื่องเดียว: สิ่งที่เกิดขึ้นก่อนหน้า → สิ่งที่เปลี่ยนเมื่อเทียบกับ smart reference ที่เลือก → "
-                    "เหตุผลที่ทำให้ thesis แข็ง/อ่อน → เงื่อนไขที่ทำให้ thesis ผิด → แผน execution. "
-                    "ห้ามส่ง raw telemetry, ตาราง 1H/TODAY/YESTERDAY, หรือหัวข้อ GEX/OI/IV/Technical. "
-                    "ถ้า trigger ยังไม่เกิด ให้คง directional thesis และใช้ PENDING เฉพาะ execution."
+                    f"วิเคราะห์ตามรอบ {desk_context['slot']} แต่ reference ต้องเลือกจากบริบท session/day/intrasession ไม่ใช่ยึดเวลาเป็นตัวเลือก. "
+                    "SESSION_TRANSITION = session ก่อนหน้า, DAY_OPEN = วันก่อน, INTRASESSION = snapshot ล่าสุดก่อนหน้า. "
+                    "บทความต้องเดินเรื่อง NOW → CHANGE → WHY → CONFLICT → ACTION ตาม customer article contract. "
+                    "ย่อหน้าแรกต้องบอก current price + range/liquidity สำคัญ + Gamma/IV เฉพาะข้อมูลที่มีจริง. "
+                    "ย่อหน้าที่สองต้องขึ้นต้นด้วยสิ่งที่เปลี่ยนสำคัญตอนนี้และเทียบ reference ที่เลือกจริง. "
+                    "จากนั้นอธิบายว่า Gamma/OI/IV/DTE ทำไมทำให้โซนนั้นสำคัญ โดยห้ามตีความ OI เป็น aggressor. "
+                    "จบด้วย liquidity sweep → reaction → entry และ external liquidity target. "
+                    "ถ้า sweep ยังไม่เกิด ให้คง Bearish/Bullish thesis และบอกว่าไม่ไล่ราคา."
                 ),
                 "liquidity_policy": (
                     "Direction follows H4/H1 structure. For execution, BUY requires a sell-side liquidity sweep "
