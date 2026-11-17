@@ -164,16 +164,24 @@ def _format_analysis_message(parsed: dict, ai_result: dict) -> str:
     if comparison and ("1H:" in comparison or "TODAY:" in comparison or "YESTERDAY:" in comparison):
         comparison = ""
     if not comparison:
+        # Reference selection is evidence-driven, never fixed to a desk-note slot.
+        # Prefer the smart baseline produced upstream; otherwise use an explicit
+        # no-change statement rather than silently forcing H-1/D-1.
         history = state.get("history") or {}
-        diff_key = "yesterday" if slot == "10:00" else "1h"
-        diff = history.get(diff_key) or {}
-        delta = diff.get("price")
-        if delta is not None:
+        reference_selection = history.get("reference_selection") or ai_result.get("reference_selection") or {}
+        selected = reference_selection.get("selected") or {}
+        selected_label = selected.get("label")
+        change = selected.get("change") or {}
+        delta = change.get("price")
+        if selected_label and delta is not None:
             comparison = (
-                f"เมื่อเทียบกับ{'วันก่อน' if diff_key == 'yesterday' else 'ชั่วโมงก่อน'} "
-                f"ราคายัง{'อ่อนตัวลง' if float(delta) < 0 else 'ฟื้นตัวขึ้น' if float(delta) > 0 else 'เคลื่อนไหวใกล้เคียงเดิม'} "
-                "และให้น้ำหนักกับโซนสำคัญเดิมต่อ"
+                f"เมื่อเทียบกับ{selected_label} ราคาปัจจุบัน"
+                f"{'ลดลง' if float(delta) < 0 else 'เพิ่มขึ้น' if float(delta) > 0 else 'แทบไม่เปลี่ยน'} "
+                "และให้น้ำหนักกับโครงสร้างสำคัญเดิมต่อ"
             )
+        elif reference_selection.get("status") == "NO_MEANINGFUL_CHANGE":
+            comparison = "จากช่วงก่อนหน้า โครงสร้างยังไม่เปลี่ยนอย่างมีนัยสำคัญ จึงยังไม่มีเหตุผลให้เปลี่ยน thesis"
+
 
     # Keep the cause paragraph as a synthesis, not a telemetry list.
     if why:
