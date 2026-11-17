@@ -321,3 +321,52 @@ def test_telegram_legacy_routes_render_one_primary_only():
     assert "TOP 1" not in message
     assert "ICT FVG" not in message
 
+
+
+def test_telegram_customer_story_does_not_render_telemetry_or_unknown_sweep():
+    from src import telegram
+
+    parsed = {
+        "future_price": 3875.0,
+        "cfd_price": 3876.67,
+        "basis_diff": -1.67,
+        "vol": 33.82,
+        "dte": 0.63,
+        "raw_series": {
+            "market_state": {
+                "decision": {"structural_bias": "BEARISH"},
+                "liquidity": {
+                    "gate": "SWEEP_DETECTED",
+                    "preferred_event": "BUY_SIDE_SWEEP",
+                },
+                "technical": {
+                    "h4": {"trend": "bearish"},
+                    "h1": {"trend": "bearish"},
+                    "m5": {"trend": "bullish"},
+                    "m1": {"trend": "bullish"},
+                },
+                "gamma": {"net_gex": -100.0},
+                "flow": {"oi_change_put": 265, "oi_change_call": 323},
+            }
+        },
+    }
+    ai = {
+        "structural_bias": "BEARISH",
+        "liquidity_story": (
+            "ตอนนี้ทองอยู่แถว 3,876.67 และโครงสร้างหลักเป็นขาลง. "
+            "เกิด Buy-side Sweep ที่ M15/M5 บริเวณ UNKNOWN แล้ว"
+        ),
+        "reference_selection": {"status": "UNKNOWN"},
+        "why": "H4/H1 bearish ขณะที่ M5/M1 bullish",
+        "trade_plan": {
+            "execution_plan": {
+                "primary_setup": {"side": "SHORT", "stop": 3881.67}
+            }
+        },
+    }
+    message = telegram._format_analysis_message(parsed, ai)
+    assert "บริเวณ UNKNOWN" not in message
+    assert "1H:" not in message
+    assert "baseline" not in message.lower()
+    assert "Plan:" in message
+    assert "Invalidation:" in message
