@@ -156,8 +156,8 @@ def _format_analysis_message(parsed: dict, ai_result: dict) -> str:
         text = _single_line(value)
         if not text:
             return ""
-        text = re.sub(r"(บริเวณ|ที่)\\s+UNKNOWN\\b", "", text, flags=re.IGNORECASE)
-        text = re.sub(r"\\s{2,}", " ", text).strip()
+        text = re.sub(r"(บริเวณ|ที่)\s+UNKNOWN\b", "", text, flags=re.IGNORECASE)
+        text = re.sub(r"\s{2,}", " ", text).strip()
         return text
 
     def first(*values: object) -> str:
