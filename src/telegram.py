@@ -229,7 +229,7 @@ def _format_analysis_message(parsed: dict, ai_result: dict) -> str:
             )
 
     lines = [
-        f"<b>GOLD — {slot}</b>",
+        f"<b>GOLD MARKET — {slot}</b>",
         _escape(overview),
     ]
     for value in (comparison, why, resistance_line, support_line, invalid_line, plan):
