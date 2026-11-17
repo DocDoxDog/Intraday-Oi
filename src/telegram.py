@@ -230,8 +230,29 @@ def _format_analysis_message(parsed: dict, ai_result: dict) -> str:
 
     lines = [
         f"<b>GOLD MARKET — {slot}</b>",
-        _escape(overview),
     ]
+
+    cfd = parsed.get("cfd_price")
+    fut = parsed.get("future_price")
+    dte = parsed.get("dte")
+    vol = parsed.get("vol")
+    basis = parsed.get("basis_diff")
+    header_market = []
+    if cfd is not None or fut is not None:
+        header_market.append(
+            f"CFD {_show(cfd)} | FUT. {_show(fut)}"
+        )
+    if basis is not None or vol is not None:
+        parts = []
+        if basis is not None:
+            parts.append(f"BASIS {_show(basis)}")
+        if vol is not None:
+            parts.append(f"IV {_show(vol)}%")
+        header_market.append(" | ".join(parts))
+    if dte is not None:
+        header_market.append(f"DTE. {_show(dte, 2)}")
+    lines.extend(_escape(x) for x in header_market)
+    lines.append(_escape(overview))
     for value in (comparison, why, resistance_line, support_line, invalid_line, plan):
         if value:
             lines.append(_escape(value))
