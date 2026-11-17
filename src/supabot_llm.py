@@ -365,16 +365,19 @@ def _select_smart_reference(
         except (TypeError, ValueError):
             prev_dt = None
 
-    if previous_row and current_session and prev_session_key and current_session != prev_session_key:
-        mode = "SESSION_TRANSITION"
-        chosen = previous_session or previous_day or previous_row
-        ref_type = "PREVIOUS_SESSION" if previous_session else "PREVIOUS_DAY" if previous_day else "LATEST_ROW"
-        label = "session ก่อนหน้า" if previous_session else "วันก่อน" if previous_day else "รอบก่อนหน้า"
-    elif previous_row and current_date and prev_dt and current_date != prev_dt.date():
+    # A new trading day takes precedence over a session transition so the
+    # opening snapshot is compared with the prior day, not merely the last
+    # overnight/session row.
+    if previous_row and current_date and prev_dt and current_date != prev_dt.date():
         mode = "DAY_OPEN"
         chosen = previous_day or previous_session or previous_row
         ref_type = "PREVIOUS_DAY" if previous_day else "PREVIOUS_SESSION" if previous_session else "LATEST_ROW"
         label = "วันก่อน" if previous_day else "session ก่อนหน้า" if previous_session else "รอบก่อนหน้า"
+    elif previous_row and current_session and prev_session_key and current_session != prev_session_key:
+        mode = "SESSION_TRANSITION"
+        chosen = previous_session or previous_day or previous_row
+        ref_type = "PREVIOUS_SESSION" if previous_session else "PREVIOUS_DAY" if previous_day else "LATEST_ROW"
+        label = "session ก่อนหน้า" if previous_session else "วันก่อน" if previous_day else "รอบก่อนหน้า"
     else:
         mode = "INTRASESSION"
         chosen = previous_row or previous_session or previous_day or session_open
@@ -501,8 +504,7 @@ def _compact_history(parsed: dict[str, Any], history: dict[str, Any] | None) -> 
         {"kind": "PREVIOUS_DAY", "label": "วันก่อน", "baseline": previous_day},
     ]
     candidates = [c for c in candidates if c.get("baseline")]
-    reference_selection = _select_smart_reference(now, candidates, now_dt=_ts if False else None)
-    # Parse current timestamp once outside the selector; keep selector free of slot assumptions.
+    # Parse current timestamp once outside the selector.
     now_dt = None
     try:
         now_dt = datetime.fromisoformat(str(now.get("captured_at")).replace("Z", "+00:00"))
