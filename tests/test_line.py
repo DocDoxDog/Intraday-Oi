@@ -47,4 +47,4 @@ def test_line_analysis_is_analysis_first_and_plain_language():
     assert "Plan:" in message
     assert "Current OI" not in message
     assert "OI Change" not in message
-    assert "OI activity สองฝั่งเพิ่มขึ้น" in message
+    assert "OI เพิ่มทั้ง Put และ Call" in message
