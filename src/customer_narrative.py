@@ -11,7 +11,7 @@ from typing import Any
 
 from src.market_flow_engine import compact_market_flow
 
-# [run-live] final preferred narrative contract
+# [run-live] final narrative wording
 
 
 def _num(value: Any) -> float | None:
