@@ -141,18 +141,18 @@ def _note_levels(parsed: dict, ai_result: dict) -> tuple[list[float], list[float
 
 
 def _format_analysis_message(parsed: dict, ai_result: dict) -> str:
-    """Render a short desk note with a natural price-action story plus deterministic action."""  # [run-live] verify narrative contract
+    """Render the canonical customer narrative with deterministic execution context."""
     observed = parsed.get("observed_at") or parsed.get("retrieved_at")
     schedule = ai_result.get("desk_note_context") or desk_note_schedule(observed)
     slot = str(schedule.get("slot") or "-")
     valid_until = str(ai_result.get("valid_until_label") or schedule.get("valid_until_label") or "-")
+
     raw = parsed.get("raw_series") or {}
     state = raw.get("market_state") or {}
     gamma = state.get("gamma") or {}
     liquidity = state.get("liquidity") or {}
     decision = state.get("decision") or {}
     levels = state.get("levels") or {}
-    zones = raw.get("multi_expiry_gamma_zones") or {}
 
     def n(v):
         try:
@@ -164,61 +164,25 @@ def _format_analysis_message(parsed: dict, ai_result: dict) -> str:
         x = n(v)
         return f"{x:,.{d}f}" if x is not None else "-"
 
-    def bias():
-        x = str(
-            decision.get("structural_bias")
-            or ai_result.get("structural_bias")
-            or ai_result.get("bias")
-            or "MIXED"
-        ).upper()
-        return "BEARISH" if x in {"SELL", "BEARISH"} else "BULLISH" if x in {"BUY", "BULLISH"} else "MIXED"
+    cfd = n(parsed.get("cfd_price"))
+    fut = n(parsed.get("future_price"))
+    basis = n(parsed.get("basis_diff"))
+    iv = n(parsed.get("vol"))
+    dte = n(parsed.get("dte"))
 
-    cfd, fut = n(parsed.get("cfd_price")), n(parsed.get("future_price"))
-    basis, iv, dte = n(parsed.get("basis_diff")), n(parsed.get("vol")), n(parsed.get("dte"))
     put_wall = n(gamma.get("put_wall")) or n(levels.get("support_current"))
     call_wall = n(gamma.get("call_wall")) or n(levels.get("resistance_current"))
-    b = bias()
-    in_range = cfd is not None and put_wall is not None and call_wall is not None and put_wall <= cfd <= call_wall
 
-    def convert(v):
-        x = n(v)
-        if x is None:
-            return None
-        return x - fut + cfd if fut is not None and cfd is not None else x
+    structural = str(
+        decision.get("structural_bias")
+        or ai_result.get("structural_bias")
+        or ai_result.get("bias")
+        or "MIXED"
+    ).upper()
+    b = "BEARISH" if structural in {"SELL", "BEARISH"} else "BULLISH" if structural in {"BUY", "BULLISH"} else "MIXED"
 
-    ups = sorted({x for x in (convert(v) for v in (zones.get("resistance_nodes") or [])) if x is not None})
-    downs = sorted({x for x in (convert(v) for v in (zones.get("support_nodes") or [])) if x is not None}, reverse=True)
-    next_up = next((x for x in ups if call_wall is not None and x > call_wall + .01), None)
-    next_down = next((x for x in downs if put_wall is not None and x < put_wall - .01), None)
-
-    technical = state.get("technical") or {}
-    h4 = str((technical.get("h4") or {}).get("trend") or "").lower()
-    h1 = str((technical.get("h1") or {}).get("trend") or "").lower()
-    m15 = str((technical.get("m15") or {}).get("trend") or "").lower()
-    m5 = str((technical.get("m5") or {}).get("trend") or "").lower()
-
-    # Customer story: prefer actual structure/levels, then fall back to analyst prose.
-    # Never invent a level that is absent from the source payload.
-    story = ""
-    if cfd is not None and put_wall is not None and call_wall is not None:
-        if in_range:
-            if h1 == "bearish" and (m15 in {"bullish", "neutral"} or m5 in {"bullish", "neutral"}):
-                story = (
-                    f"H1 ยังอยู่ในโครงสร้างขาลง แต่ราคายังยืนเหนือ {s(put_wall)} ได้ "
-                    f"และกำลังเด้งกลับขึ้นไปหา Liquidity ด้านบน"
-                )
-            elif h1 == "bullish" and (m15 in {"bullish", "neutral"} or m5 in {"bullish", "neutral"}):
-                story = (
-                    f"H1 ยังยืนเหนือ {s(put_wall)} ได้ และราคากำลังกลับขึ้นไปทดสอบ Liquidity "
-                    f"ด้านบน"
-                )
-            else:
-                story = f"ราคายังแกว่งอยู่ในกรอบ {s(put_wall)}–{s(call_wall)} และกำลังเข้าใกล้โซนตัดสินใจด้านบน"
-        elif cfd > call_wall:
-            story = f"ราคาขึ้นเหนือ {s(call_wall)} แล้ว ตอนนี้ตลาดกำลังทดสอบว่าจะยืนเหนือโซนนี้ได้หรือไม่"
-        elif cfd < put_wall:
-            story = f"ราคาหลุด {s(put_wall)} ลงมาแล้ว ตอนนี้ตลาดกำลังทดสอบว่าจะยืนต่ำกว่าโซนนี้ได้หรือไม่"
-
+    narrative = build_customer_narrative(parsed, ai_result)
+    story = str(narrative.get("market_read") or "").strip()
     if not story:
         story = _single_line(
             ai_result.get("market_overview")
@@ -229,75 +193,25 @@ def _format_analysis_message(parsed: dict, ai_result: dict) -> str:
     if not story:
         story = f"ราคาปัจจุบันอยู่แถว {s(cfd)} และยังรอการตอบสนองที่ระดับสำคัญ"
 
-    # The decision zone is the wall range; continuation is conditional on acceptance.
-    if in_range:
-        decision_story = f"โซนตัดสินใจอยู่แถว {s(put_wall)}–{s(call_wall)}"
-        if next_up is not None:
-            continuation = (
-                f"ถ้าขึ้นไปแล้วยืนเหนือ {s(call_wall)} ได้ → Break + Acceptance "
-                f"มีโอกาสไปต่อหา Gamma Wall ถัดไป {s(next_up)}"
-            )
-        else:
-            continuation = (
-                f"ถ้าขึ้นไปแล้วยืนเหนือ {s(call_wall)} ได้ → Break + Acceptance "
-                f"มีโอกาสเปิดทางขึ้นต่อ"
-            )
-        reversal = (
-            f"แต่ถ้ากวาดเหนือ {s(call_wall)} แล้วกลับเข้า Range "
-            f"ให้ระวัง Buy-side Sweep และการย่อลงหา {s(put_wall)}"
-            if b == "BEARISH"
-            else f"ถ้าหลุด {s(put_wall)} แล้วกลับเข้า Range ให้ระวัง Sell-side Sweep "
-                 f"และการเด้งกลับหา {s(call_wall)}"
-        )
-    elif cfd is not None and call_wall is not None and cfd > call_wall:
-        decision_story = f"ตอนนี้ราคาอยู่เหนือ {s(call_wall)}"
-        continuation = (
-            f"ถ้ายืนเหนือ {s(call_wall)} ต่อได้ → Break + Acceptance "
-            f"มีโอกาสไปต่อหา Gamma Wall ถัดไป {s(next_up)}"
-            if next_up is not None
-            else f"ถ้ายืนเหนือ {s(call_wall)} ต่อได้ → มีโอกาสไปต่อ"
-        )
-        reversal = f"แต่ถ้ากลับลงเข้า Range ให้ระวังการหลอก Break และกลับไปทดสอบ {s(call_wall)}"
-    elif cfd is not None and put_wall is not None and cfd < put_wall:
-        decision_story = f"ตอนนี้ราคาอยู่ใต้ {s(put_wall)}"
-        continuation = (
-            f"ถ้ายืนต่ำกว่า {s(put_wall)} ต่อได้ → Break + Acceptance "
-            f"มีโอกาสไปต่อหา Gamma Wall ถัดไป {s(next_down)}"
-            if next_down is not None
-            else f"ถ้ายืนต่ำกว่า {s(put_wall)} ต่อได้ → มีโอกาสลงต่อ"
-        )
-        reversal = f"แต่ถ้ากลับขึ้นเหนือ {s(put_wall)} ให้ระวังการหลุดหลอกและกลับเข้า Range"
-    else:
-        decision_story = "ยังไม่มี Decision Range ที่ยืนยันได้"
-        continuation = ""
-        reversal = ""
-
+    # Comparative change is deterministic and compact; raw history labels never reach Telegram.
     hist = ai_result.get("reference_selection") or (state.get("history") or {}).get("reference_selection") or {}
     sel = hist.get("selected") or {}
     ch = sel.get("change") or {}
-    dp, dg = n(ch.get("future_price")), n(ch.get("gex_net"))
-    if dp is not None and abs(dp) > .0001:
-        change = f"สิ่งที่เปลี่ยนสำคัญคือ Futures {'เพิ่มขึ้น' if dp > 0 else 'ลดลง'} {s(abs(dp))} เทียบกับ{sel.get('label') or 'รอบก่อนหน้า'}"
-        if dg is not None and abs(dg) > .0001:
-            change += f" ขณะที่ Net Gamma {'ดีขึ้น' if dg > 0 else 'แย่ลง'}"
+    dp = n(ch.get("future_price"))
+    dg = n(ch.get("gex_net"))
+    if dp is not None and abs(dp) > 0.0001:
+        change = f"CHANGE: Futures {'เพิ่มขึ้น' if dp > 0 else 'ลดลง'} {s(abs(dp))} เทียบกับ{sel.get('label') or 'รอบก่อนหน้า'}"
+        if dg is not None and abs(dg) > 0.0001:
+            change += f" | Net Gamma {'ดีขึ้น' if dg > 0 else 'แย่ลง'}"
     elif sel.get("meaningful_change") is False:
-        change = "สิ่งที่เปลี่ยนสำคัญคือโครงสร้างยังไม่เปลี่ยนอย่างมีนัยสำคัญ จึงยังไม่ควรเปลี่ยน thesis"
+        change = "CHANGE: โครงสร้างยังไม่เปลี่ยนอย่างมีนัยสำคัญ"
     else:
-        change = "สิ่งที่เปลี่ยนสำคัญคือยังไม่มีการเปลี่ยนโครงสร้างที่มากพอให้เปลี่ยน thesis"
-
-    net_gex = n(gamma.get("net_gex"))
-    why = []
-    if net_gex is not None:
-        why.append("Gamma เป็นลบ" if net_gex < 0 else "Gamma เป็นบวก" if net_gex > 0 else "Gamma ใกล้สมดุล")
-    if h4 or h1:
-        why.append(" / ".join(x for x in (f"H4 {h4}" if h4 else "", f"H1 {h1}" if h1 else "") if x))
-    if dte is not None and dte <= 1:
-        why.append("DTE สั้น")
-    why_text = " ขณะที่ ".join(why) if why else "โครงสร้าง Options ยังไม่ให้เหตุผลเพิ่มเติม"
+        change = "CHANGE: ยังไม่มีการเปลี่ยนโครงสร้างที่มากพอให้เปลี่ยน thesis"
 
     gate = str(liquidity.get("gate") or "").upper()
     preferred = str(liquidity.get("preferred_event") or "").upper()
     sweep = gate == "SWEEP_DETECTED"
+
     if preferred in {"BUY_SIDE_SWEEP", "BUY_SIDE_LIQUIDITY"}:
         event = "Buy-side Sweep"
     elif preferred in {"SELL_SIDE_SWEEP", "SELL_SIDE_LIQUIDITY"}:
@@ -305,39 +219,48 @@ def _format_analysis_message(parsed: dict, ai_result: dict) -> str:
     else:
         event = "Buy-side Sweep" if b == "BEARISH" else "Sell-side Sweep" if b == "BULLISH" else "Liquidity Sweep"
 
-    actions = []
-    if in_range:
-        actions.append(f"Decision Range {s(put_wall)}–{s(call_wall)}")
-        if b == "BEARISH":
-            actions.append(f"แผนหลัก: รอ {event} เหนือ {s(call_wall)} แล้ว Reclaim ก่อน Short → {s(put_wall)}")
-        elif b == "BULLISH":
-            actions.append(f"แผนหลัก: รอ {event} ใต้ {s(put_wall)} แล้ว Reclaim ก่อน Long → {s(call_wall)}")
-        else:
-            actions.append("แผนหลัก: รอ Sweep + Reaction หรือ Break + Acceptance ก่อนเข้า")
-        if not sweep:
-            actions.append("ยังไม่มี Sweep ที่ผ่าน execution gate — ไม่ไล่ราคา")
-    elif call_wall is not None and cfd is not None and cfd > call_wall:
-        actions.append(f"Break + Acceptance เหนือ {s(call_wall)} → continuation ไป Gamma Wall ถัดไป {s(next_up) if next_up is not None else 'ยังไม่ยืนยัน'}")
-    elif put_wall is not None and cfd is not None and cfd < put_wall:
-        actions.append(f"Break + Acceptance ใต้ {s(put_wall)} → continuation ไป Gamma Wall ถัดไป {s(next_down) if next_down is not None else 'ยังไม่ยืนยัน'}")
-    else:
-        actions.append("ยังไม่มี event ยืนยัน — ไม่ไล่ราคา")
+    in_range = (
+        cfd is not None
+        and put_wall is not None
+        and call_wall is not None
+        and put_wall < cfd < call_wall
+    )
+    next_up = n(levels.get("gamma_wall_up_next"))
+    next_down = n(levels.get("gamma_wall_down_next"))
 
-    # Keep the narrative compact: the user-facing story replaces the old
-    # telemetry-heavy NOW/WHY split, while ACTION remains deterministic.
+    if in_range:
+        if b == "BEARISH":
+            action = (
+                f"ACTION: PENDING — รอ {event} เหนือ {s(call_wall)} แล้ว Reclaim "
+                f"ก่อน Short → {s(put_wall)}"
+            )
+        elif b == "BULLISH":
+            action = (
+                f"ACTION: PENDING — รอ {event} ใต้ {s(put_wall)} แล้ว Reclaim "
+                f"ก่อน Long → {s(call_wall)}"
+            )
+        else:
+            action = "ACTION: PENDING — รอ Sweep + Reaction หรือ Break + Acceptance ก่อนเลือกฝั่ง"
+    elif cfd is not None and call_wall is not None and cfd >= call_wall:
+        target = s(next_up) if next_up is not None else "Gamma Wall ถัดไป"
+        action = f"ACTION: Break + Acceptance เหนือ {s(call_wall)} → continuation ไป {target}"
+    elif cfd is not None and put_wall is not None and cfd <= put_wall:
+        target = s(next_down) if next_down is not None else "Gamma Wall ถัดไป"
+        action = f"ACTION: Break + Acceptance ใต้ {s(put_wall)} → continuation ไป {target}"
+    else:
+        action = "ACTION: PENDING — ยังไม่มี structural event ที่พอให้ไล่ราคา"
+
     lines = [
         f"<b>GOLD MARKET — {slot}</b>",
         _escape(f"CFD {s(cfd)} | FUT. {s(fut)} | BASIS {s(basis)} | IV {s(iv)}%"),
         _escape(f"DTE. {s(dte)}"),
-        _escape(story),
-        _escape(decision_story),
     ]
-    if continuation:
-        lines.append(_escape(continuation))
-    if reversal:
-        lines.append(_escape(reversal))
+    for paragraph in story.splitlines():
+        paragraph = paragraph.strip()
+        if paragraph:
+            lines.append(_escape(paragraph))
     lines.append(_escape(change))
-    lines.append(_escape("ACTION: " + " | ".join(actions)))
+    lines.append(_escape(action))
     lines.append(_escape(f"Valid Until: {valid_until}"))
     return "\n".join(lines)
 
