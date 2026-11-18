@@ -193,32 +193,6 @@ def _format_analysis_message(parsed: dict, ai_result: dict) -> str:
     if not story:
         story = f"ราคาปัจจุบันอยู่แถว {s(cfd)} และยังรอการตอบสนองที่ระดับสำคัญ"
 
-    # Comparative change is deterministic and compact; raw history labels never reach Telegram.
-    hist = ai_result.get("reference_selection") or (state.get("history") or {}).get("reference_selection") or {}
-    sel = hist.get("selected") or {}
-    ch = sel.get("change") or {}
-    dp = n(ch.get("future_price"))
-    dg = n(ch.get("gex_net"))
-    if dp is not None and abs(dp) > 0.0001:
-        change = f"CHANGE: Futures {'เพิ่มขึ้น' if dp > 0 else 'ลดลง'} {s(abs(dp))} เทียบกับ{sel.get('label') or 'รอบก่อนหน้า'}"
-        if dg is not None and abs(dg) > 0.0001:
-            change += f" | Net Gamma {'ดีขึ้น' if dg > 0 else 'แย่ลง'}"
-    elif sel.get("meaningful_change") is False:
-        change = "CHANGE: โครงสร้างยังไม่เปลี่ยนอย่างมีนัยสำคัญ"
-    else:
-        change = "CHANGE: ยังไม่มีการเปลี่ยนโครงสร้างที่มากพอให้เปลี่ยน thesis"
-
-    gate = str(liquidity.get("gate") or "").upper()
-    preferred = str(liquidity.get("preferred_event") or "").upper()
-    sweep = gate == "SWEEP_DETECTED"
-
-    if preferred in {"BUY_SIDE_SWEEP", "BUY_SIDE_LIQUIDITY"}:
-        event = "Buy-side Sweep"
-    elif preferred in {"SELL_SIDE_SWEEP", "SELL_SIDE_LIQUIDITY"}:
-        event = "Sell-side Sweep"
-    else:
-        event = "Buy-side Sweep" if b == "BEARISH" else "Sell-side Sweep" if b == "BULLISH" else "Liquidity Sweep"
-
     in_range = (
         cfd is not None
         and put_wall is not None
@@ -229,26 +203,15 @@ def _format_analysis_message(parsed: dict, ai_result: dict) -> str:
     next_down = n(levels.get("gamma_wall_down_next"))
 
     if in_range:
-        if b == "BEARISH":
-            action = (
-                f"ACTION: PENDING — รอ {event} เหนือ {s(call_wall)} แล้ว Reclaim "
-                f"ก่อน Short → {s(put_wall)}"
-            )
-        elif b == "BULLISH":
-            action = (
-                f"ACTION: PENDING — รอ {event} ใต้ {s(put_wall)} แล้ว Reclaim "
-                f"ก่อน Long → {s(call_wall)}"
-            )
-        else:
-            action = "ACTION: PENDING — รอ Sweep + Reaction หรือ Break + Acceptance ก่อนเลือกฝั่ง"
+        plan = "Plan: PENDING — ไม่ไล่ราคากลางกรอบ; รอ Sweep + Reclaim หรือ Break + Acceptance ที่ขอบกรอบ"
     elif cfd is not None and call_wall is not None and cfd >= call_wall:
         target = s(next_up) if next_up is not None else "Gamma Wall ถัดไป"
-        action = f"ACTION: Break + Acceptance เหนือ {s(call_wall)} → continuation ไป {target}"
+        plan = f"Plan: Break + Acceptance เหนือ {s(call_wall)} → continuation ไป {target}"
     elif cfd is not None and put_wall is not None and cfd <= put_wall:
         target = s(next_down) if next_down is not None else "Gamma Wall ถัดไป"
-        action = f"ACTION: Break + Acceptance ใต้ {s(put_wall)} → continuation ไป {target}"
+        plan = f"Plan: Break + Acceptance ใต้ {s(put_wall)} → continuation ไป {target}"
     else:
-        action = "ACTION: PENDING — ยังไม่มี structural event ที่พอให้ไล่ราคา"
+        plan = "Plan: PENDING — รอ event ที่ระดับสำคัญก่อนเลือกฝั่ง"
 
     lines = [
         f"<b>GOLD MARKET — {slot}</b>",
@@ -260,16 +223,7 @@ def _format_analysis_message(parsed: dict, ai_result: dict) -> str:
         if paragraph:
             lines.append(_escape(paragraph))
 
-    # Explicit liquidity events are evidence, not prose guesses.
-    if sweep:
-        lines.append(_escape(f"Liquidity: เกิด {event} แล้ว"))
-
-    context = _single_line(ai_result.get("why") or "")
-    if context and context not in story:
-        lines.append(_escape(f"CONTEXT: {context}"))
-
-    lines.append(_escape(change))
-    lines.append(_escape(action))
+    lines.append(_escape(plan))
     lines.append(_escape(f"Valid Until: {valid_until}"))
     return "\n".join(lines)
 
