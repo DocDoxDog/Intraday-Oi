@@ -127,6 +127,89 @@ def test_customer_story_matches_trader_style_range_continuation():
     assert "Break + Acceptance" in story
     assert "3,955.00" in story
     assert "Buy-side Sweep" in story
+    assert "ไม่ควรไล่ราคาในกลางกรอบ" in story
+
+
+def test_customer_story_explains_gex_change_in_trader_language():
+    parsed = {
+        "cfd_price": 3868.07,
+        "future_price": 3864.90,
+        "raw_series": {
+            "market_state": {
+                "decision": {
+                    "structural_bias": "BEARISH",
+                    "tactical_direction": "BULLISH_AGAINST_STRUCTURE",
+                },
+                "gamma": {
+                    "put_wall": 3850.0,
+                    "call_wall": 3900.0,
+                    "net_gex": -11_830_066.8,
+                },
+                "levels": {
+                    "support_current": 3850.0,
+                    "resistance_current": 3900.0,
+                    "gamma_wall_up_next": 3955.0,
+                },
+                "history": {"1h": {"gex": -20_190_066.8}},
+                "technical": {
+                    "h1": {"trend": "bearish"},
+                    "m15": {"trend": "bullish"},
+                    "m5": {"trend": "bullish"},
+                },
+                "flow": {},
+                "volatility": {},
+            }
+        },
+    }
+    story = build_customer_narrative(parsed, {})["market_read"]
+    assert "Gamma รวมยังเป็นลบ" in story
+    assert "Gamma ดีขึ้น +8.36M" in story
+    assert "ไม่ควรไล่ราคาในกลางกรอบ" in story
+    assert "Buy-side Sweep" in story
+
+
+def test_telegram_analysis_uses_plan_not_action_change_labels():
+    parsed = {
+        "cfd_price": 3868.07,
+        "future_price": 3864.90,
+        "basis_diff": 3.17,
+        "vol": 28.79,
+        "dte": 0.28,
+        "observed_at": "2026-11-17T11:50:36+00:00",
+        "raw_series": {
+            "market_state": {
+                "decision": {
+                    "structural_bias": "BEARISH",
+                    "tactical_direction": "BULLISH_AGAINST_STRUCTURE",
+                },
+                "gamma": {
+                    "put_wall": 3850.0,
+                    "call_wall": 3900.0,
+                    "net_gex": -11_830_066.8,
+                },
+                "levels": {
+                    "support_current": 3850.0,
+                    "resistance_current": 3900.0,
+                    "gamma_wall_up_next": 3955.0,
+                },
+                "history": {"1h": {"gex": -20_190_066.8}},
+                "technical": {
+                    "h1": {"trend": "bearish"},
+                    "m15": {"trend": "bullish"},
+                    "m5": {"trend": "bullish"},
+                },
+                "flow": {},
+                "volatility": {},
+            }
+        },
+    }
+    message = telegram._format_analysis_message(parsed, {})
+    assert "ตอนนี้ราคาทองยังอยู่ในกรอบ 3,850.00–3,900.00" in message
+    assert "Gamma ดีขึ้น +8.36M" in message
+    assert "Plan: PENDING" in message
+    assert "ACTION:" not in message
+    assert "CHANGE:" not in message
+    assert "Valid Until:" in message
 
 def test_telegram_hides_trade_levels_until_execution_gate_passes():
     parsed = {"cfd_price": 3993.70, "future_price": 4007.90, "dte": 1.16, "raw_series": {}}
