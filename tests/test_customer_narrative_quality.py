@@ -62,7 +62,7 @@ def test_telegram_preserves_legacy_analyst_fields_when_canonical_story_is_absent
     }
     message = telegram._format_analysis_message(parsed, ai)
     assert "WHAT text" in message
-    assert "WHY text" not in message
+    assert "CONTEXT: WHY text" in message
     assert "POSITIONING text" not in message
 
 
