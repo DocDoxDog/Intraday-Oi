@@ -51,7 +51,7 @@ def test_fallback_is_conditional_and_not_raw_dump():
     }
     out = build_deterministic_fallback(parsed, {}, error="LLM_VERIFICATION_FAILED")
     assert out["analysis_status"] == "DEGRADED"
-    assert out["bias"] == "WAIT"
+    assert out["bias"] == "SHORT_CONDITIONAL"
     assert out["trade_plan"]["status"] == "CONDITIONAL"
     assert "OI activity" in out["why"]
     assert "dealer" in out["market_psychology"]
