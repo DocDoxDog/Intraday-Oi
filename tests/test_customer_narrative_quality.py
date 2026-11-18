@@ -1,3 +1,4 @@
+# [run-live] canonical narrative contract verification
 """Regression guards for customer-facing narrative quality.
 
 These tests protect deterministic-source precedence and a small set of
