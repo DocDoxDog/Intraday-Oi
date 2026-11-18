@@ -9,6 +9,8 @@ This module is the final evidence-first boundary before LLM delivery:
 
 from __future__ import annotations
 
+# [run-live] canonical customer narrative persistence verification
+
 from datetime import datetime, timedelta, timezone
 from typing import Any
 import os
