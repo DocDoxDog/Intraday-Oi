@@ -11,6 +11,8 @@ from typing import Any
 
 from src.market_flow_engine import compact_market_flow
 
+# [run-live] preferred narrative contract
+
 
 def _num(value: Any) -> float | None:
     if isinstance(value, bool) or value in (None, ""):
