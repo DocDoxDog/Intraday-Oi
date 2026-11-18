@@ -332,92 +332,105 @@ def _format_path_message(parsed: dict, ai_result: dict) -> str:
     return "\n".join(lines)
 
 def _format_trade_plan_message(parsed: dict, ai_result: dict) -> str:
-    """Render one primary deterministic execution route.
-
-    The customer-facing plan is intentionally singular: the structural thesis
-    chooses one primary route. Alternative routes remain internal context and
-    are never rendered as competing entries.
-    """
+    """Render the primary trade route only when the deterministic execution gate passes."""
     execution = ((ai_result.get("trade_plan") or {}).get("execution_plan") or {})
     primary = execution.get("primary_setup")
-    if not isinstance(primary, dict):
-        # Backward compatibility for payloads that only expose route arrays.
-        # Prefer the route matching the structural thesis and render exactly one.
-        bias = str(ai_result.get("structural_bias") or ai_result.get("bias") or "").upper()
-        preferred = "SHORT" if bias == "BEARISH" else "LONG" if bias == "BULLISH" else ""
-        routes = execution.get("routes") or []
-        candidates = [x for x in routes if isinstance(x, dict)]
-        if preferred:
-            primary = next(
-                (x for x in candidates if str(x.get("side") or "").upper().startswith(preferred)),
-                None,
-            )
-        else:
-            primary = candidates[0] if candidates else None
 
     if not isinstance(primary, dict):
-        return "<b>🎯 TRADE PLAN</b>\nไม่มี Primary setup ที่ผ่าน deterministic gate"
+        # Legacy payloads may expose only route arrays. Keep the customer contract
+        # conservative: without an explicit execution gate, never publish fills.
+        bias = str(ai_result.get("structural_bias") or ai_result.get("bias") or "").upper()
+        preferred = "SHORT" if bias == "BEARISH" else "LONG" if bias == "BULLISH" else ""
+        candidates = [x for x in (execution.get("routes") or []) if isinstance(x, dict)]
+        primary = next(
+            (x for x in candidates if str(x.get("side") or "").upper().startswith(preferred)),
+            candidates[0] if candidates else None,
+        )
+
+    if not isinstance(primary, dict):
+        return "<b>🎯 TRADE PLAN</b>\nPENDING — ยังไม่มี Primary setup ที่ยืนยันได้"
 
     side = str(primary.get("side") or "").upper()
     title = "BUY" if side.startswith("LONG") else "SELL" if side.startswith("SHORT") else side
     emoji = "🟢" if title == "BUY" else "🔴" if title == "SELL" else "⚪"
+
+    state_name = str(primary.get("state") or "").upper()
+    permission = str(execution.get("trade_permission") or "").upper()
+    execution_ready = bool(primary.get("execution_ready")) and permission == "ENTER_CONDITION_SATISFIED"
+
+    schedule = ai_result.get("desk_note_context") or desk_note_schedule(
+        parsed.get("observed_at") or parsed.get("retrieved_at")
+    )
+    valid_until = str(ai_result.get("valid_until_label") or schedule.get("valid_until_label") or "-")
+
+    if not execution_ready:
+        event = (
+            primary.get("preferred_liquidity_event")
+            or primary.get("event_required")
+            or primary.get("action")
+            or "รอ event ที่โซน"
+        )
+        state_label = {
+            "PENDING_LIQUIDITY_SWEEP": "PENDING — รอ Liquidity Sweep",
+            "WAIT_LIQUIDITY_SWEEP": "PENDING — รอ Liquidity Sweep",
+            "TRIGGERED_WAIT_CONFIRMATION": "PENDING — รอ Price Confirmation",
+            "TRIGGERED_WAIT_RISK_REWARD": "PENDING — รอ Risk Gate",
+            "ARMED": "PENDING — ยังไม่ผ่าน Execution Gate",
+            "APPROACHING": "PENDING — ราคาเข้าใกล้โซน",
+            "IN_ZONE": "PENDING — อยู่ในโซน แต่ยังไม่ยืนยัน",
+            "NO_TRADE": "NO TRADE",
+        }.get(state_name, "PENDING")
+        trigger = primary.get("trigger") or primary.get("entry_reference")
+        lines = [
+            "<b>🎯 TRADE PLAN</b>",
+            f"{emoji} <b>{title or 'WAIT'}</b> — {_escape(primary.get('strategy') or primary.get('route') or 'PRIMARY SETUP')}",
+            f"State <b>{_escape(state_label)}</b>",
+            f"Event <b>{_escape(event)}</b>",
+        ]
+        if trigger is not None:
+            lines.append(f"Trigger Zone <b>{_escape(_show(trigger))}</b>")
+        lines.append("Entry / SL / TP ยังไม่แสดงจนกว่า Execution Gate จะผ่าน")
+        lines.append(f"Valid Until <b>{_escape(valid_until)}</b>")
+        return "\n".join(lines)
 
     entry = primary.get("trigger")
     if entry is None:
         entry = primary.get("entry_reference")
     if entry is None:
         entry = primary.get("entry")
-
     stop = primary.get("stop")
     targets = [x for x in (primary.get("targets") or []) if x is not None][:5]
     if entry is None or stop is None or not targets:
-        return "<b>🎯 TRADE PLAN</b>\nไม่มีแผนที่ผ่านเกณฑ์ deterministic"
+        return "<b>🎯 TRADE PLAN</b>\nNO TRADE — source-derived Entry/SL/TP ไม่ครบ"
 
     rr_values = [x for x in (primary.get("rr") or []) if x is not None]
     if rr_values:
         rr_text = _show(rr_values[0])
     else:
         try:
-            entry_f = float(entry)
-            stop_f = float(stop)
-            tp_f = float(targets[0])
+            entry_f, stop_f, tp_f = float(entry), float(stop), float(targets[0])
             risk = (entry_f - stop_f) if title == "BUY" else (stop_f - entry_f)
             reward = (tp_f - entry_f) if title == "BUY" else (entry_f - tp_f)
             rr_text = f"{reward / risk:.2f}" if risk > 0 and reward > 0 else "-"
         except (TypeError, ValueError, ZeroDivisionError):
             rr_text = "-"
 
-    state_name = str(primary.get("state") or "").upper()
-    liquidity_gate = str(primary.get("liquidity_gate") or "").upper()
-    state_label = {
-        "PENDING_LIQUIDITY_SWEEP": "PENDING — รอ Liquidity Sweep",
-        "WAIT_LIQUIDITY_SWEEP": "PENDING — รอ Liquidity Sweep",
-        "ARMED": "ARMED",
-        "CONFIRMED": "EXECUTABLE",
-    }.get(state_name, state_name or "PENDING")
-    if liquidity_gate == "SWEEP_DETECTED":
-        state_label = "LIQUIDITY SWEPT" + (" • " + state_label if state_label else "")
-
     lines = [
         "<b>🎯 TRADE PLAN</b>",
-        "",
         f"{emoji} <b>{title}</b> — {_escape(primary.get('strategy') or primary.get('route') or 'PRIMARY SETUP')}",
-        f"State <b>{_escape(state_label)}</b>",
+        "State <b>EXECUTABLE</b>",
         f"Entry <b>{_escape(_show(entry))}</b>",
         f"SL <b>{_escape(_show(stop))}</b>",
     ]
     for i, tp in enumerate(targets, 1):
         lines.append(f"TP{i} <b>{_escape(_show(tp))}</b>")
     lines.append(f"R:R <b>{_escape(rr_text)}</b>")
-
     action_raw = primary.get("action") or primary.get("trigger")
     if action_raw not in (None, ""):
         lines.append(f"Trigger <b>{_escape(action_raw)}</b>")
     invalid_raw = primary.get("cancel_if") or primary.get("invalidation")
     if invalid_raw not in (None, ""):
         lines.append(f"Invalid <b>{_escape(invalid_raw)}</b>")
-    schedule = ai_result.get("desk_note_context") or desk_note_schedule(parsed.get("observed_at") or parsed.get("retrieved_at"))
-    valid_until = str(ai_result.get("valid_until_label") or schedule.get("valid_until_label") or "-")
     lines.append(f"Valid Until <b>{_escape(valid_until)}</b>")
     return "\n".join(lines)
 
