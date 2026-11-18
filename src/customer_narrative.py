@@ -418,7 +418,7 @@ def _human_price_story(parsed: dict[str, Any], ai_result: dict[str, Any]) -> str
         )
         if h1 == "bearish" and tactical_bull:
             first += (
-                f" แต่ H1 ยังอยู่ในโครงสร้างขาลง และราคากำลังฟื้นกลับขึ้นไปหา Liquidity ด้านบนแถว {_show(resistance)}"
+                f" H1 ยังยืนเหนือ {_show(support)} ได้ แต่โครงสร้างยังเป็นขาลง และราคากำลังฟื้นกลับขึ้นไปหา Liquidity ด้านบนแถว {_show(resistance)}"
             )
         elif h1 == "bullish" and tactical_bear:
             first += (
@@ -451,6 +451,10 @@ def _human_price_story(parsed: dict[str, Any], ai_result: dict[str, Any]) -> str
                 "สิ่งที่เปลี่ยนจากชั่วโมงก่อนยังไม่มากพอที่จะเปลี่ยนโครงสร้างหลัก "
                 "ดังนั้นยังไม่ควรตีความการเด้งหรือการย่อครั้งนี้เป็นการกลับตัว"
             )
+        oi_put = _num((state.get("flow") or {}).get("oi_change_put"))
+        oi_call = _num((state.get("flow") or {}).get("oi_change_call"))
+        if oi_put is not None and oi_call is not None and oi_put > 0 and oi_call > 0:
+            change += f" OI เพิ่มทั้ง Put และ Call ({_show(oi_put, 0)} / {_show(oi_call, 0)}) จึงยังไม่ใช่ directional signal โดยตัวมันเอง"
 
         # 3) Decision: explain what the trader should wait for, without turning
         #    the analysis into a mechanical execution checklist.
