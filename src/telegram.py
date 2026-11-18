@@ -141,7 +141,7 @@ def _note_levels(parsed: dict, ai_result: dict) -> tuple[list[float], list[float
 
 
 def _format_analysis_message(parsed: dict, ai_result: dict) -> str:
-    """Render the canonical customer narrative with deterministic execution context."""
+    """Render the canonical customer narrative with deterministic execution context."""  # [run-live] full contract verification
     observed = parsed.get("observed_at") or parsed.get("retrieved_at")
     schedule = ai_result.get("desk_note_context") or desk_note_schedule(observed)
     slot = str(schedule.get("slot") or "-")
