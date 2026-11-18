@@ -504,8 +504,11 @@ def _human_price_story(parsed: dict[str, Any], ai_result: dict[str, Any]) -> str
     preferred = str(liquidity.get("preferred_event") or "").upper()
     event = "Buy-side Sweep" if preferred == "BUY_SIDE_SWEEP" else "Sell-side Sweep" if preferred == "SELL_SIDE_SWEEP" else ""
     fallback = _decision_market_read(parsed, ai_result)
+    why = _friendly_text(ai_result.get("why") or "")
+    if why and why not in fallback:
+        fallback = f"{fallback}\n{why}"
     if gate == "SWEEP_DETECTED" and event:
-        return fallback + f" และเกิด {event} แล้ว"
+        return fallback + f"\nเกิด {event} แล้ว"
     return fallback
 
 def build_customer_narrative(parsed: dict[str, Any], ai_result: dict[str, Any]) -> dict[str, str]:
