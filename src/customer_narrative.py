@@ -352,7 +352,7 @@ def _gex_change_1h(parsed: dict[str, Any]) -> float | None:
     state = raw.get("market_state") or {}
     current = _num((state.get("gamma") or {}).get("net_gex"))
     history = state.get("history") or {}
-    previous = _num(((history.get("1h") or {}).get("gex_net")))
+    previous = _num(((history.get("1h") or {}).get("gex")))
     if current is None or previous is None:
         return None
     return current - previous
@@ -418,7 +418,7 @@ def _human_price_story(parsed: dict[str, Any], ai_result: dict[str, Any]) -> str
         )
         if h1 == "bearish" and tactical_bull:
             first += (
-                f" แต่ H1 ยังเป็นขาลง และราคากำลังฟื้นกลับขึ้นไปหา Liquidity ด้านบนแถว {_show(resistance)}"
+                f" แต่ H1 ยังอยู่ในโครงสร้างขาลง และราคากำลังฟื้นกลับขึ้นไปหา Liquidity ด้านบนแถว {_show(resistance)}"
             )
         elif h1 == "bullish" and tactical_bear:
             first += (
@@ -500,7 +500,13 @@ def _human_price_story(parsed: dict[str, Any], ai_result: dict[str, Any]) -> str
         third = f"แต่ถ้ากลับขึ้นเหนือ {_show(support)} ให้ระวัง Failed Break และการกลับเข้า Range"
         return "\n".join([first, second, third])
 
-    return _decision_market_read(parsed, ai_result)
+    gate = str(liquidity.get("gate") or "").upper()
+    preferred = str(liquidity.get("preferred_event") or "").upper()
+    event = "Buy-side Sweep" if preferred == "BUY_SIDE_SWEEP" else "Sell-side Sweep" if preferred == "SELL_SIDE_SWEEP" else ""
+    fallback = _decision_market_read(parsed, ai_result)
+    if gate == "SWEEP_DETECTED" and event:
+        return fallback + f" และเกิด {event} แล้ว"
+    return fallback
 
 def build_customer_narrative(parsed: dict[str, Any], ai_result: dict[str, Any]) -> dict[str, str]:
     """Return the canonical human-readable market story plus supporting sections."""
