@@ -83,8 +83,49 @@ def test_customer_story_does_not_claim_direct_dealer_intent():
         },
     }
     out = build_customer_narrative(parsed, {})
-    assert "ไม่ได้หมายความว่าเรารู้ว่าผู้ดูแลสภาพคล่องตั้งใจจะดันหรือกดราคา" in out["market_read"]
+    assert "ผู้ดูแลสภาพคล่องตั้งใจจะดันหรือกดราคา" not in out["market_read"]
 
+
+def test_customer_story_matches_trader_style_range_continuation():
+    parsed = {
+        "cfd_price": 3868.07,
+        "future_price": 3864.90,
+        "raw_series": {
+            "market_state": {
+                "decision": {
+                    "structural_bias": "BEARISH",
+                    "tactical_direction": "BULLISH_AGAINST_STRUCTURE",
+                    "confirmation_state": "NOT_CONFIRMED",
+                    "decision_state": "WAIT_BEARISH",
+                },
+                "gamma": {
+                    "put_wall": 3850.0,
+                    "call_wall": 3900.0,
+                    "net_gex": -100.0,
+                },
+                "levels": {
+                    "support_current": 3850.0,
+                    "resistance_current": 3900.0,
+                    "gamma_wall_up_next": 3955.0,
+                },
+                "technical": {
+                    "h1": {"trend": "bearish"},
+                    "m15": {"trend": "bullish"},
+                    "m5": {"trend": "bullish"},
+                },
+                "flow": {},
+                "volatility": {},
+            }
+        },
+    }
+    out = build_customer_narrative(parsed, {})
+    story = out["market_read"]
+    assert "H1 ยังอยู่ในโครงสร้างขาลง" in story
+    assert "ยืนเหนือ 3,850.00" in story
+    assert "Liquidity ด้านบนแถว 3,900.00" in story
+    assert "Break + Acceptance" in story
+    assert "3,955.00" in story
+    assert "Buy-side Sweep" in story
 
 def test_telegram_shows_complete_deterministic_plan_even_when_execution_gate_is_blocked():
     parsed = {"cfd_price": 3993.70, "future_price": 4007.90, "dte": 1.16, "raw_series": {}}
