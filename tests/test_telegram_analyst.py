@@ -269,14 +269,18 @@ def test_telegram_does_not_borrow_generic_targets_for_a_route_without_tp():
     from src import telegram
     ai={"trade_plan":{"execution_plan":{"primary_setup":{"side":"LONG","state":"ARMED","trigger":4119.86,"stop":4114.86,"targets":[]}}}}
     message=telegram._format_trade_plan_message({},ai)
-    assert "ไม่มีแผนที่ผ่านเกณฑ์ deterministic" in message
+    assert "PENDING" in message
+    assert "Entry <b>" not in message
+    assert "TP1" not in message
     assert "4,139.86" not in message
 
 def test_telegram_uses_route_specific_targets_only():
     from src import telegram
     ai={"trade_plan":{"execution_plan":{"primary_setup":{"side":"LONG","state":"ARMED","trigger":4140,"stop":4130,"targets":[]}}}}
     message=telegram._format_trade_plan_message({},ai)
-    assert "ไม่มีแผนที่ผ่านเกณฑ์ deterministic" in message
+    assert "PENDING" in message
+    assert "Entry <b>" not in message
+    assert "TP1" not in message
     assert "4,150.00" not in message and "4,050.00" not in message
 
 def test_customer_narrative_is_plain_language_and_uses_evidence_relationships():
@@ -292,7 +296,9 @@ def test_telegram_never_restores_rejected_targets_from_market_map():
     ai={"market_map":{"long_reclaim_trade_targets":[4119.86,4124.86,4129.86]},
         "trade_plan":{"execution_plan":{"routes":[{"side":"LONG","state":"NO_TRADE","entry":4119.86,"stop":4114.86,"targets":[]}]}}}
     message=telegram._format_trade_plan_message({},ai)
-    assert "ไม่มีแผนที่ผ่านเกณฑ์" in message
+    assert "NO TRADE" in message
+    assert "Entry <b>" not in message
+    assert "TP1" not in message
     assert "4,119.86" not in message
 
 
