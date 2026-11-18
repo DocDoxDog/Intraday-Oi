@@ -345,139 +345,140 @@ def _decision_market_read(parsed: dict[str, Any], ai_result: dict[str, Any]) -> 
 
 
 def _human_price_story(parsed: dict[str, Any], ai_result: dict[str, Any]) -> str:
-    """Explain the market as a plain-Thai price story.
+    """Build one concise, evidence-linked price story for the desk note.
 
-    Deterministic levels come only from the structural path. The wording may
-    simplify mechanics, but it never invents a price or claims direct knowledge
-    of dealer intent.
+    Major support/resistance comes from canonical normalized Gamma walls first.
+    The story may describe short-term recovery/rejection, but it never invents
+    a level or claims hidden participant intent.
     """
     raw = parsed.get("raw_series") or {}
     state = raw.get("market_state") or {}
-    path = ai_result.get("structural_path") or state.get("path") or {}
-    # An empty path is not a price story. Prefer the deterministic decision or
-    # legacy analyst field instead of emitting a generic current-price sentence.
-    if not isinstance(path, dict) or not path:
-        decision_read = _decision_market_read(parsed, ai_result)
-        if decision_read and decision_read != "ยังไม่มี market read ที่ยืนยันได้":
-            return decision_read
-        return _friendly_text(ai_result.get("what") or ai_result.get("market_overview")) or "ยังไม่มี market read ที่ยืนยันได้"
-
-    current = _num(path.get("current_price")) or _num(parsed.get("cfd_price")) or _num(parsed.get("future_price"))
-    if current is None:
-        # Decision evidence is still useful even when a price/path snapshot is absent.
-        # Keep the deterministic structural read instead of collapsing the message
-        # into a generic data-missing sentence.
-        decision_read = _decision_market_read(parsed, ai_result)
-        if decision_read and decision_read != "ยังไม่มี market read ที่ยืนยันได้":
-            return decision_read
-        return "ตอนนี้ยังไม่มีราคาปัจจุบันที่ยืนยันได้ จึงยังวางเส้นทางราคาไม่ได้"
-
-    upper = path.get("upper_node") or {}
-    lower = path.get("lower_node") or {}
-    next_up = path.get("next_up") or {}
-    next_down = path.get("next_down") or {}
-    up = _num(upper.get("level"))
-    dn = _num(lower.get("level"))
-    up2 = _num(next_up.get("level"))
-    dn2 = _num(next_down.get("level"))
-
-    def p(v: float | None) -> str:
-        return _show(v, 2) if v is not None else "ยังไม่มีระดับถัดไปที่ยืนยันได้"
-
-    def node_reason(node: dict[str, Any]) -> str:
-        role = _clean_text(node.get("role")).upper()
-        source = _clean_text(node.get("source")).lower()
-        if role == "CALL_WALL":
-            return "ด้านบนมีสถานะ Call กระจุกตัว ทำให้บริเวณนี้มีโอกาสเป็นด่านที่ราคาขึ้นแล้วชะลอ"
-        if role == "PUT_WALL":
-            return "ด้านล่างมีสถานะ Put กระจุกตัว ทำให้บริเวณนี้เป็นจุดที่ควรดูว่าราคาจะหยุดหรือเด้งหรือไม่"
-        if role == "GAMMA_FLIP":
-            return "บริเวณนี้เป็นจุดที่พฤติกรรมการป้องกันความเสี่ยงจาก Options อาจเปลี่ยน ทำให้ราคามีโอกาสเคลื่อนเร็วขึ้นเมื่อผ่าน"
-        if "FVG" in role:
-            return "บริเวณนี้เป็นพื้นที่ราคาที่เคยเคลื่อนผ่านเร็ว จึงอาจกลับมาทดสอบอีกครั้ง"
-        if "SWING_HIGH" in role:
-            return "บริเวณนี้เป็นจุดสูงเดิมที่ตลาดเคยขายกลับ"
-        if "SWING_LOW" in role:
-            return "บริเวณนี้เป็นจุดต่ำเดิมที่ตลาดเคยรับกลับ"
-        if source == "options_strike":
-            return "บริเวณนี้มีสถานะ Options กระจุกตัวในระดับราคานี้"
-        return "บริเวณนี้เป็นระดับโครงสร้างที่ระบบพบจากข้อมูลราคาและตลาด Options"
-
-    def recent_move() -> str:
-        technical = parsed.get("technical_context") or {}
-        ohlcv = technical.get("ohlcv") or {}
-        bars = []
-        if isinstance(ohlcv, dict):
-            for value in ohlcv.values():
-                if isinstance(value, list):
-                    bars.extend(x for x in value if isinstance(x, dict))
-        if not bars:
-            return ""
-        closes = []
-        for bar in bars[-30:]:
-            close = _num(bar.get("close"))
-            if close is not None:
-                closes.append(close)
-        if len(closes) < 2:
-            return ""
-        start = closes[0]
-        end = closes[-1]
-        if end < start:
-            return f"ช่วงข้อมูลล่าสุดราคาลดจากประมาณ {p(start)} มาที่ {p(end)}"
-        if end > start:
-            return f"ช่วงข้อมูลล่าสุดราคาขยับจากประมาณ {p(start)} มาที่ {p(end)}"
-        return "ช่วงข้อมูลล่าสุดราคาแทบไม่เปลี่ยน"
-
-    parts = ["ตอนนี้ทองอยู่ที่ประมาณ " + p(current) + " ครับ"]
-    move = recent_move()
-    if move:
-        parts.append(move + " ทำให้ตอนนี้ราคากำลังเข้าใกล้จุดสำคัญด้านบนและด้านล่าง")
-
-    if dn is not None and up is not None:
-        parts.append(
-            f"ด้านล่างมี {p(dn)} เป็นจุดรับ ส่วนด้านบนมี {p(up)} เป็นด่าน"
-        )
-        parts.append(
-            f"ถ้าหลุด {p(dn)} ได้ ทางถัดไปคือ {p(dn2)}"
-            + (f" และถ้า {p(dn2)} ยังรับไม่อยู่ ก็มีโอกาสลงต่อ" if dn2 is not None else "")
-        )
-        parts.append(
-            f"แต่ถ้า {p(dn)} รับอยู่ ราคามีโอกาสเด้งกลับไปหา {p(up)}"
-        )
-        parts.append(
-            f"ถ้าผ่าน {p(up)} ได้ ทางถัดไปคือ {p(up2)}"
-            + (f" ส่วนถ้าขึ้นไปไม่ผ่าน {p(up)} ก็มีโอกาสกลับมาทดสอบ {p(dn)} อีกครั้ง" if up is not None else "")
-        )
-    elif dn is not None:
-        parts.append(f"ตอนนี้จุดสำคัญอยู่ที่ {p(dn)} ด้านล่าง")
-        parts.append(f"ถ้าหลุด {p(dn)} ได้ → {p(dn2)}")
-        parts.append(f"ถ้าไม่หลุดและรับราคาอยู่ → มีโอกาสเด้งกลับขึ้น")
-    elif up is not None:
-        parts.append(f"ตอนนี้ด่านสำคัญอยู่ที่ {p(up)} ด้านบน")
-        parts.append(f"ถ้าผ่าน {p(up)} ได้ → {p(up2)}")
-        parts.append(f"ถ้าขึ้นไปไม่ผ่าน → มีโอกาสถอยกลับลงมาทดสอบฐานเดิม")
-    else:
-        parts.append("ตอนนี้ยังไม่มีระดับราคาที่มากพอจะสร้างเส้นทางขึ้นหรือลงอย่างน่าเชื่อถือ")
-
-    if lower:
-        parts.append("ทำไมจุดด้านล่างถึงสำคัญ? " + node_reason(lower))
-    if upper:
-        parts.append("ทำไมจุดด้านบนถึงสำคัญ? " + node_reason(upper))
-
+    decision = state.get("decision") or {}
     gamma = state.get("gamma") or {}
-    net_gex = _num(gamma.get("net_gex"))
-    if net_gex is not None:
-        if net_gex < 0:
-            parts.append("ตอนนี้โครงสร้างการป้องกันความเสี่ยงมีลักษณะที่ทำให้การเคลื่อนออกจากระดับสำคัญมีโอกาสแรงขึ้น")
-        elif net_gex > 0:
-            parts.append("ตอนนี้โครงสร้างการป้องกันความเสี่ยงมีลักษณะที่ช่วยให้ราคาชะลอและแกว่งรอบระดับสำคัญได้มากขึ้น")
+    levels = state.get("levels") or {}
+    technical = state.get("technical") or {}
+    path = ai_result.get("structural_path") or (raw.get("market_flow") or {}).get("path") or state.get("path") or {}
 
-    parts.append(
-        "เราเห็นผลของการปรับการป้องกันความเสี่ยงจากโครงสร้าง Options "
-        "แต่ไม่ได้หมายความว่าเรารู้ว่าผู้ดูแลสภาพคล่องตั้งใจจะดันหรือกดราคา"
-    )
-    return "\n\n".join(x for x in parts if x)
+    def trend(tf: str) -> str:
+        return _clean_text((technical.get(tf) or {}).get("trend")).lower()
 
+    def bos(tf: str) -> str:
+        return _clean_text((technical.get(tf) or {}).get("bos")).lower()
+
+    current = _num(parsed.get("cfd_price")) or _num((state.get("price") or {}).get("cfd"))
+    support = _num(gamma.get("put_wall")) or _num(levels.get("support_current"))
+    resistance = _num(gamma.get("call_wall")) or _num(levels.get("resistance_current"))
+
+    if support is None and isinstance(path, dict):
+        support = _num(((path.get("lower_node") or {}).get("level")))
+    if resistance is None and isinstance(path, dict):
+        resistance = _num(((path.get("upper_node") or {}).get("level")))
+
+    if current is None:
+        decision_read = _decision_market_read(parsed, ai_result)
+        return decision_read if decision_read != "ยังไม่มี market read ที่ยืนยันได้" else (
+            _friendly_text(ai_result.get("what") or ai_result.get("market_overview"))
+            or "ยังไม่มี market read ที่ยืนยันได้"
+        )
+
+    h1 = trend("h1")
+    m15 = trend("m15")
+    m5 = trend("m5")
+    m15_bos = bos("m15")
+    m5_bos = bos("m5")
+    tactical_bull = any(x in {"bullish", "bull", "up"} for x in (m15, m5, m15_bos, m5_bos))
+    tactical_bear = any(x in {"bearish", "bear", "down"} for x in (m15, m5, m15_bos, m5_bos))
+
+    inside = support is not None and resistance is not None and support < current < resistance
+    above = resistance is not None and current >= resistance
+    below = support is not None and current <= support
+
+    # Gamma-wall continuation targets are already normalized to CFD by market_state.
+    next_up = _num(levels.get("gamma_wall_up_next"))
+    next_down = _num(levels.get("gamma_wall_down_next"))
+
+    if next_up is not None and resistance is not None and next_up <= resistance:
+        next_up = None
+    if next_down is not None and support is not None and next_down >= support:
+        next_down = None
+
+    htf = str(decision.get("structural_bias") or ai_result.get("structural_bias") or "MIXED").upper()
+
+    parts: list[str] = []
+    if inside:
+        if h1 == "bearish" and tactical_bull:
+            parts.append(
+                f"H1 ยังอยู่ในโครงสร้างขาลง แต่ราคายังยืนเหนือ { _show(support) } ได้ "
+                f"และกำลังฟื้นกลับขึ้นไปหา { _show(resistance) }"
+            )
+        elif h1 == "bullish" and tactical_bear:
+            parts.append(
+                f"H1 ยังอยู่ในโครงสร้างขาขึ้น แต่ระยะสั้นกำลังย่อลงมาทดสอบ { _show(support) } "
+                f"โดยมี { _show(resistance) } เป็นด่านด้านบน"
+            )
+        elif tactical_bull:
+            parts.append(
+                f"ราคายังยืนเหนือ { _show(support) } และกำลังกลับขึ้นไปทดสอบ { _show(resistance) }"
+            )
+        elif tactical_bear:
+            parts.append(
+                f"ราคายังติดใต้ { _show(resistance) } และกำลังไหลกลับมาทดสอบ { _show(support) }"
+            )
+        else:
+            parts.append(
+                f"ราคายังแกว่งอยู่ในกรอบ { _show(support) }–{ _show(resistance) }"
+            )
+
+        parts.append(f"โซนตัดสินใจอยู่แถว { _show(support) }–{ _show(resistance) }")
+
+        if next_up is not None:
+            parts.append(
+                f"ถ้าขึ้นไปแล้วยืนเหนือ { _show(resistance) } ได้ → Break + Acceptance "
+                f"→ มีโอกาสไปต่อหา Gamma Wall ถัดไป { _show(next_up) }"
+            )
+        else:
+            parts.append(
+                f"ถ้าขึ้นไปแล้วยืนเหนือ { _show(resistance) } ได้ → Break + Acceptance "
+                "→ มีโอกาสเปิดทางขึ้นต่อ"
+            )
+
+        if htf == "BEARISH":
+            parts.append(
+                f"แต่ถ้ากวาดเหนือ { _show(resistance) } แล้วกลับเข้า Range "
+                f"ให้ระวัง Buy-side Sweep และการย่อลงหา { _show(support) }"
+            )
+        elif htf == "BULLISH":
+            parts.append(
+                f"แต่ถ้าหลุด { _show(support) } แล้วกลับเข้า Range "
+                f"ให้ระวัง Sell-side Sweep และการเด้งกลับหา { _show(resistance) }"
+            )
+        else:
+            parts.append(
+                f"ถ้าหลุด { _show(support) } หรือผ่าน { _show(resistance) } ไม่ได้ "
+                "ยังให้ถือว่าอยู่ใน Range จนกว่าจะมี acceptance ชัดเจน"
+            )
+    elif above and resistance is not None:
+        parts.append(f"ราคาขึ้นเหนือ { _show(resistance) } แล้ว และกำลังทดสอบว่าจะยืนเหนือโซนนี้ได้หรือไม่")
+        parts.append(
+            f"ถ้ายืนเหนือ { _show(resistance) } ต่อได้ → Break + Acceptance"
+            + (f" → มีโอกาสไปต่อหา Gamma Wall ถัดไป { _show(next_up) }" if next_up is not None else " → มีโอกาสไปต่อ")
+        )
+        parts.append(f"แต่ถ้ากลับเข้า Range ให้ระวัง Failed Break และทดสอบ { _show(resistance) } ซ้ำ")
+    elif below and support is not None:
+        parts.append(f"ราคาหลุด { _show(support) } แล้ว และกำลังทดสอบว่าจะยืนต่ำกว่าโซนนี้ได้หรือไม่")
+        parts.append(
+            f"ถ้ายืนต่ำกว่า { _show(support) } ต่อได้ → Break + Acceptance"
+            + (f" → มีโอกาสลงต่อหา Gamma Wall ถัดไป { _show(next_down) }" if next_down is not None else " → มีโอกาสลงต่อ")
+        )
+        parts.append(f"แต่ถ้ากลับขึ้นเหนือ { _show(support) } ให้ระวัง Failed Break และกลับเข้า Range")
+    else:
+        decision_read = _decision_market_read(parsed, ai_result)
+        parts.append(decision_read if decision_read != "ยังไม่มี market read ที่ยืนยันได้" else (
+            _friendly_text(ai_result.get("what") or ai_result.get("market_overview"))
+            or f"ราคาปัจจุบันอยู่แถว { _show(current) } และยังรอการตอบสนองที่ระดับสำคัญ"
+        ))
+
+    return "\n".join(part.strip() for part in parts if part.strip())
 
 def build_customer_narrative(parsed: dict[str, Any], ai_result: dict[str, Any]) -> dict[str, str]:
     """Return the canonical human-readable market story plus supporting sections."""
