@@ -402,6 +402,19 @@ def _human_price_story(parsed: dict[str, Any], ai_result: dict[str, Any]) -> str
     if next_down is not None and support is not None and next_down >= support:
         next_down = None
 
+    has_canonical_decision = any(
+        decision.get(key) not in (None, "")
+        for key in ("structural_bias", "tactical_direction", "confirmation_state", "decision_state")
+    )
+    if not has_canonical_decision and support is None and resistance is None:
+        legacy = _friendly_text(
+            ai_result.get("market_overview")
+            or ai_result.get("what")
+            or ""
+        )
+        if legacy:
+            return legacy
+
     htf = str(decision.get("structural_bias") or ai_result.get("structural_bias") or "MIXED").upper()
 
     parts: list[str] = []
@@ -409,7 +422,7 @@ def _human_price_story(parsed: dict[str, Any], ai_result: dict[str, Any]) -> str
         if h1 == "bearish" and tactical_bull:
             parts.append(
                 f"H1 ยังอยู่ในโครงสร้างขาลง แต่ราคายังยืนเหนือ { _show(support) } ได้ "
-                f"และกำลังฟื้นกลับขึ้นไปหา { _show(resistance) }"
+                f"และกำลังฟื้นกลับขึ้นไปหา Liquidity ด้านบนแถว { _show(resistance) }"
             )
         elif h1 == "bullish" and tactical_bear:
             parts.append(
