@@ -41,10 +41,10 @@ def test_line_analysis_is_analysis_first_and_plain_language():
         "macro": "มีข่าวสำคัญที่ตลาดกำลังรอ",
     }
     message = line.format_message(parsed, ai)
-    assert "MARKET READ" in message
-    assert "VOLATILITY" in message
-    assert "FLOW STATEMENT" in message
-    assert "OI POSITIONING" in message
+    assert "GOLD MARKET" in message
+    assert "DTE. 0.55" in message
+    assert "ราคา" in message
+    assert "ACTION:" in message
     assert "Current OI" not in message
     assert "OI Change" not in message
-    assert "มีการเพิ่มสถานะทั้ง Put และ Call ใกล้เคียงกัน" in message
+    assert "OI activity สองฝั่งเพิ่มขึ้น" in message
