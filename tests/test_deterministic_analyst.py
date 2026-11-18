@@ -1,3 +1,4 @@
+# [run-live] deterministic fallback contract
 from src.deterministic_analyst import build_deterministic_fallback
 
 
@@ -53,7 +54,8 @@ def test_fallback_is_conditional_and_not_raw_dump():
     assert out["analysis_status"] == "DEGRADED"
     assert out["bias"] == "SHORT_CONDITIONAL"
     assert out["trade_plan"]["status"] == "CONDITIONAL"
-    assert "OI activity" in out["why"]
+    assert "OI เพิ่มทั้งสองฝั่ง" in out["why"]
+    assert "aggressor" in out["why"]
     assert "dealer" in out["market_psychology"]
     assert "raw metrics" not in out["market_overview"]
     assert out["evidence_refs"] == ["itb:oi:deterministic", "itb:oi:history"]
