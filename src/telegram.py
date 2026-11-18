@@ -364,12 +364,19 @@ def _format_trade_plan_message(parsed: dict, ai_result: dict) -> str:
     valid_until = str(ai_result.get("valid_until_label") or schedule.get("valid_until_label") or "-")
 
     if not execution_ready:
-        event = (
+        event_raw = (
             primary.get("preferred_liquidity_event")
             or primary.get("event_required")
             or primary.get("action")
             or "รอ event ที่โซน"
         )
+        event_map = {
+            "BUY_SIDE_SWEEP": "Buy-side Sweep",
+            "SELL_SIDE_SWEEP": "Sell-side Sweep",
+            "BUY_SIDE_LIQUIDITY": "Buy-side Liquidity",
+            "SELL_SIDE_LIQUIDITY": "Sell-side Liquidity",
+        }
+        event = event_map.get(str(event_raw).upper(), str(event_raw).replace("_", " "))
         state_label = {
             "PENDING_LIQUIDITY_SWEEP": "PENDING — รอ Liquidity Sweep",
             "WAIT_LIQUIDITY_SWEEP": "PENDING — รอ Liquidity Sweep",
