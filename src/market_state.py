@@ -1754,7 +1754,7 @@ def normalize_analyst_output(
 
     # Replace model-authored execution language with the deterministic liquidity
     # story. This keeps the thesis directional and avoids generic confirmation/WAIT prose.
-    ai["final_trade_idea"] = liquidity_story
+    ai["final_trade_idea"] = customer_story
     ai["trade_plan"]["execution_state"] = execution_plan["state"]
     ai["trade_plan"]["execution_plan"] = execution_plan
     ai["market_state"] = state
