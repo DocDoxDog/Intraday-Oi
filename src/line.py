@@ -10,7 +10,7 @@ from datetime import datetime, timedelta, timezone
 import requests
 
 from src.customer_narrative import build_customer_narrative, _friendly_bias, _friendly_regime
-from src.telegram import _format_analysis_message as _format_desk_note_message
+from src.telegram import _format_analysis_message as _format_desk_note_message, _format_trade_plan_message as _format_desk_trade_plan_message
 
 
 LINE_BROADCAST_API = "https://api.line.me/v2/bot/message/broadcast"
@@ -98,28 +98,8 @@ def _levels_message(parsed: dict, ai_result: dict) -> str:
 
 
 def _trade_plan_message(parsed: dict, ai_result: dict) -> str:
-    trade = ai_result.get("trade_plan") or {}
-    return "\n".join([
-        "TRADE PLAN",
-        f"Status: {str(trade.get('status') or 'CONDITIONAL').upper()}",
-        f"Direction: {trade.get('direction') or 'WAIT'}",
-        f"Entry: {trade.get('entry') or 'UNKNOWN'}",
-        f"Stop: {trade.get('stop_loss') or 'UNKNOWN'}",
-        f"TP1: {trade.get('take_profit_1') or 'UNKNOWN'}",
-        f"TP2: {trade.get('take_profit_2') or 'UNKNOWN'}",
-        "",
-        f"Trigger: {trade.get('trigger') or 'UNKNOWN'}",
-        f"Invalidation: {trade.get('invalidation') or 'UNKNOWN'}",
-        f"Risk/Reward: {trade.get('risk_reward') or 'UNKNOWN'}",
-        f"Market Condition: {trade.get('market_condition') or 'UNKNOWN'}",
-        f"Position Risk: {trade.get('position_risk') or 'UNKNOWN'}",
-        f"Risk: {trade.get('risk_note') or 'UNKNOWN'}",
-        "",
-        "FINAL TRADE IDEA",
-        ai_result.get("final_trade_idea") or trade.get("setup") or "UNKNOWN",
-        f"Valid Until: {ai_result.get('valid_until_label') or (ai_result.get('desk_note_context') or {}).get('valid_until_label') or 'UNKNOWN'}",
-    ])
-
+    """Reuse the same execution-gated customer trade contract as Telegram."""
+    return re.sub(r"<[^>]+>", "", _format_desk_trade_plan_message(parsed, ai_result))
 
 def _post_broadcast(token: str, messages: list[dict]) -> None:
     response = requests.post(
