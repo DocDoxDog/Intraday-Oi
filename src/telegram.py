@@ -259,6 +259,15 @@ def _format_analysis_message(parsed: dict, ai_result: dict) -> str:
         paragraph = paragraph.strip()
         if paragraph:
             lines.append(_escape(paragraph))
+
+    # Explicit liquidity events are evidence, not prose guesses.
+    if sweep:
+        lines.append(_escape(f"Liquidity: เกิด {event} แล้ว"))
+
+    context = _single_line(ai_result.get("why") or "")
+    if context and context not in story:
+        lines.append(_escape(f"CONTEXT: {context}"))
+
     lines.append(_escape(change))
     lines.append(_escape(action))
     lines.append(_escape(f"Valid Until: {valid_until}"))
