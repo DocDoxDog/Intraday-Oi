@@ -418,7 +418,7 @@ def _human_price_story(parsed: dict[str, Any], ai_result: dict[str, Any]) -> str
         )
         if h1 == "bearish" and tactical_bull:
             first += (
-                f" H1 ยังยืนเหนือ {_show(support)} ได้ แต่โครงสร้างยังเป็นขาลง และราคากำลังฟื้นกลับขึ้นไปหา Liquidity ด้านบนแถว {_show(resistance)}"
+                f" H1 ยังอยู่ในโครงสร้างขาลงและยังยืนเหนือ {_show(support)} ได้ และราคากำลังฟื้นกลับขึ้นไปหา Liquidity ด้านบนแถว {_show(resistance)}"
             )
         elif h1 == "bullish" and tactical_bear:
             first += (
