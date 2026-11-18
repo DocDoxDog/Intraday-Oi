@@ -128,31 +128,30 @@ def test_customer_story_matches_trader_style_range_continuation():
     assert "3,955.00" in story
     assert "Buy-side Sweep" in story
 
-def test_telegram_shows_complete_deterministic_plan_even_when_execution_gate_is_blocked():
+def test_telegram_hides_trade_levels_until_execution_gate_passes():
     parsed = {"cfd_price": 3993.70, "future_price": 4007.90, "dte": 1.16, "raw_series": {}}
     ai = {
         "trade_plan": {
             "execution_plan": {
-                "routes": [
-                    {
-                        "side": "SHORT",
-                        "route": "SELL_BREAKDOWN",
-                        "state": "NO_TRADE",
-                        "trigger": 3989.0,
-                        "stop": 3994.0,
-                        "targets": [3964.0, 3939.0, 3889.0],
-                    }
-                ]
+                "trade_permission": "WAIT_CONFIRMATION",
+                "primary_setup": {
+                    "side": "SHORT",
+                    "route": "SELL_BREAKDOWN",
+                    "state": "NO_TRADE",
+                    "execution_ready": False,
+                    "trigger": 3989.0,
+                    "stop": 3994.0,
+                    "targets": [3964.0, 3939.0, 3889.0],
+                },
             }
         }
     }
     message = telegram._format_trade_plan_message(parsed, ai)
     assert "🔴 <b>SELL</b>" in message
-    assert "Entry <b>3,989.00" in message
-    assert "SL <b>3,994.00" in message
-    assert "TP1 <b>3,964.00" in message
-    assert "TP2 <b>3,939.00" in message
-    assert "TP3 <b>3,889.00" in message
+    assert "PENDING" in message or "NO TRADE" in message
+    assert "Entry <b>" not in message
+    assert "SL <b>" not in message
+    assert "TP1" not in message
 
 
 def test_telegram_article_removes_raw_telemetry_and_keeps_distinct_analysis():
