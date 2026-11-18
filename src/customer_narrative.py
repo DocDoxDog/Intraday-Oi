@@ -460,7 +460,7 @@ def _human_price_story(parsed: dict[str, Any], ai_result: dict[str, Any]) -> str
         #    the analysis into a mechanical execution checklist.
         third = (
             f"ตอนนี้จึงไม่ควรไล่ราคาในกลางกรอบ รอให้ราคาไปทดสอบขอบก่อน; "
-            f"ถ้ายืนเหนือ {_show(resistance)} ได้ จะเปิดทางไปหา"
+            f"ถ้ายืนเหนือ {_show(resistance)} ได้ จะเป็น Break + Acceptance และเปิดทางไปหา"
         )
         if next_up is not None:
             third += f" Gamma Wall ถัดไป {_show(next_up)}"
