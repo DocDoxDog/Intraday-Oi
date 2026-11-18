@@ -425,12 +425,6 @@ def _format_trade_plan_message(parsed: dict, ai_result: dict) -> str:
     for i, tp in enumerate(targets, 1):
         lines.append(f"TP{i} <b>{_escape(_show(tp))}</b>")
     lines.append(f"R:R <b>{_escape(rr_text)}</b>")
-    action_raw = primary.get("action") or primary.get("trigger")
-    if action_raw not in (None, ""):
-        lines.append(f"Trigger <b>{_escape(action_raw)}</b>")
-    invalid_raw = primary.get("cancel_if") or primary.get("invalidation")
-    if invalid_raw not in (None, ""):
-        lines.append(f"Invalid <b>{_escape(invalid_raw)}</b>")
     lines.append(f"Valid Until <b>{_escape(valid_until)}</b>")
     return "\n".join(lines)
 
