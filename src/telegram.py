@@ -92,7 +92,7 @@ def _clean_article_text(value: object) -> str:
 
 
 def _single_line(value: object) -> str:
-    """Flatten analyst prose into one Desk Note line without raw telemetry."""
+    """Flatten analyst prose into one Desk Note line without raw telemetry."""  # [run-live] verify placeholder filter
     text = _clean_article_text(value)
     text = re.sub(r"(?:^|\n)(?:NOW|CHANGE|CAUSE|CONFLICT|ACTION)\s*[:\-]?", " ", text, flags=re.IGNORECASE)
     # Customer-facing copy must never expose unresolved telemetry placeholders.
