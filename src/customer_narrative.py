@@ -344,12 +344,24 @@ def _decision_market_read(parsed: dict[str, Any], ai_result: dict[str, Any]) -> 
 
 
 
-def _human_price_story(parsed: dict[str, Any], ai_result: dict[str, Any]) -> str:
-    """Build one concise, evidence-linked price story for the desk note.
+def _gex_change_1h(parsed: dict[str, Any]) -> float | None:
+    """Return current Net GEX minus the previous-hour Net GEX."""
+    raw = parsed.get("raw_series") or {}
+    state = raw.get("market_state") or {}
+    current = _num((state.get("gamma") or {}).get("net_gex"))
+    history = state.get("history") or {}
+    previous = _num(((history.get("1h") or {}).get("gex_net")))
+    if current is None or previous is None:
+        return None
+    return current - previous
 
-    Major support/resistance comes from canonical normalized Gamma walls first.
-    The story may describe short-term recovery/rejection, but it never invents
-    a level or claims hidden participant intent.
+
+def _human_price_story(parsed: dict[str, Any], ai_result: dict[str, Any]) -> str:
+    """Build the preferred desk-note narrative: state -> change -> implication.
+
+    The prose deliberately reads like an analyst explaining the market to a
+    trader. Gamma/OI are evidence inside the story, not a checklist. Prices
+    come only from canonical normalized levels.
     """
     raw = parsed.get("raw_series") or {}
     state = raw.get("market_state") or {}
@@ -357,141 +369,136 @@ def _human_price_story(parsed: dict[str, Any], ai_result: dict[str, Any]) -> str
     gamma = state.get("gamma") or {}
     levels = state.get("levels") or {}
     technical = state.get("technical") or {}
-    path = ai_result.get("structural_path") or (raw.get("market_flow") or {}).get("path") or state.get("path") or {}
+    liquidity = state.get("liquidity") or {}
 
     def trend(tf: str) -> str:
         return _clean_text((technical.get(tf) or {}).get("trend")).lower()
 
-    def bos(tf: str) -> str:
-        return _clean_text((technical.get(tf) or {}).get("bos")).lower()
-
     current = _num(parsed.get("cfd_price")) or _num((state.get("price") or {}).get("cfd"))
     support = _num(gamma.get("put_wall")) or _num(levels.get("support_current"))
     resistance = _num(gamma.get("call_wall")) or _num(levels.get("resistance_current"))
-
-    if support is None and isinstance(path, dict):
-        support = _num(((path.get("lower_node") or {}).get("level")))
-    if resistance is None and isinstance(path, dict):
-        resistance = _num(((path.get("upper_node") or {}).get("level")))
+    net_gex = _num(gamma.get("net_gex"))
+    gex_change = _gex_change_1h(parsed)
 
     if current is None:
-        decision_read = _decision_market_read(parsed, ai_result)
-        return decision_read if decision_read != "ยังไม่มี market read ที่ยืนยันได้" else (
-            _friendly_text(ai_result.get("what") or ai_result.get("market_overview"))
-            or "ยังไม่มี market read ที่ยืนยันได้"
-        )
+        return _decision_market_read(parsed, ai_result)
 
+    h4 = trend("h4")
     h1 = trend("h1")
     m15 = trend("m15")
     m5 = trend("m5")
-    m15_bos = bos("m15")
-    m5_bos = bos("m5")
-    tactical_bull = any(x in {"bullish", "bull", "up"} for x in (m15, m5, m15_bos, m5_bos))
-    tactical_bear = any(x in {"bearish", "bear", "down"} for x in (m15, m5, m15_bos, m5_bos))
+    tactical_bull = any(x in {"bullish", "bull", "up"} for x in (m15, m5))
+    tactical_bear = any(x in {"bearish", "bear", "down"} for x in (m15, m5))
 
     inside = support is not None and resistance is not None and support < current < resistance
     above = resistance is not None and current >= resistance
     below = support is not None and current <= support
 
-    # Gamma-wall continuation targets are already normalized to CFD by market_state.
     next_up = _num(levels.get("gamma_wall_up_next"))
     next_down = _num(levels.get("gamma_wall_down_next"))
-
     if next_up is not None and resistance is not None and next_up <= resistance:
         next_up = None
     if next_down is not None and support is not None and next_down >= support:
         next_down = None
 
-    has_canonical_decision = any(
-        decision.get(key) not in (None, "")
-        for key in ("structural_bias", "tactical_direction", "confirmation_state", "decision_state")
-    )
-    if not has_canonical_decision and support is None and resistance is None:
-        legacy = _friendly_text(
-            ai_result.get("market_overview")
-            or ai_result.get("what")
-            or ""
-        )
-        if legacy:
-            return legacy
-
-    htf = str(decision.get("structural_bias") or ai_result.get("structural_bias") or "MIXED").upper()
-
-    parts: list[str] = []
+    # 1) Current state: the preferred version starts with the range and the
+    #    Gamma map, then explains the short-term price behaviour.
     if inside:
+        gamma_text = (
+            "Gamma รวมยังเป็นลบ"
+            if net_gex is not None and net_gex < 0
+            else "Gamma รวมยังเป็นบวก"
+            if net_gex is not None and net_gex > 0
+            else "Gamma รวมยังไม่ชัด"
+        )
+        first = (
+            f"ตอนนี้ราคาทองยังอยู่ในกรอบ {_show(support)}–{_show(resistance)} โดย {gamma_text}"
+        )
         if h1 == "bearish" and tactical_bull:
-            parts.append(
-                f"H1 ยังอยู่ในโครงสร้างขาลง แต่ราคายังยืนเหนือ { _show(support) } ได้ "
-                f"และกำลังฟื้นกลับขึ้นไปหา Liquidity ด้านบนแถว { _show(resistance) }"
+            first += (
+                f" แต่ H1 ยังเป็นขาลง และราคากำลังฟื้นกลับขึ้นไปหา Liquidity ด้านบนแถว {_show(resistance)}"
             )
         elif h1 == "bullish" and tactical_bear:
-            parts.append(
-                f"H1 ยังอยู่ในโครงสร้างขาขึ้น แต่ระยะสั้นกำลังย่อลงมาทดสอบ { _show(support) } "
-                f"โดยมี { _show(resistance) } เป็นด่านด้านบน"
+            first += (
+                f" ขณะที่ H1 ยังเป็นขาขึ้น แต่ระยะสั้นกำลังย่อลงมาทดสอบ {_show(support)}"
             )
         elif tactical_bull:
-            parts.append(
-                f"ราคายังยืนเหนือ { _show(support) } และกำลังกลับขึ้นไปทดสอบ { _show(resistance) }"
-            )
+            first += f" และราคากำลังเด้งกลับขึ้นไปทดสอบ {_show(resistance)}"
         elif tactical_bear:
-            parts.append(
-                f"ราคายังติดใต้ { _show(resistance) } และกำลังไหลกลับมาทดสอบ { _show(support) }"
-            )
+            first += f" และราคากำลังอ่อนตัวกลับมาทดสอบ {_show(support)}"
         else:
-            parts.append(
-                f"ราคายังแกว่งอยู่ในกรอบ { _show(support) }–{ _show(resistance) }"
+            first += f" โดย {_show(resistance)} เป็นแนวต้านหลักและ {_show(support)} เป็นแนวรับหลัก"
+
+        # 2) Change: compare the same metric over the previous hour, using
+        #    explicit GEX delta rather than generic "structure changed".
+        if gex_change is not None and abs(gex_change) >= 1e-9:
+            direction = "ดีขึ้น" if gex_change > 0 else "แย่ลง"
+            change = (
+                f"สิ่งที่เปลี่ยนจากชั่วโมงก่อนคือ Gamma {direction} "
+                f"{'+' if gex_change > 0 else ''}{gex_change / 1_000_000:.2f}M"
+            )
+            if h4 and h1 and h4 == h1:
+                change += (
+                    f" แต่โครงสร้าง {h4.upper()} ยังไม่เปลี่ยน ดังนั้นการเคลื่อนที่แถว { _show(current) } "
+                    "ยังให้น้ำหนักเป็นการเคลื่อนที่ภายในกรอบมากกว่าการกลับตัว"
+                )
+            else:
+                change += " จึงยังไม่ใช่หลักฐานเพียงพอที่จะเปลี่ยน thesis"
+        else:
+            change = (
+                "สิ่งที่เปลี่ยนจากชั่วโมงก่อนยังไม่มากพอที่จะเปลี่ยนโครงสร้างหลัก "
+                "ดังนั้นยังไม่ควรตีความการเด้งหรือการย่อครั้งนี้เป็นการกลับตัว"
             )
 
-        parts.append(f"โซนตัดสินใจอยู่แถว { _show(support) }–{ _show(resistance) }")
-
+        # 3) Decision: explain what the trader should wait for, without turning
+        #    the analysis into a mechanical execution checklist.
+        third = (
+            f"ตอนนี้จึงไม่ควรไล่ราคาในกลางกรอบ รอให้ราคาไปทดสอบขอบก่อน; "
+            f"ถ้ายืนเหนือ {_show(resistance)} ได้ จะเปิดทางไปหา"
+        )
         if next_up is not None:
-            parts.append(
-                f"ถ้าขึ้นไปแล้วยืนเหนือ { _show(resistance) } ได้ → Break + Acceptance "
-                f"→ มีโอกาสไปต่อหา Gamma Wall ถัดไป { _show(next_up) }"
-            )
+            third += f" Gamma Wall ถัดไป {_show(next_up)}"
         else:
-            parts.append(
-                f"ถ้าขึ้นไปแล้วยืนเหนือ { _show(resistance) } ได้ → Break + Acceptance "
-                "→ มีโอกาสเปิดทางขึ้นต่อ"
+            third += "ระดับด้านบนถัดไป"
+        if str(decision.get("structural_bias") or "").upper() == "BEARISH":
+            third += (
+                f" แต่ถ้ากวาดเหนือ {_show(resistance)} แล้วกลับเข้า Range ให้ระวัง Buy-side Sweep "
+                f"และการย่อลงหา {_show(support)}"
+            )
+        elif str(decision.get("structural_bias") or "").upper() == "BULLISH":
+            third += (
+                f" ขณะที่ถ้าหลุด {_show(support)} แล้วกลับเข้า Range ให้ระวัง Sell-side Sweep "
+                f"และการเด้งกลับหา {_show(resistance)}"
             )
 
-        if htf == "BEARISH":
-            parts.append(
-                f"แต่ถ้ากวาดเหนือ { _show(resistance) } แล้วกลับเข้า Range "
-                f"ให้ระวัง Buy-side Sweep และการย่อลงหา { _show(support) }"
-            )
-        elif htf == "BULLISH":
-            parts.append(
-                f"แต่ถ้าหลุด { _show(support) } แล้วกลับเข้า Range "
-                f"ให้ระวัง Sell-side Sweep และการเด้งกลับหา { _show(resistance) }"
-            )
-        else:
-            parts.append(
-                f"ถ้าหลุด { _show(support) } หรือผ่าน { _show(resistance) } ไม่ได้ "
-                "ยังให้ถือว่าอยู่ใน Range จนกว่าจะมี acceptance ชัดเจน"
-            )
-    elif above and resistance is not None:
-        parts.append(f"ราคาขึ้นเหนือ { _show(resistance) } แล้ว และกำลังทดสอบว่าจะยืนเหนือโซนนี้ได้หรือไม่")
-        parts.append(
-            f"ถ้ายืนเหนือ { _show(resistance) } ต่อได้ → Break + Acceptance"
-            + (f" → มีโอกาสไปต่อหา Gamma Wall ถัดไป { _show(next_up) }" if next_up is not None else " → มีโอกาสไปต่อ")
-        )
-        parts.append(f"แต่ถ้ากลับเข้า Range ให้ระวัง Failed Break และทดสอบ { _show(resistance) } ซ้ำ")
-    elif below and support is not None:
-        parts.append(f"ราคาหลุด { _show(support) } แล้ว และกำลังทดสอบว่าจะยืนต่ำกว่าโซนนี้ได้หรือไม่")
-        parts.append(
-            f"ถ้ายืนต่ำกว่า { _show(support) } ต่อได้ → Break + Acceptance"
-            + (f" → มีโอกาสลงต่อหา Gamma Wall ถัดไป { _show(next_down) }" if next_down is not None else " → มีโอกาสลงต่อ")
-        )
-        parts.append(f"แต่ถ้ากลับขึ้นเหนือ { _show(support) } ให้ระวัง Failed Break และกลับเข้า Range")
-    else:
-        decision_read = _decision_market_read(parsed, ai_result)
-        parts.append(decision_read if decision_read != "ยังไม่มี market read ที่ยืนยันได้" else (
-            _friendly_text(ai_result.get("what") or ai_result.get("market_overview"))
-            or f"ราคาปัจจุบันอยู่แถว { _show(current) } และยังรอการตอบสนองที่ระดับสำคัญ"
-        ))
+        if str(liquidity.get("gate") or "").upper() == "SWEEP_DETECTED":
+            preferred = str(liquidity.get("preferred_event") or "").upper()
+            if preferred == "BUY_SIDE_SWEEP":
+                third += " ตอนนี้มี Buy-side Sweep ที่ระบบยืนยันแล้ว"
+            elif preferred == "SELL_SIDE_SWEEP":
+                third += " ตอนนี้มี Sell-side Sweep ที่ระบบยืนยันแล้ว"
 
-    return "\n".join(part.strip() for part in parts if part.strip())
+        return "\n".join([first, change, third])
+
+    if above and resistance is not None:
+        first = f"ราคาขึ้นเหนือ {_show(resistance)} แล้ว และตอนนี้กำลังทดสอบว่าจะยืนเหนือโซนนี้ได้หรือไม่"
+        second = (
+            f"ถ้ายืนเหนือ {_show(resistance)} ได้ จะเป็น Break + Acceptance"
+            + (f" และมีโอกาสไปต่อหา Gamma Wall ถัดไป {_show(next_up)}" if next_up is not None else " และเปิดทางขึ้นต่อ")
+        )
+        third = f"แต่ถ้ากลับเข้า Range ให้ระวัง Failed Break และการกลับมาทดสอบ {_show(resistance)} อีกครั้ง"
+        return "\n".join([first, second, third])
+
+    if below and support is not None:
+        first = f"ราคาหลุด {_show(support)} ลงมาแล้ว และตอนนี้กำลังทดสอบว่าจะยืนต่ำกว่าโซนนี้ได้หรือไม่"
+        second = (
+            f"ถ้ายืนต่ำกว่า {_show(support)} ได้ จะเป็น Break + Acceptance"
+            + (f" และมีโอกาสลงต่อหา Gamma Wall ถัดไป {_show(next_down)}" if next_down is not None else " และเปิดทางลงต่อ")
+        )
+        third = f"แต่ถ้ากลับขึ้นเหนือ {_show(support)} ให้ระวัง Failed Break และการกลับเข้า Range"
+        return "\n".join([first, second, third])
+
+    return _decision_market_read(parsed, ai_result)
 
 def build_customer_narrative(parsed: dict[str, Any], ai_result: dict[str, Any]) -> dict[str, str]:
     """Return the canonical human-readable market story plus supporting sections."""
