@@ -1639,11 +1639,12 @@ def normalize_analyst_output(
     execution_plan["liquidity_gate"] = liquidity.get("gate")
     execution_plan["preferred_liquidity_event"] = liquidity.get("preferred_event")
 
-    # Deterministic liquidity-first prose is the customer-facing NOW/action spine.
-    # The LLM owns CHANGE/WHY prose; Telegram renders them as one continuous story.
-    liquidity_story = _liquidity_market_overview(parsed, state, primary_setup)
-    ai["market_overview"] = liquidity_story
-    ai["liquidity_story"] = liquidity_story
+    # Canonical customer story: every downstream consumer (Supabase, Telegram,
+    # LINE, dashboard) must receive the same evidence-linked narrative.
+    from src.customer_narrative import build_customer_narrative
+    customer_story = build_customer_narrative(parsed, ai).get("market_read") or ""
+    ai["market_overview"] = customer_story
+    ai["liquidity_story"] = customer_story
 
     from src.multi_domain_engine import build_multi_domain_context
     multi_domain = build_multi_domain_context(parsed, state, execution_plan)
