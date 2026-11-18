@@ -332,7 +332,7 @@ def _format_path_message(parsed: dict, ai_result: dict) -> str:
     return "\n".join(lines)
 
 def _format_trade_plan_message(parsed: dict, ai_result: dict) -> str:
-    """Render the primary trade route only when the deterministic execution gate passes."""
+    """Render the primary trade route only when the deterministic execution gate passes."""  # [run-live] execution gate contract
     execution = ((ai_result.get("trade_plan") or {}).get("execution_plan") or {})
     primary = execution.get("primary_setup")
 
