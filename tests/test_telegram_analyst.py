@@ -29,10 +29,10 @@ def test_product_identity_does_not_default_unknown_to_gc():
 def test_telegram_renders_three_text_message_sections():
     from src import telegram
     parsed={"future_price":4214.1,"cfd_price":4186.58736,"dte":0.34}
-    ai={"market_overview":"WHAT text","trade_plan":{"execution_plan":{"routes":[
-        {"side":"LONG","state":"ARMED","entry":4197.48736,"stop":4172.48736,"targets":[4232.48736]},
-        {"side":"SHORT","state":"ARMED","entry":4172.48736,"stop":4197.48736,"targets":[4152.48736]}
-    ]}}}
+    ai={"market_overview":"WHAT text","trade_plan":{"execution_plan":{
+        "trade_permission":"ENTER_CONDITION_SATISFIED",
+        "primary_setup":{"side":"LONG","state":"CONFIRMED","execution_ready":True,"entry":4197.48736,"trigger":4197.48736,"stop":4172.48736,"targets":[4232.48736]}
+    }}}
     m3=telegram._format_analysis_message(parsed,ai)
     m5=telegram._format_trade_plan_message(parsed,ai)
     assert "WHAT text" in m3 and "GOLD MARKET" in m3
@@ -75,7 +75,10 @@ def test_degraded_v2_has_no_trade_levels():
 
 def test_telegram_escapes_dynamic_trade_level_text():
     from src import telegram
-    ai={"trade_plan":{"execution_plan":{"routes":[{"side":"LONG","state":"ARMED","entry":"<4180","stop":4100,"targets":[4200]}]}}}
+    ai={"trade_plan":{"execution_plan":{
+        "trade_permission":"ENTER_CONDITION_SATISFIED",
+        "primary_setup":{"side":"LONG","state":"CONFIRMED","execution_ready":True,"entry":"<4180","trigger":"<4180","stop":4100,"targets":[4200]}
+    }}}
     message=telegram._format_trade_plan_message({},ai)
     assert "&lt;4180" in message
     assert "R:R" in message
@@ -202,7 +205,10 @@ def test_trade_targets_use_source_strikes_not_gamma_mean():
 
 def test_telegram_renders_support_reaction_long_setup():
     from src import telegram
-    ai={"trade_plan":{"execution_plan":{"routes":[{"side":"LONG","state":"ARMED","entry":4072.88,"stop":4067.88,"targets":[4082.88]}]}}}
+    ai={"trade_plan":{"execution_plan":{
+        "trade_permission":"ENTER_CONDITION_SATISFIED",
+        "primary_setup":{"side":"LONG","state":"CONFIRMED","execution_ready":True,"entry":4072.88,"trigger":4072.88,"stop":4067.88,"targets":[4082.88]}
+    }}}
     message=telegram._format_trade_plan_message({},ai)
     assert "BUY" in message
     assert "Entry <b>4,072.88</b>" in message
@@ -291,6 +297,29 @@ def test_telegram_never_restores_rejected_targets_from_market_map():
 
 
 
+def test_telegram_does_not_show_entry_levels_before_execution_gate():
+    from src import telegram
+    ai={"trade_plan":{"execution_plan":{
+        "trade_permission":"WAIT_CONFIRMATION",
+        "primary_setup":{
+            "side":"SHORT",
+            "route":"SELL_REJECTION",
+            "state":"PENDING_LIQUIDITY_SWEEP",
+            "execution_ready":False,
+            "trigger":3900,
+            "stop":3910,
+            "targets":[3850,3800],
+            "preferred_liquidity_event":"BUY_SIDE_SWEEP",
+        }
+    }}}
+    message=telegram._format_trade_plan_message({},ai)
+    assert "PENDING" in message
+    assert "Buy-side Sweep" in message
+    assert "Trigger Zone <b>3,900.00</b>" in message
+    assert "Entry <b>" not in message
+    assert "SL <b>" not in message
+    assert "TP1" not in message
+
 def test_telegram_legacy_routes_render_one_primary_only():
     from src import telegram
 
@@ -316,8 +345,9 @@ def test_telegram_legacy_routes_render_one_primary_only():
         },
     }
     message = telegram._format_trade_plan_message({}, ai)
-    assert message.count("Entry <b>") == 1
     assert "SELL" in message
+    assert "PENDING" in message
+    assert "Entry <b>" not in message
     assert "TOP 1" not in message
     assert "ICT FVG" not in message
 
