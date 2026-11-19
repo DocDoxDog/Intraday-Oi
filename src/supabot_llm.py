@@ -25,7 +25,7 @@ except ImportError:
 
 DEFAULT_GATEWAY_PATH = "/internal/v1/llm/generate"
 TASK = "market.narrative"
-PROMPT_VERSION = "intraday-oi-market-analyst-v16-desk-note-range-continuation"
+PROMPT_VERSION = "intraday-oi-market-analyst-v17-gamma-regime-squeeze"
 DATASET_VERSION = "quikstrike-oi-view-v2"
 CALCULATION_VERSION = "intraday-oi-calcs-v1"
 
@@ -700,6 +700,11 @@ History และ News
 - Level ≠ Trigger
 - OI/ΔOI/Churn บอกกิจกรรม/positioning context แต่ไม่บอก aggressor โดยลำพัง
 - Negative Gamma = มีโอกาสขยายการเคลื่อนไหว; Positive Gamma = มีโอกาสช่วยชะลอการแกว่ง
+- เมื่อ Negative Gamma กระจุกตัวใกล้ราคาปัจจุบัน และ price path กำลังเคลื่อนออกจาก pocket นั้น ให้ประเมิน "gamma squeeze / hedging feedback risk" เป็นกลไกการเร่งตัวแบบมีเงื่อนไข ไม่ใช่ทิศทางอัตโนมัติ
+- Downside gamma squeeze ต้องมี price acceptance ใต้ negative-gamma pocket หรือ wall และ price response สอดคล้อง; upside gamma squeeze ต้องมี price acceptance เหนือ pocket และ price response สอดคล้อง
+- ห้ามเขียนว่า dealer "ต้องซื้อ/ต้องขาย" จาก Negative Gamma โดยไม่มีหลักฐาน position/flow; ใช้ถ้อยคำว่า "มีโอกาสเกิดแรงปรับ hedge ตามราคา" แทน
+- ถ้ามี negative_concentrations / positive_concentrations จาก multi-expiry ให้เลือกเฉพาะ pocket ที่ใกล้ current price และมีขนาดมีนัยสำคัญ ไม่ dump ทุก strike
+- GEX CHANGE 1H ต้องใช้ค่าที่เป็น current-minus-previous จาก deterministic history โดยตรง ห้ามคำนวณซ้ำจากค่าที่เป็น delta แล้ว
 - H4/H1 กำหนด directional thesis; M15/M5/M1 ใช้กำหนด timing
 - Liquidity sweep เป็น execution gate: Short ต้องรอ Buy-side Sweep, Long ต้องรอ Sell-side Sweep
 - ไม่มี Sweep = thesis ยังอยู่ได้ แต่ execution เป็น PENDING
