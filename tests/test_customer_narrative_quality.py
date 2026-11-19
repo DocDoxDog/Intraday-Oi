@@ -150,7 +150,7 @@ def test_customer_story_explains_gex_change_in_trader_language():
                     "resistance_current": 3900.0,
                     "gamma_wall_up_next": 3955.0,
                 },
-                "history": {"1h": {"gex": -20_190_066.8}},
+                "history": {"1h": {"gex": 8_360_000.0}},
                 "technical": {
                     "h1": {"trend": "bearish"},
                     "m15": {"trend": "bullish"},
@@ -192,7 +192,7 @@ def test_telegram_analysis_uses_plan_not_action_change_labels():
                     "resistance_current": 3900.0,
                     "gamma_wall_up_next": 3955.0,
                 },
-                "history": {"1h": {"gex": -20_190_066.8}},
+                "history": {"1h": {"gex": 8_360_000.0}},
                 "technical": {
                     "h1": {"trend": "bearish"},
                     "m15": {"trend": "bullish"},
