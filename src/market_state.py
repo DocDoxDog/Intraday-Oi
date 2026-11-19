@@ -325,6 +325,27 @@ def _gamma_state(parsed: dict[str, Any], history: dict[str, Any]) -> dict[str, A
         "negative_zone": to_cfd(zones.get("highest_negative_gamma")),
         "call_wall": to_cfd(gex.get("call_wall")),
         "put_wall": to_cfd(gex.get("put_wall")),
+        # Multi-expiry concentrations are evidence for acceleration/regime
+        # analysis. Keep them in the same CFD coordinate as walls so the
+        # narrative layer never has to invent or re-convert prices.
+        "positive_concentrations": [
+            {
+                "strike_futures": _num(item.get("strike")) if isinstance(item, dict) else None,
+                "strike_cfd": to_cfd(item.get("strike")) if isinstance(item, dict) else None,
+                "aggregate_gex": _num(item.get("aggregate_gex")) if isinstance(item, dict) else None,
+            }
+            for item in (zones.get("positive_concentrations") or [])
+            if isinstance(item, dict) and to_cfd(item.get("strike")) is not None
+        ],
+        "negative_concentrations": [
+            {
+                "strike_futures": _num(item.get("strike")) if isinstance(item, dict) else None,
+                "strike_cfd": to_cfd(item.get("strike")) if isinstance(item, dict) else None,
+                "aggregate_gex": _num(item.get("aggregate_gex")) if isinstance(item, dict) else None,
+            }
+            for item in (zones.get("negative_concentrations") or [])
+            if isinstance(item, dict) and to_cfd(item.get("strike")) is not None
+        ],
         "acceleration_zones": [
             {"strike_futures": strike, "strike_cfd": to_cfd(strike), "gex_change": change}
             for strike, change in changes[:3]
