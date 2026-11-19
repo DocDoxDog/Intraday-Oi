@@ -406,3 +406,61 @@ def test_telegram_customer_story_does_not_render_telemetry_or_unknown_sweep():
     assert "baseline" not in message.lower()
     assert "Buy-side Sweep" in message
     assert "Valid Until:" in message
+
+
+def test_customer_narrative_uses_canonical_gex_delta_without_double_subtraction():
+    from src.customer_narrative import _gex_change_1h
+    parsed = {
+        "raw_series": {
+            "market_state": {
+                "gamma": {"net_gex": -11_830_066.8},
+                "history": {"1h": {"gex": 8_360_000.0}},
+            }
+        }
+    }
+    assert _gex_change_1h(parsed) == 8_360_000.0
+
+
+def test_customer_narrative_reads_negative_gamma_acceleration_after_break():
+    from src.customer_narrative import build_customer_narrative
+    parsed = {
+        "cfd_price": 3788.50,
+        "future_price": 3848.64,
+        "basis_diff": 60.14,
+        "dte": 0.62,
+        "raw_series": {
+            "market_state": {
+                "decision": {"structural_bias": "BEARISH"},
+                "gamma": {
+                    "net_gex": -120_000_000.0,
+                    "put_wall": 3790.0,
+                    "call_wall": 3840.0,
+                    "negative_zone": 3839.86,
+                    "negative_concentrations": [
+                        {"strike_cfd": 3789.86, "aggregate_gex": -107_230_000.0},
+                        {"strike_cfd": 3839.86, "aggregate_gex": -220_700_000.0},
+                    ],
+                },
+                "levels": {
+                    "support_current": 3790.0,
+                    "resistance_current": 3840.0,
+                    "gamma_wall_down_next": 3739.86,
+                },
+                "history": {
+                    "1h": {"gex": -8_360_000.0, "price": -12.30},
+                },
+                "technical": {
+                    "h4": {"trend": "bearish"},
+                    "h1": {"trend": "bearish"},
+                    "m15": {"trend": "bearish"},
+                    "m5": {"trend": "bearish"},
+                },
+                "liquidity": {},
+            }
+        },
+    }
+    story = build_customer_narrative(parsed, {})["market_read"]
+    assert "Gamma รวมเป็นลบ" in story
+    assert "downside gamma squeeze" in story
+    assert "3,789.86" in story
+    assert "3,739.86" in story
