@@ -425,7 +425,7 @@ def _gamma_acceleration_read(
             if gex is not None else ""
         )
         return (
-            f"{detail}{suffix}; ถ้าหลุดแล้ว Acceptance ใต้โซนได้ "
+            f"Gamma รวมเป็นลบ: {detail}{suffix}; ถ้าหลุดแล้ว Acceptance ใต้โซนได้ "
             "มีโอกาสเกิด downside gamma squeeze หรือแรงเร่งจากการปรับ hedge ตามราคา"
         )
     if current >= level:
@@ -437,7 +437,7 @@ def _gamma_acceleration_read(
         if gex is not None else ""
     )
     return (
-        f"{detail}{suffix}; ถ้าทะลุและ Acceptance เหนือโซนได้ "
+        f"Gamma รวมเป็นลบ: {detail}{suffix}; ถ้าทะลุและ Acceptance เหนือโซนได้ "
         "มีโอกาสเกิด upside gamma squeeze หรือแรงเร่งจากการปรับ hedge ตามราคา"
     )
 
