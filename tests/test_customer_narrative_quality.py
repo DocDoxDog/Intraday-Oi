@@ -130,6 +130,7 @@ def test_customer_story_matches_trader_style_range_continuation():
     assert "ไม่ควรไล่ราคาในกลางกรอบ" in story
 
 
+# [run-live] canonical 1H GEX history is already a delta
 def test_customer_story_explains_gex_change_in_trader_language():
     parsed = {
         "cfd_price": 3868.07,
