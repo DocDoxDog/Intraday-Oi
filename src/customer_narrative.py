@@ -534,9 +534,15 @@ def _human_price_story(parsed: dict[str, Any], ai_result: dict[str, Any]) -> str
         elif str(decision.get("structural_bias") or "").upper() == "BULLISH":
             third += f" ขณะที่ถ้าหลุด {_show(support)} แล้วกลับเข้า Range ให้ระวัง Sell-side Sweep และการเด้งกลับหา {_show(resistance)}"
 
-        acceleration = _gamma_acceleration_read(
-            parsed, current, direction="up" if tactical_bull or price_change is not None and price_change > 0 else "down"
-        )
+        if price_change is not None and price_change > 0:
+            acceleration_direction = "up"
+        elif price_change is not None and price_change < 0:
+            acceleration_direction = "down"
+        elif tactical_bull:
+            acceleration_direction = "up"
+        else:
+            acceleration_direction = "down"
+        acceleration = _gamma_acceleration_read(parsed, current, direction=acceleration_direction)
         if acceleration and net_gex is not None and net_gex < 0:
             third += f" {acceleration}."
         return "\n".join([first, change, third])
