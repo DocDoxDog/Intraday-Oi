@@ -12,6 +12,7 @@ from typing import Any
 from src.market_flow_engine import compact_market_flow
 
 # [run-live] final narrative wording
+# [run-live] gamma-regime verification: state -> price response -> squeeze risk
 
 
 def _num(value: Any) -> float | None:
