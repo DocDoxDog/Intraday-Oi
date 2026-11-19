@@ -14,6 +14,7 @@ from src.market_flow_engine import compact_market_flow
 # [run-live] final narrative wording
 # [run-live] gamma-regime verification: state -> price response -> squeeze risk
 # [run-live] regression: negative-gamma pocket must be explicit in customer story
+# [run-live] direction follows observed 1H price path before tactical fallback
 
 
 def _num(value: Any) -> float | None:
