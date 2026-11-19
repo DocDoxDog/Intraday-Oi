@@ -347,23 +347,106 @@ def _decision_market_read(parsed: dict[str, Any], ai_result: dict[str, Any]) -> 
 
 
 def _gex_change_1h(parsed: dict[str, Any]) -> float | None:
-    """Return current Net GEX minus the previous-hour Net GEX."""
-    raw = parsed.get("raw_series") or {}
-    state = raw.get("market_state") or {}
-    current = _num((state.get("gamma") or {}).get("net_gex"))
-    history = state.get("history") or {}
-    previous = _num(((history.get("1h") or {}).get("gex")))
-    if current is None or previous is None:
+    """Return the already-computed 1H Net GEX delta from canonical history.
+
+    market_state.history["1h"]["gex"] is current-minus-previous. The old
+    renderer subtracted it from current Net GEX a second time, which produced
+    a misleading GEX change and made the customer story stale.
+    """
+    state = (parsed.get("raw_series") or {}).get("market_state") or {}
+    return _num(((state.get("history") or {}).get("1h") or {}).get("gex"))
+
+
+def _price_change_1h(parsed: dict[str, Any]) -> float | None:
+    state = (parsed.get("raw_series") or {}).get("market_state") or {}
+    return _num(((state.get("history") or {}).get("1h") or {}).get("price"))
+
+
+def _nearest_negative_gamma(parsed: dict[str, Any], current: float | None) -> dict[str, Any] | None:
+    if current is None:
         return None
-    return current - previous
+    gamma = ((parsed.get("raw_series") or {}).get("market_state") or {}).get("gamma") or {}
+    candidates = [
+        x for x in (gamma.get("negative_concentrations") or [])
+        if isinstance(x, dict) and _num(x.get("strike_cfd")) is not None
+    ]
+    if not candidates:
+        zone = _num(gamma.get("negative_zone"))
+        return {"strike_cfd": zone, "aggregate_gex": None} if zone is not None else None
+    return min(candidates, key=lambda x: abs((_num(x.get("strike_cfd")) or 0.0) - current))
+
+
+def _gamma_acceleration_read(
+    parsed: dict[str, Any],
+    current: float | None,
+    *,
+    direction: str,
+) -> str:
+    """Describe conditional gamma-squeeze risk without claiming dealer intent.
+
+    Negative gamma is a volatility/hedging-feedback regime, not a directional
+    signal by itself. Direction comes from the observed price path.
+    """
+    if current is None:
+        return ""
+    state = (parsed.get("raw_series") or {}).get("market_state") or {}
+    gamma = state.get("gamma") or {}
+    net_gex = _num(gamma.get("net_gex"))
+    if net_gex is None or net_gex >= 0:
+        return ""
+
+    price_change = _price_change_1h(parsed)
+    if price_change is None:
+        technical = state.get("technical") or {}
+        tf = "m5" if direction == "down" else "m5"
+        trend = _clean_text((technical.get(tf) or {}).get("trend")).lower()
+        price_change = -1.0 if trend in {"bearish", "bear", "down"} and direction == "down" else 1.0 if trend in {"bullish", "bull", "up"} and direction == "up" else None
+
+    if price_change is None or (direction == "down" and price_change >= 0) or (direction == "up" and price_change <= 0):
+        return ""
+
+    zone = _nearest_negative_gamma(parsed, current)
+    if not zone or _num(zone.get("strike_cfd")) is None:
+        return (
+            "Gamma รวมเป็นลบและราคากำลังเคลื่อนในทิศเดียวกัน จึงต้องระวังแรงเร่งจาก "
+            "hedging feedback หากหลุดระดับสำคัญแล้วรับกลับไม่ได้"
+        )
+
+    level = _num(zone.get("strike_cfd"))
+    gex = _num(zone.get("aggregate_gex"))
+    if direction == "down":
+        if current <= level:
+            detail = f"ราคากำลังอยู่ใต้ negative-gamma pocket แถว {_show(level)}"
+        else:
+            detail = f"ราคากำลังเข้าใกล้ negative-gamma pocket แถว {_show(level)}"
+        suffix = (
+            f" โดยโซนนี้มี Gamma รวมประมาณ {_show(gex / 1_000_000, 2)}M"
+            if gex is not None else ""
+        )
+        return (
+            f"{detail}{suffix}; ถ้าหลุดแล้ว Acceptance ใต้โซนได้ "
+            "มีโอกาสเกิด downside gamma squeeze หรือแรงเร่งจากการปรับ hedge ตามราคา"
+        )
+    if current >= level:
+        detail = f"ราคากำลังอยู่เหนือ negative-gamma pocket แถว {_show(level)}"
+    else:
+        detail = f"ราคากำลังเข้าใกล้ negative-gamma pocket แถว {_show(level)}"
+    suffix = (
+        f" โดยโซนนี้มี Gamma รวมประมาณ {_show(gex / 1_000_000, 2)}M"
+        if gex is not None else ""
+    )
+    return (
+        f"{detail}{suffix}; ถ้าทะลุและ Acceptance เหนือโซนได้ "
+        "มีโอกาสเกิด upside gamma squeeze หรือแรงเร่งจากการปรับ hedge ตามราคา"
+    )
 
 
 def _human_price_story(parsed: dict[str, Any], ai_result: dict[str, Any]) -> str:
-    """Build the preferred desk-note narrative: state -> change -> implication.
+    """Build the preferred desk-note narrative from state, change and cause.
 
-    The prose deliberately reads like an analyst explaining the market to a
-    trader. Gamma/OI are evidence inside the story, not a checklist. Prices
-    come only from canonical normalized levels.
+    The story is causal: current location -> structure -> what changed ->
+    gamma/liquidity mechanism -> conditional path. It does not turn Gamma/OI
+    into a direction by itself.
     """
     raw = parsed.get("raw_series") or {}
     state = raw.get("market_state") or {}
@@ -381,14 +464,12 @@ def _human_price_story(parsed: dict[str, Any], ai_result: dict[str, Any]) -> str
     resistance = _num(gamma.get("call_wall")) or _num(levels.get("resistance_current"))
     net_gex = _num(gamma.get("net_gex"))
     gex_change = _gex_change_1h(parsed)
+    price_change = _price_change_1h(parsed)
 
     if current is None:
         return _decision_market_read(parsed, ai_result)
 
-    h4 = trend("h4")
-    h1 = trend("h1")
-    m15 = trend("m15")
-    m5 = trend("m5")
+    h4, h1, m15, m5 = (trend(x) for x in ("h4", "h1", "m15", "m5"))
     tactical_bull = any(x in {"bullish", "bull", "up"} for x in (m15, m5))
     tactical_bear = any(x in {"bearish", "bear", "down"} for x in (m15, m5))
 
@@ -403,8 +484,6 @@ def _human_price_story(parsed: dict[str, Any], ai_result: dict[str, Any]) -> str
     if next_down is not None and support is not None and next_down >= support:
         next_down = None
 
-    # 1) Current state: the preferred version starts with the range and the
-    #    Gamma map, then explains the short-term price behaviour.
     if inside:
         gamma_text = (
             "Gamma รวมยังเป็นลบ"
@@ -413,17 +492,11 @@ def _human_price_story(parsed: dict[str, Any], ai_result: dict[str, Any]) -> str
             if net_gex is not None and net_gex > 0
             else "Gamma รวมยังไม่ชัด"
         )
-        first = (
-            f"ตอนนี้ราคาทองยังอยู่ในกรอบ {_show(support)}–{_show(resistance)} โดย {gamma_text}"
-        )
+        first = f"ตอนนี้ราคาทองยังอยู่ในกรอบ {_show(support)}–{_show(resistance)} โดย {gamma_text}"
         if h1 == "bearish" and tactical_bull:
-            first += (
-                f" H1 ยังอยู่ในโครงสร้างขาลงและยังยืนเหนือ {_show(support)} ได้ และราคากำลังฟื้นกลับขึ้นไปหา Liquidity ด้านบนแถว {_show(resistance)}"
-            )
+            first += f" H1 ยังอยู่ในโครงสร้างขาลงและยังยืนเหนือ {_show(support)} ได้ และราคากำลังฟื้นกลับขึ้นไปหา Liquidity ด้านบนแถว {_show(resistance)}"
         elif h1 == "bullish" and tactical_bear:
-            first += (
-                f" ขณะที่ H1 ยังเป็นขาขึ้น แต่ระยะสั้นกำลังย่อลงมาทดสอบ {_show(support)}"
-            )
+            first += f" ขณะที่ H1 ยังเป็นขาขึ้น แต่ระยะสั้นกำลังย่อลงมาทดสอบ {_show(support)}"
         elif tactical_bull:
             first += f" และราคากำลังเด้งกลับขึ้นไปทดสอบ {_show(resistance)}"
         elif tactical_bear:
@@ -431,8 +504,6 @@ def _human_price_story(parsed: dict[str, Any], ai_result: dict[str, Any]) -> str
         else:
             first += f" โดย {_show(resistance)} เป็นแนวต้านหลักและ {_show(support)} เป็นแนวรับหลัก"
 
-        # 2) Change: compare the same metric over the previous hour, using
-        #    explicit GEX delta rather than generic "structure changed".
         if gex_change is not None and abs(gex_change) >= 1e-9:
             direction = "ดีขึ้น" if gex_change > 0 else "แย่ลง"
             change = (
@@ -440,50 +511,32 @@ def _human_price_story(parsed: dict[str, Any], ai_result: dict[str, Any]) -> str
                 f"{'+' if gex_change > 0 else ''}{gex_change / 1_000_000:.2f}M"
             )
             if h4 and h1 and h4 == h1:
-                change += (
-                    f" แต่โครงสร้าง {h4.upper()} ยังไม่เปลี่ยน ดังนั้นการเคลื่อนที่แถว { _show(current) } "
-                    "ยังให้น้ำหนักเป็นการเคลื่อนที่ภายในกรอบมากกว่าการกลับตัว"
-                )
+                change += f" แต่โครงสร้าง {h4.upper()} ยังไม่เปลี่ยน ดังนั้นการเคลื่อนที่แถว {_show(current)} ยังให้น้ำหนักเป็นการเคลื่อนที่ภายในกรอบมากกว่าการกลับตัว"
             else:
                 change += " จึงยังไม่ใช่หลักฐานเพียงพอที่จะเปลี่ยน thesis"
         else:
-            change = (
-                "สิ่งที่เปลี่ยนจากชั่วโมงก่อนยังไม่มากพอที่จะเปลี่ยนโครงสร้างหลัก "
-                "ดังนั้นยังไม่ควรตีความการเด้งหรือการย่อครั้งนี้เป็นการกลับตัว"
-            )
+            change = "สิ่งที่เปลี่ยนจากชั่วโมงก่อนยังไม่มีหลักฐาน GEX ที่ยืนยันได้มากพอ จึงยังไม่ควรใช้การเปลี่ยนแปลงของ Gamma เพียงอย่างเดียวเปลี่ยน thesis"
+
         oi_put = _num((state.get("flow") or {}).get("oi_change_put"))
         oi_call = _num((state.get("flow") or {}).get("oi_change_call"))
         if oi_put is not None and oi_call is not None and oi_put > 0 and oi_call > 0:
             change += f" OI เพิ่มทั้ง Put และ Call ({_show(oi_put, 0)} / {_show(oi_call, 0)}) จึงยังไม่ใช่ directional signal โดยตัวมันเอง"
 
-        # 3) Decision: explain what the trader should wait for, without turning
-        #    the analysis into a mechanical execution checklist.
         third = (
             f"ตอนนี้จึงไม่ควรไล่ราคาในกลางกรอบ รอให้ราคาไปทดสอบขอบก่อน; "
             f"ถ้ายืนเหนือ {_show(resistance)} ได้ จะเป็น Break + Acceptance และเปิดทางไปหา"
         )
-        if next_up is not None:
-            third += f" Gamma Wall ถัดไป {_show(next_up)}"
-        else:
-            third += "ระดับด้านบนถัดไป"
+        third += f" Gamma Wall ถัดไป {_show(next_up)}" if next_up is not None else "ระดับด้านบนถัดไป"
         if str(decision.get("structural_bias") or "").upper() == "BEARISH":
-            third += (
-                f" แต่ถ้ากวาดเหนือ {_show(resistance)} แล้วกลับเข้า Range ให้ระวัง Buy-side Sweep "
-                f"และการย่อลงหา {_show(support)}"
-            )
+            third += f" แต่ถ้ากวาดเหนือ {_show(resistance)} แล้วกลับเข้า Range ให้ระวัง Buy-side Sweep และการย่อลงหา {_show(support)}"
         elif str(decision.get("structural_bias") or "").upper() == "BULLISH":
-            third += (
-                f" ขณะที่ถ้าหลุด {_show(support)} แล้วกลับเข้า Range ให้ระวัง Sell-side Sweep "
-                f"และการเด้งกลับหา {_show(resistance)}"
-            )
+            third += f" ขณะที่ถ้าหลุด {_show(support)} แล้วกลับเข้า Range ให้ระวัง Sell-side Sweep และการเด้งกลับหา {_show(resistance)}"
 
-        if str(liquidity.get("gate") or "").upper() == "SWEEP_DETECTED":
-            preferred = str(liquidity.get("preferred_event") or "").upper()
-            if preferred == "BUY_SIDE_SWEEP":
-                third += " ตอนนี้มี Buy-side Sweep ที่ระบบยืนยันแล้ว"
-            elif preferred == "SELL_SIDE_SWEEP":
-                third += " ตอนนี้มี Sell-side Sweep ที่ระบบยืนยันแล้ว"
-
+        acceleration = _gamma_acceleration_read(
+            parsed, current, direction="up" if tactical_bull or price_change is not None and price_change > 0 else "down"
+        )
+        if acceleration and net_gex is not None and net_gex < 0:
+            third += f" {acceleration}."
         return "\n".join([first, change, third])
 
     if above and resistance is not None:
@@ -492,6 +545,9 @@ def _human_price_story(parsed: dict[str, Any], ai_result: dict[str, Any]) -> str
             f"ถ้ายืนเหนือ {_show(resistance)} ได้ จะเป็น Break + Acceptance"
             + (f" และมีโอกาสไปต่อหา Gamma Wall ถัดไป {_show(next_up)}" if next_up is not None else " และเปิดทางขึ้นต่อ")
         )
+        acceleration = _gamma_acceleration_read(parsed, current, direction="up")
+        if acceleration:
+            second += f" {acceleration}"
         third = f"แต่ถ้ากลับเข้า Range ให้ระวัง Failed Break และการกลับมาทดสอบ {_show(resistance)} อีกครั้ง"
         return "\n".join([first, second, third])
 
@@ -501,6 +557,9 @@ def _human_price_story(parsed: dict[str, Any], ai_result: dict[str, Any]) -> str
             f"ถ้ายืนต่ำกว่า {_show(support)} ได้ จะเป็น Break + Acceptance"
             + (f" และมีโอกาสลงต่อหา Gamma Wall ถัดไป {_show(next_down)}" if next_down is not None else " และเปิดทางลงต่อ")
         )
+        acceleration = _gamma_acceleration_read(parsed, current, direction="down")
+        if acceleration:
+            second += f" {acceleration}"
         third = f"แต่ถ้ากลับขึ้นเหนือ {_show(support)} ให้ระวัง Failed Break และการกลับเข้า Range"
         return "\n".join([first, second, third])
 
