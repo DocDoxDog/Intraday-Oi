@@ -1,0 +1,35 @@
+name: Evidence + Execution Guardrails
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  evidence-guardrails:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install runtime + test dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pytest
+      - name: Run evidence tests
+        run: >-
+          PYTHONPATH=. pytest -q
+          tests/test_evidence_audit.py
+          tests/test_point_in_time.py
+          tests/test_paper_execution.py
+          tests/test_execution_lifecycle.py
+          tests/test_quant_metrics.py
+      - name: Fail on accidental future-data guard regression
+        run: >-
+          PYTHONPATH=. pytest -q
+          tests/test_point_in_time.py
